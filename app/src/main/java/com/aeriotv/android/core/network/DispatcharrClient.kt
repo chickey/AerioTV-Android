@@ -8,8 +8,11 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
@@ -58,6 +61,43 @@ class DispatcharrClient @Inject constructor() {
         install(ContentNegotiation) {
             json(json)
         }
+    }
+
+    /**
+     * POST /api/accounts/token/ - exchanges admin username + password for a JWT pair.
+     * Mirrors iOS DispatcharrAPI.login (DispatcharrDirectConnect.swift lines 319-378).
+     * The returned access token has ~30 min TTL; refresh token ~24 h. We don't
+     * cache the refresh token here (single-source per session), but the access
+     * token feeds the immediate /users/me/ call to extract a usable api_key.
+     */
+    suspend fun login(baseUrl: String, username: String, password: String): JwtPair {
+        val response: HttpResponse = client.post("${baseUrl.trimEnd('/')}/api/accounts/token/") {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            setBody(LoginRequest(username = username, password = password))
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Login failed: HTTP ${response.status.value} ${response.status.description}")
+        }
+        return response.body()
+    }
+
+    /**
+     * GET /api/accounts/users/me/ with Bearer access token. Used after [login]
+     * to extract the user's `api_key` so subsequent calls can run via the
+     * stable X-API-Key path. Mirrors iOS line 534-588 silent-rebootstrap.
+     */
+    suspend fun fetchCurrentUserApiKey(baseUrl: String, accessToken: String): String {
+        val response: HttpResponse = client.get("${baseUrl.trimEnd('/')}/api/accounts/users/me/") {
+            accept(ContentType.Application.Json)
+            header("Authorization", "Bearer $accessToken")
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Couldn't read user profile: HTTP ${response.status.value}")
+        }
+        val me: MeResponse = response.body()
+        return me.apiKey.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Server did not return an api_key for this user")
     }
 
     /**
@@ -134,6 +174,26 @@ class DispatcharrClient @Inject constructor() {
 data class VersionResponse(
     val version: String,
     val timestamp: String? = null,
+)
+
+@Serializable
+data class LoginRequest(
+    val username: String,
+    val password: String,
+)
+
+@Serializable
+data class JwtPair(
+    val access: String,
+    val refresh: String,
+)
+
+@Serializable
+data class MeResponse(
+    val id: Int,
+    val username: String,
+    @SerialName("api_key")
+    val apiKey: String,
 )
 
 @Serializable

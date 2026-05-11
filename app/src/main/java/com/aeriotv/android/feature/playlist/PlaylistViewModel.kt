@@ -180,6 +180,11 @@ class PlaylistViewModel @Inject constructor(
             _state.update { it.copy(error = "API key is required") }
             return
         }
+        if (s.sourceType == SourceType.DispatcharrUserPass &&
+            (s.username.isBlank() || s.password.isBlank())) {
+            _state.update { it.copy(error = "Username and password are required") }
+            return
+        }
         val epgUrl = s.epgUrl.trim().takeIf { it.isNotEmpty() }
         if (s.sourceType == SourceType.M3uUrl && epgUrl != null &&
             !epgUrl.startsWith("http://") && !epgUrl.startsWith("https://")) {

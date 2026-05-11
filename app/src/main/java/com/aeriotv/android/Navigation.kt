@@ -19,18 +19,24 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
+import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.feature.main.MainScaffold
-import com.aeriotv.android.feature.onboarding.UrlEntryScreen
+import com.aeriotv.android.feature.onboarding.ChooseSourceTypeScreen
+import com.aeriotv.android.feature.onboarding.ConfigureSourceScreen
+import com.aeriotv.android.feature.onboarding.WelcomeScreen
 import com.aeriotv.android.feature.player.PlayerScreen
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 
 object Routes {
     const val PLAYLIST_GRAPH = "playlist_graph"
     const val BOOTSTRAP = "bootstrap"
-    const val URL_ENTRY = "url_entry"
+    const val WELCOME = "welcome"
+    const val CHOOSE_TYPE = "choose_type"
+    const val CONFIGURE = "configure/{type}"
     const val MAIN = "main"
     const val PLAYER = "player/{url}"
 
+    fun configure(type: SourceType) = "configure/${type.name}"
     fun player(url: String) = "player/${Uri.encode(url)}"
 }
 
@@ -52,9 +58,9 @@ fun AerioTVNavHost(
                 val vm: PlaylistViewModel = hiltViewModel(parent)
                 val state by vm.state.collectAsStateWithLifecycle()
 
-                // One-shot debug entry. --es url + optional --es epg loads an M3U source.
-                // --es url + --es apikey loads a Dispatcharr API-key source. Both gated
-                // behind BuildConfig.DEBUG in MainActivity so release builds ignore them.
+                // Debug-only auto-load. --es url + --es apikey => Dispatcharr API-key flow.
+                // --es url + optional --es epg => M3U flow. Gated in MainActivity via
+                // BuildConfig.DEBUG so release builds always ignore intent extras.
                 LaunchedEffect(initialUrl, initialEpgUrl, initialApiKey) {
                     if (!initialUrl.isNullOrBlank() && state.url.isBlank()) {
                         if (!initialApiKey.isNullOrBlank()) {
@@ -68,7 +74,7 @@ fun AerioTVNavHost(
                 LaunchedEffect(state.phase) {
                     when (state.phase) {
                         PlaylistViewModel.Phase.Bootstrapping -> Unit
-                        PlaylistViewModel.Phase.NeedsUrl -> navController.navigate(Routes.URL_ENTRY) {
+                        PlaylistViewModel.Phase.NeedsUrl -> navController.navigate(Routes.WELCOME) {
                             popUpTo(Routes.BOOTSTRAP) { inclusive = true }
                         }
                         PlaylistViewModel.Phase.ChannelsReady -> navController.navigate(Routes.MAIN) {
@@ -80,7 +86,7 @@ fun AerioTVNavHost(
                 BootstrapSplash()
             }
 
-            composable(Routes.URL_ENTRY) { entry ->
+            composable(Routes.WELCOME) { entry ->
                 val parent = remember(entry) {
                     navController.getBackStackEntry(Routes.PLAYLIST_GRAPH)
                 }
@@ -90,12 +96,58 @@ fun AerioTVNavHost(
                 LaunchedEffect(state.phase) {
                     if (state.phase == PlaylistViewModel.Phase.ChannelsReady) {
                         navController.navigate(Routes.MAIN) {
-                            popUpTo(Routes.URL_ENTRY) { inclusive = true }
+                            popUpTo(Routes.WELCOME) { inclusive = true }
                         }
                     }
                 }
 
-                UrlEntryScreen(viewModel = vm)
+                WelcomeScreen(
+                    onConnectServer = { navController.navigate(Routes.CHOOSE_TYPE) },
+                    // "Skip for now" is iOS parity. With no playlist saved the channel
+                    // list is empty; user can reach Settings -> Change playlist later.
+                    onSkip = {
+                        navController.navigate(Routes.MAIN) {
+                            popUpTo(Routes.WELCOME) { inclusive = true }
+                        }
+                    },
+                )
+            }
+
+            composable(Routes.CHOOSE_TYPE) { entry ->
+                ChooseSourceTypeScreen(
+                    onBack = { navController.popBackStack() },
+                    onChoose = { type ->
+                        navController.navigate(Routes.configure(type))
+                    },
+                )
+            }
+
+            composable(
+                route = Routes.CONFIGURE,
+                arguments = listOf(navArgument("type") { type = NavType.StringType }),
+            ) { entry ->
+                val parent = remember(entry) {
+                    navController.getBackStackEntry(Routes.PLAYLIST_GRAPH)
+                }
+                val vm: PlaylistViewModel = hiltViewModel(parent)
+                val state by vm.state.collectAsStateWithLifecycle()
+                val typeName = entry.arguments?.getString("type") ?: SourceType.M3uUrl.name
+                val resolvedType = runCatching { SourceType.valueOf(typeName) }
+                    .getOrElse { SourceType.M3uUrl }
+
+                LaunchedEffect(state.phase) {
+                    if (state.phase == PlaylistViewModel.Phase.ChannelsReady) {
+                        navController.navigate(Routes.MAIN) {
+                            popUpTo(Routes.WELCOME) { inclusive = true }
+                        }
+                    }
+                }
+
+                ConfigureSourceScreen(
+                    sourceType = resolvedType,
+                    onBack = { navController.popBackStack() },
+                    viewModel = vm,
+                )
             }
 
             composable(Routes.MAIN) { entry ->
@@ -107,7 +159,7 @@ fun AerioTVNavHost(
 
                 LaunchedEffect(state.phase) {
                     if (state.phase == PlaylistViewModel.Phase.NeedsUrl) {
-                        navController.navigate(Routes.URL_ENTRY) {
+                        navController.navigate(Routes.WELCOME) {
                             popUpTo(Routes.MAIN) { inclusive = true }
                         }
                     }
@@ -131,13 +183,12 @@ fun AerioTVNavHost(
                 val state by vm.state.collectAsStateWithLifecycle()
                 val encoded = entry.arguments?.getString("url").orEmpty()
                 val url = Uri.decode(encoded)
-                // Derive HTTP headers from the active source so mpv can authenticate against
-                // the server when fetching /proxy/ts/stream/<uuid>. Phase 4a only fills the
-                // Dispatcharr API-key headers; Phase 4b will add Bearer JWT, etc.
                 val headers = remember(state.playlist?.apiKey, state.playlist?.sourceType) {
                     val pl = state.playlist
                     val key = pl?.apiKey?.takeIf { it.isNotBlank() }
-                    if (pl?.sourceType == com.aeriotv.android.core.data.SourceType.DispatcharrApiKey.name && key != null) {
+                    val isDispatcharr = pl?.sourceType == SourceType.DispatcharrApiKey.name ||
+                            pl?.sourceType == SourceType.DispatcharrUserPass.name
+                    if (isDispatcharr && key != null) {
                         mapOf(
                             "X-API-Key" to key,
                             "Authorization" to "ApiKey $key",

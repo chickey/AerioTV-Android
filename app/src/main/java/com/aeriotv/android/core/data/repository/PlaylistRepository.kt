@@ -58,11 +58,26 @@ class PlaylistRepository @Inject constructor(
             )
         }
 
+        // For Dispatcharr User/Pass, do the JWT exchange up front and resolve to an api_key
+        // so the rest of the flow looks identical to API-key mode. iOS does this too
+        // (silent rebootstrap pattern, DispatcharrDirectConnect.swift line 534-588).
+        val resolvedApiKey: String? = when (sourceType) {
+            SourceType.DispatcharrUserPass -> {
+                val u = request.username?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("Username is required")
+                val p = request.password?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("Password is required")
+                val jwt = dispatcharrClient.login(normalisedBase, u, p)
+                dispatcharrClient.fetchCurrentUserApiKey(normalisedBase, jwt.access)
+            }
+            else -> request.apiKey
+        }
+
         val channels = fetchChannelsFor(
             sourceType = sourceType,
             base = normalisedBase,
             userEpgUrl = request.epgUrl,
-            apiKey = request.apiKey,
+            apiKey = resolvedApiKey,
         )
 
         val entity = PlaylistEntity(
@@ -71,7 +86,7 @@ class PlaylistRepository @Inject constructor(
             urlString = normalisedBase,
             epgUrl = request.epgUrl?.takeIf { it.isNotBlank() },
             sourceType = sourceType.name,
-            apiKey = request.apiKey?.takeIf { it.isNotBlank() },
+            apiKey = resolvedApiKey?.takeIf { it.isNotBlank() },
             username = request.username?.takeIf { it.isNotBlank() },
             password = request.password?.takeIf { it.isNotBlank() },
             channelCount = channels.size,
@@ -155,7 +170,8 @@ class PlaylistRepository @Inject constructor(
                     )
                 }
         }
-        SourceType.DispatcharrUserPass,
+        SourceType.DispatcharrUserPass ->
+            error("DispatcharrUserPass must be resolved to an api_key before fetch")
         SourceType.XtreamCodes -> error("$sourceType is not implemented yet")
     }
 }
