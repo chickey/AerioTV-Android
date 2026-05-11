@@ -32,7 +32,7 @@ private const val TAG = "PlayerScreen"
  */
 @Composable
 fun PlayerScreen(
-    streamUrl: String = TEST_HLS_STREAM,
+    streamUrl: String,
     isLive: Boolean = true,
 ) {
     Box(
@@ -123,7 +123,7 @@ fun PlayerScreen(
 
 /**
  * Mux's official public HLS test stream. Big Buck Bunny, ~10 min VOD.
- * Stable for years, no auth required. Used here purely to prove the player pipeline works.
+ * Stable for years, no auth required. Useful for player pipeline smoke tests.
  */
-private const val TEST_HLS_STREAM =
+const val TEST_HLS_STREAM =
     "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"

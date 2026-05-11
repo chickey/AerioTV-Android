@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.aeriotv.android.feature.player.PlayerScreen
 import com.aeriotv.android.ui.theme.AerioTVTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -17,16 +16,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Debug / future deep-link entry: pass --es url "https://..." from adb to
+        // auto-load a playlist without typing. Production deep-link handling can
+        // reuse this path with a custom URI scheme in the manifest.
+        val initialUrl = intent?.getStringExtra("url")
         setContent {
             AerioTVTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Phase 1a proof-of-concept: PlayerScreen auto-loads a public
-                    // HLS test stream on launch. Phase 2 will replace this with a
-                    // home/channel-list navigation graph.
-                    PlayerScreen()
+                    AerioTVNavHost(initialUrl = initialUrl)
                 }
             }
         }

@@ -1,0 +1,40 @@
+package com.aeriotv.android.core.network
+
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.readRawBytes
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Fetches M3U/M3U8 playlists over HTTP(S). Returns raw bytes so the parser can
+ * handle UTF-8 / ISO-8859-1 encoding fallback (iOS PlaylistParsers.swift:96-97).
+ *
+ * Phase 2 keeps this minimal. Phase 3 will add: Dispatcharr/XC custom headers,
+ * User-Agent rotation per server, conditional GET via ETag, retry/backoff.
+ */
+@Singleton
+class PlaylistFetcher @Inject constructor() {
+
+    private val client = HttpClient(OkHttp) {
+        engine {
+            // OkHttp engine config can be expanded later for proxies, interceptors.
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 60_000
+            connectTimeoutMillis = 15_000
+            socketTimeoutMillis = 30_000
+        }
+    }
+
+    suspend fun fetchBytes(url: String, userAgent: String? = null): ByteArray {
+        val response: HttpResponse = client.get(url) {
+            if (userAgent != null) header("User-Agent", userAgent)
+        }
+        return response.readRawBytes()
+    }
+}
