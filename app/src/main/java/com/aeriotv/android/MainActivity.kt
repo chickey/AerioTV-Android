@@ -20,13 +20,14 @@ class MainActivity : ComponentActivity() {
         // auto-load a playlist without typing. Production deep-link handling can
         // reuse this path with a custom URI scheme in the manifest.
         val initialUrl = intent?.getStringExtra("url")
+        val initialEpgUrl = intent?.getStringExtra("epg")
         setContent {
             AerioTVTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AerioTVNavHost(initialUrl = initialUrl)
+                    AerioTVNavHost(initialUrl = initialUrl, initialEpgUrl = initialEpgUrl)
                 }
             }
         }

@@ -50,7 +50,7 @@ fun UrlEntryScreen(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "Paste an M3U or M3U8 playlist URL to begin.",
+                text = "Paste an M3U or M3U8 playlist URL. EPG (XMLTV) is optional.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onBackground,
             )
@@ -62,9 +62,19 @@ fun UrlEntryScreen(
                 onValueChange = viewModel::onUrlChange,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                label = { Text("Playlist URL") },
+                label = { Text("Playlist URL (required)") },
                 placeholder = { Text("https://example.com/playlist.m3u") },
                 isError = state.error != null,
+                enabled = !state.isLoading,
+            )
+
+            OutlinedTextField(
+                value = state.epgUrl,
+                onValueChange = viewModel::onEpgUrlChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("EPG URL (optional)") },
+                placeholder = { Text("https://example.com/guide.xml.gz") },
                 enabled = !state.isLoading,
             )
 
@@ -77,9 +87,7 @@ fun UrlEntryScreen(
             }
 
             Button(
-                onClick = {
-                    viewModel.loadPlaylist()
-                },
+                onClick = { viewModel.loadPlaylist() },
                 enabled = !state.isLoading && state.url.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(vertical = 14.dp),
@@ -96,5 +104,4 @@ fun UrlEntryScreen(
             }
         }
     }
-
 }

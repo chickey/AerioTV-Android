@@ -35,7 +35,7 @@ object Routes {
 }
 
 @Composable
-fun AerioTVNavHost(initialUrl: String? = null) {
+fun AerioTVNavHost(initialUrl: String? = null, initialEpgUrl: String? = null) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = Routes.PLAYLIST_GRAPH) {
@@ -49,9 +49,9 @@ fun AerioTVNavHost(initialUrl: String? = null) {
                 val state by vm.state.collectAsStateWithLifecycle()
 
                 // One-shot debug entry: if MainActivity received --es url, load it now.
-                LaunchedEffect(initialUrl) {
+                LaunchedEffect(initialUrl, initialEpgUrl) {
                     if (!initialUrl.isNullOrBlank() && state.url.isBlank()) {
-                        vm.loadFromUrl(initialUrl)
+                        vm.loadFromUrl(initialUrl, initialEpgUrl)
                     }
                 }
 

@@ -2,8 +2,10 @@ package com.aeriotv.android.feature.playlist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
+import android.util.Log
 import com.aeriotv.android.core.data.repository.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,12 +17,16 @@ import javax.inject.Inject
 
 /**
  * App-scoped state for the playlist flow:
- *   Splash → (existing playlist? auto-refresh : UrlEntry → load) →
+ *   Bootstrap → (existing playlist? auto-refresh : UrlEntry → load) →
  *   ChannelList → tap → Player.
  *
+ * EPG loading happens in the background once channels are ready; channel
+ * rows are usable immediately and the now/next badge appears when the EPG
+ * map populates.
+ *
  * Persistence is in [PlaylistRepository] (Room PlaylistEntity row). Channels
- * themselves are kept only in memory and re-parsed on every refresh — same as
- * iOS Aerio.
+ * and programmes are kept only in memory and re-parsed on every refresh —
+ * same as iOS Aerio.
  */
 @HiltViewModel
 class PlaylistViewModel @Inject constructor(
@@ -32,8 +38,12 @@ class PlaylistViewModel @Inject constructor(
     data class UiState(
         val phase: Phase = Phase.Bootstrapping,
         val url: String = "",
+        val epgUrl: String = "",
         val playlist: PlaylistEntity? = null,
         val channels: List<M3UChannel> = emptyList(),
+        /** channelId (XMLTV `channel` attr, matches M3U tvg-id) -> programmes sorted by start. */
+        val epgByChannel: Map<String, List<EPGProgramme>> = emptyMap(),
+        val isEpgLoading: Boolean = false,
         val searchQuery: String = "",
         val selectedGroup: String = ALL_GROUPS,
         val isLoading: Boolean = false,
@@ -42,6 +52,7 @@ class PlaylistViewModel @Inject constructor(
 
     companion object {
         const val ALL_GROUPS = "All"
+        private const val TAG = "PlaylistViewModel"
     }
 
     private val _state = MutableStateFlow(UiState())
@@ -58,13 +69,11 @@ class PlaylistViewModel @Inject constructor(
                 _state.update { it.copy(phase = Phase.NeedsUrl) }
                 return@launch
             }
-            // Found a saved playlist; refresh channels in the background and surface
-            // them when ready. UI can show the channel screen immediately with a
-            // loading indicator if we want — for v1 we just wait.
             _state.update {
                 it.copy(
                     playlist = saved,
                     url = saved.urlString,
+                    epgUrl = saved.epgUrl.orEmpty(),
                     isLoading = true,
                 )
             }
@@ -78,6 +87,7 @@ class PlaylistViewModel @Inject constructor(
                             error = null,
                         )
                     }
+                    loadEpgIfConfigured(saved)
                 },
                 onFailure = { t ->
                     _state.update {
@@ -96,6 +106,10 @@ class PlaylistViewModel @Inject constructor(
         _state.update { it.copy(url = value, error = null) }
     }
 
+    fun onEpgUrlChange(value: String) {
+        _state.update { it.copy(epgUrl = value) }
+    }
+
     fun onSearchQueryChange(value: String) {
         _state.update { it.copy(searchQuery = value) }
     }
@@ -104,25 +118,40 @@ class PlaylistViewModel @Inject constructor(
         _state.update { it.copy(selectedGroup = group) }
     }
 
-    /** Pre-fill URL and immediately attempt to load. Used by debug intent-extra and future deep links. */
-    fun loadFromUrl(url: String) {
-        _state.update { it.copy(url = url, error = null) }
+    /** Pre-fill URLs and immediately attempt to load. Used by debug intent-extras and future deep links. */
+    fun loadFromUrl(url: String, epgUrl: String? = null) {
+        _state.update {
+            it.copy(
+                url = url,
+                epgUrl = epgUrl.orEmpty(),
+                error = null,
+            )
+        }
         loadPlaylist()
     }
 
     fun loadPlaylist() {
         val url = _state.value.url.trim()
+        val epgUrl = _state.value.epgUrl.trim().takeIf { it.isNotEmpty() }
         if (url.isEmpty()) {
             _state.update { it.copy(error = "Enter a playlist URL") }
             return
         }
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            _state.update { it.copy(error = "URL must start with http:// or https://") }
+            _state.update { it.copy(error = "Playlist URL must start with http:// or https://") }
+            return
+        }
+        if (epgUrl != null && !epgUrl.startsWith("http://") && !epgUrl.startsWith("https://")) {
+            _state.update { it.copy(error = "EPG URL must start with http:// or https://") }
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            repository.loadAndPersist(url = url, existingId = _state.value.playlist?.id).fold(
+            repository.loadAndPersist(
+                url = url,
+                epgUrl = epgUrl,
+                existingId = _state.value.playlist?.id,
+            ).fold(
                 onSuccess = { (entity, channels) ->
                     _state.update {
                         it.copy(
@@ -133,6 +162,7 @@ class PlaylistViewModel @Inject constructor(
                             error = if (channels.isEmpty()) "No channels found. Check the URL." else null,
                         )
                     }
+                    loadEpgIfConfigured(entity)
                 },
                 onFailure = { t ->
                     _state.update {
@@ -142,6 +172,30 @@ class PlaylistViewModel @Inject constructor(
                             error = "Failed to load: ${t.message ?: t::class.simpleName}",
                         )
                     }
+                }
+            )
+        }
+    }
+
+    private fun loadEpgIfConfigured(playlist: PlaylistEntity) {
+        if (playlist.epgUrl.isNullOrBlank()) {
+            Log.i(TAG, "loadEpgIfConfigured: no EPG URL configured (epgUrl=${playlist.epgUrl})")
+            return
+        }
+        viewModelScope.launch {
+            Log.i(TAG, "loadEpgIfConfigured: fetching ${playlist.epgUrl}")
+            _state.update { it.copy(isEpgLoading = true) }
+            repository.loadEpg(playlist).fold(
+                onSuccess = { programmes ->
+                    Log.i(TAG, "EPG loaded: ${programmes.size} programmes across ${programmes.map { it.channelId }.toSet().size} channels")
+                    val byChannel: Map<String, List<EPGProgramme>> = programmes
+                        .groupBy { it.channelId }
+                        .mapValues { (_, list) -> list.sortedBy { it.startMillis } }
+                    _state.update { it.copy(epgByChannel = byChannel, isEpgLoading = false) }
+                },
+                onFailure = { t ->
+                    Log.w(TAG, "EPG load failed", t)
+                    _state.update { it.copy(isEpgLoading = false) }
                 }
             )
         }
@@ -157,3 +211,10 @@ class PlaylistViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * Find the programme that contains `now` for a given channel.
+ * Returns null if no EPG entries exist for that channel or none match the time.
+ */
+fun List<EPGProgramme>.nowPlaying(now: Long = System.currentTimeMillis()): EPGProgramme? =
+    firstOrNull { it.startMillis <= now && now < it.endMillis }

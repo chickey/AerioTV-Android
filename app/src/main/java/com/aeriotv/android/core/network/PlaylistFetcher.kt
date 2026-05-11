@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.readRawBytes
+import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,6 +35,9 @@ class PlaylistFetcher @Inject constructor() {
     suspend fun fetchBytes(url: String, userAgent: String? = null): ByteArray {
         val response: HttpResponse = client.get(url) {
             if (userAgent != null) header("User-Agent", userAgent)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("HTTP ${response.status.value} ${response.status.description} from $url")
         }
         return response.readRawBytes()
     }

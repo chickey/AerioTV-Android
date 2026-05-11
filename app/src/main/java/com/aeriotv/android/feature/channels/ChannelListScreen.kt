@@ -42,8 +42,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
+import com.aeriotv.android.feature.playlist.nowPlaying
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,7 +151,12 @@ fun ChannelListScreen(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(items = filtered, key = { it.id }) { channel ->
-                ChannelRow(channel = channel, onClick = { onChannelClick(channel) })
+                val nowProgramme = state.epgByChannel[channel.tvgID]?.nowPlaying()
+                ChannelRow(
+                    channel = channel,
+                    nowProgramme = nowProgramme,
+                    onClick = { onChannelClick(channel) },
+                )
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     thickness = 0.5.dp,
@@ -160,7 +167,11 @@ fun ChannelListScreen(
 }
 
 @Composable
-private fun ChannelRow(channel: M3UChannel, onClick: () -> Unit) {
+private fun ChannelRow(
+    channel: M3UChannel,
+    nowProgramme: EPGProgramme?,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -192,11 +203,17 @@ private fun ChannelRow(channel: M3UChannel, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (channel.groupTitle.isNotBlank()) {
+            // Prefer "now playing" from EPG if available; fall back to group title.
+            val subtitle = nowProgramme?.title ?: channel.groupTitle
+            val subtitleColor = if (nowProgramme != null)
+                MaterialTheme.colorScheme.primary
+            else
+                MaterialTheme.colorScheme.onSurfaceVariant
+            if (subtitle.isNotBlank()) {
                 Text(
-                    text = channel.groupTitle,
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = subtitleColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

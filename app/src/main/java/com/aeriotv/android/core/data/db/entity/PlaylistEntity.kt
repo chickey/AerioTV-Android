@@ -15,8 +15,10 @@ data class PlaylistEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val name: String,
     val urlString: String,
+    val epgUrl: String? = null,
     val channelCount: Int = 0,
     val lastRefreshedAt: Long? = null,
+    val lastEpgRefreshedAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val isActive: Boolean = true,
 )

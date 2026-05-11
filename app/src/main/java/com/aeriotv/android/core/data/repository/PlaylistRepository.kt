@@ -1,10 +1,12 @@
 package com.aeriotv.android.core.data.repository
 
+import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.db.dao.PlaylistDao
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
 import com.aeriotv.android.core.network.PlaylistFetcher
 import com.aeriotv.android.core.parser.M3UParser
+import com.aeriotv.android.core.parser.XMLTVParser
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,6 +31,7 @@ class PlaylistRepository @Inject constructor(
      */
     suspend fun loadAndPersist(
         url: String,
+        epgUrl: String? = null,
         name: String = deriveName(url),
         existingId: String? = null,
     ): Result<Pair<PlaylistEntity, List<M3UChannel>>> = runCatching {
@@ -38,6 +41,7 @@ class PlaylistRepository @Inject constructor(
             id = existingId ?: UUID.randomUUID().toString(),
             name = name,
             urlString = url,
+            epgUrl = epgUrl?.takeIf { it.isNotBlank() },
             channelCount = channels.size,
             lastRefreshedAt = System.currentTimeMillis(),
         )
@@ -59,6 +63,19 @@ class PlaylistRepository @Inject constructor(
             )
         )
         channels
+    }
+
+    /**
+     * Fetch + parse the EPG for the given playlist. Returns empty list when
+     * no EPG URL is configured. .gz is transparently handled by the parser.
+     */
+    suspend fun loadEpg(playlist: PlaylistEntity): Result<List<EPGProgramme>> = runCatching {
+        val url = playlist.epgUrl?.takeIf { it.isNotBlank() }
+            ?: return@runCatching emptyList()
+        val bytes = fetcher.fetchBytes(url)
+        val programmes = XMLTVParser.parseBytes(bytes)
+        dao.update(playlist.copy(lastEpgRefreshedAt = System.currentTimeMillis()))
+        programmes
     }
 
     suspend fun clear() = dao.clear()
