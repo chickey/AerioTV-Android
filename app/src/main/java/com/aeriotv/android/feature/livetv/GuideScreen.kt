@@ -53,6 +53,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
+import com.aeriotv.android.core.data.ProgramInfoTarget
+import com.aeriotv.android.core.data.toInfoTarget
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -93,6 +95,8 @@ fun GuideScreen(
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
 
     // Tick "now" forward every 30s so the indicator + currently-airing tinting stay
     // accurate without forcing the whole tree to recompose on every frame.
@@ -252,11 +256,20 @@ fun GuideScreen(
                     nowMillis = nowMillis,
                     horizontalScrollState = horizontalScrollState,
                     onChannelClick = { onChannelClick(channel) },
-                    onProgrammeClick = { onChannelClick(channel) }, // TODO Phase 6: ProgramInfoView
+                    onProgrammeClick = { programme ->
+                        programInfoTarget = programme.toInfoTarget(channel.name)
+                    },
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, thickness = 0.5.dp)
             }
         }
+    }
+
+    programInfoTarget?.let { target ->
+        ProgramInfoSheet(
+            target = target,
+            onDismiss = { programInfoTarget = null },
+        )
     }
 }
 
