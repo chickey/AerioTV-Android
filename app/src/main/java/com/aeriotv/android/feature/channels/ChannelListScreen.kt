@@ -37,11 +37,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.SubcomposeAsyncImageContent
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
@@ -167,6 +172,56 @@ fun ChannelListScreen(
 }
 
 @Composable
+private fun ChannelLogo(channel: M3UChannel) {
+    val box = Modifier
+        .size(48.dp)
+        .clip(RoundedCornerShape(6.dp))
+        .background(MaterialTheme.colorScheme.surface)
+
+    val logoUrl = channel.tvgLogo.takeIf { it.isNotBlank() }
+    if (logoUrl == null) {
+        Box(modifier = box, contentAlignment = Alignment.Center) {
+            Text(
+                text = channel.name.take(2).uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    } else {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(logoUrl)
+                .crossfade(true)
+                .build(),
+            contentDescription = null,
+            modifier = box,
+            loading = {
+                Box(modifier = box, contentAlignment = Alignment.Center) {
+                    Text(
+                        text = channel.name.take(2).uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+            error = {
+                Box(modifier = box, contentAlignment = Alignment.Center) {
+                    Text(
+                        text = channel.name.take(2).uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+            success = { SubcomposeAsyncImageContent() },
+        )
+    }
+}
+
+@Composable
 private fun ChannelRow(
     channel: M3UChannel,
     nowProgramme: EPGProgramme?,
@@ -179,20 +234,7 @@ private fun ChannelRow(
             .padding(vertical = 12.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surface),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = channel.name.take(2).uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+        ChannelLogo(channel = channel)
         Column(modifier = Modifier
             .weight(1f)
             .padding(start = 12.dp)) {
