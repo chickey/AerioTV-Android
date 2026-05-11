@@ -19,8 +19,8 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AerioDatabase =
         Room.databaseBuilder(context, AerioDatabase::class.java, "aerio.db")
-            // Pre-1.0 app, no migration story yet; nuke on schema bump.
-            .fallbackToDestructiveMigration()
+            // Pre-1.0 app, no migration story yet; nuke and drop all tables on schema bump.
+            .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
     @Provides

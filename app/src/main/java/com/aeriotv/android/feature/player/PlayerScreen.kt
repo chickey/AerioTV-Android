@@ -68,23 +68,23 @@ fun PlayerScreen(
 
                 // Event observer: log key playback events while we verify playback works.
                 view.mpv.addObserver(object : MPV.EventObserver {
-                    override fun eventProperty(name: String) {
+                    override fun eventProperty(property: String) {
                         // Property changed but type-erased; details come via the typed variants.
                     }
-                    override fun eventProperty(name: String, value: Long) {
-                        Log.d(TAG, "prop $name=$value")
+                    override fun eventProperty(property: String, value: Long) {
+                        Log.d(TAG, "prop $property=$value")
                     }
-                    override fun eventProperty(name: String, value: Boolean) {
-                        Log.d(TAG, "prop $name=$value")
+                    override fun eventProperty(property: String, value: Boolean) {
+                        Log.d(TAG, "prop $property=$value")
                     }
-                    override fun eventProperty(name: String, value: String) {
-                        Log.d(TAG, "prop $name=$value")
+                    override fun eventProperty(property: String, value: String) {
+                        Log.d(TAG, "prop $property=$value")
                     }
-                    override fun eventProperty(name: String, value: Double) {
-                        if (name != "time-pos") Log.d(TAG, "prop $name=$value")
+                    override fun eventProperty(property: String, value: Double) {
+                        if (property != "time-pos") Log.d(TAG, "prop $property=$value")
                     }
-                    override fun eventProperty(name: String, value: MPVNode) {
-                        Log.d(TAG, "prop $name (node)")
+                    override fun eventProperty(property: String, value: MPVNode) {
+                        Log.d(TAG, "prop $property (node)")
                     }
                     override fun event(eventId: Int, data: MPVNode) {
                         val label = when (eventId) {
