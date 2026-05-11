@@ -121,9 +121,3 @@ fun PlayerScreen(
     }
 }
 
-/**
- * Mux's official public HLS test stream. Big Buck Bunny, ~10 min VOD.
- * Stable for years, no auth required. Useful for player pipeline smoke tests.
- */
-const val TEST_HLS_STREAM =
-    "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"

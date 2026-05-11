@@ -19,7 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
-import com.aeriotv.android.feature.channels.ChannelListScreen
+import com.aeriotv.android.feature.main.MainScaffold
 import com.aeriotv.android.feature.onboarding.UrlEntryScreen
 import com.aeriotv.android.feature.player.PlayerScreen
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
@@ -28,7 +28,7 @@ object Routes {
     const val PLAYLIST_GRAPH = "playlist_graph"
     const val BOOTSTRAP = "bootstrap"
     const val URL_ENTRY = "url_entry"
-    const val CHANNELS = "channels"
+    const val MAIN = "main"
     const val PLAYER = "player/{url}"
 
     fun player(url: String) = "player/${Uri.encode(url)}"
@@ -61,7 +61,7 @@ fun AerioTVNavHost(initialUrl: String? = null, initialEpgUrl: String? = null) {
                         PlaylistViewModel.Phase.NeedsUrl -> navController.navigate(Routes.URL_ENTRY) {
                             popUpTo(Routes.BOOTSTRAP) { inclusive = true }
                         }
-                        PlaylistViewModel.Phase.ChannelsReady -> navController.navigate(Routes.CHANNELS) {
+                        PlaylistViewModel.Phase.ChannelsReady -> navController.navigate(Routes.MAIN) {
                             popUpTo(Routes.BOOTSTRAP) { inclusive = true }
                         }
                     }
@@ -79,7 +79,7 @@ fun AerioTVNavHost(initialUrl: String? = null, initialEpgUrl: String? = null) {
 
                 LaunchedEffect(state.phase) {
                     if (state.phase == PlaylistViewModel.Phase.ChannelsReady) {
-                        navController.navigate(Routes.CHANNELS) {
+                        navController.navigate(Routes.MAIN) {
                             popUpTo(Routes.URL_ENTRY) { inclusive = true }
                         }
                     }
@@ -88,7 +88,7 @@ fun AerioTVNavHost(initialUrl: String? = null, initialEpgUrl: String? = null) {
                 UrlEntryScreen(viewModel = vm)
             }
 
-            composable(Routes.CHANNELS) { entry ->
+            composable(Routes.MAIN) { entry ->
                 val parent = remember(entry) {
                     navController.getBackStackEntry(Routes.PLAYLIST_GRAPH)
                 }
@@ -98,17 +98,15 @@ fun AerioTVNavHost(initialUrl: String? = null, initialEpgUrl: String? = null) {
                 LaunchedEffect(state.phase) {
                     if (state.phase == PlaylistViewModel.Phase.NeedsUrl) {
                         navController.navigate(Routes.URL_ENTRY) {
-                            popUpTo(Routes.CHANNELS) { inclusive = true }
+                            popUpTo(Routes.MAIN) { inclusive = true }
                         }
                     }
                 }
 
-                ChannelListScreen(
-                    viewModel = vm,
+                MainScaffold(
                     onChannelClick = { channel ->
                         navController.navigate(Routes.player(channel.url))
                     },
-                    onChangePlaylist = { vm.clearPlaylist() },
                 )
             }
         }
