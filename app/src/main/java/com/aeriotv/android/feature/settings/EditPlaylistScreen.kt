@@ -1,0 +1,371 @@
+package com.aeriotv.android.feature.settings
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aeriotv.android.core.data.SourceType
+import com.aeriotv.android.feature.playlist.PlaylistViewModel
+
+/**
+ * Edit Playlist sub-screen. Mirrors iOS Edit Playlist modal: Cancel header
+ * left, "Edit Playlist" title, Save header right. Three sections — Connection,
+ * Authentication (with segmented control for Dispatcharr User+Pass vs API Key),
+ * EPG Source (M3U only). Save calls [PlaylistViewModel.saveEdits] which reuses
+ * the bootstrap load path with `existingId` so the row's UUID stays stable.
+ *
+ * Source type is NOT editable here — changing it would invalidate the auth
+ * fields shape. iOS gates that behind a separate "Change Source Type" flow
+ * (Settings > Change Playlist), which on Android maps to the existing clear+
+ * re-onboard path.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditPlaylistScreen(
+    onBack: () -> Unit,
+    viewModel: PlaylistViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val playlist = state.playlist
+    val sourceType = remember(playlist?.sourceType) {
+        SourceType.entries.firstOrNull { it.name == playlist?.sourceType } ?: SourceType.M3uUrl
+    }
+
+    var name by remember(playlist?.id) { mutableStateOf(playlist?.name.orEmpty()) }
+    var url by remember(playlist?.id) { mutableStateOf(playlist?.urlString.orEmpty()) }
+    var epgUrl by remember(playlist?.id) { mutableStateOf(playlist?.epgUrl.orEmpty()) }
+    var apiKey by remember(playlist?.id) { mutableStateOf(playlist?.apiKey.orEmpty()) }
+    var username by remember(playlist?.id) { mutableStateOf(playlist?.username.orEmpty()) }
+    var password by remember(playlist?.id) { mutableStateOf(playlist?.password.orEmpty()) }
+    var dispatcharrMode by remember(playlist?.id) {
+        mutableStateOf(
+            when (sourceType) {
+                SourceType.DispatcharrApiKey -> DispatcharrMode.ApiKey
+                SourceType.DispatcharrUserPass -> DispatcharrMode.UsernamePassword
+                else -> DispatcharrMode.ApiKey
+            },
+        )
+    }
+
+    val canSave = url.trim().isNotEmpty() && name.trim().isNotEmpty() && !state.isLoading
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("Edit Playlist", style = MaterialTheme.typography.titleMedium) },
+            navigationIcon = {
+                TextButton(onClick = onBack) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            actions = {
+                TextButton(
+                    onClick = {
+                        viewModel.saveEdits(
+                            name = name,
+                            url = url,
+                            epgUrl = if (sourceType == SourceType.M3uUrl) epgUrl else null,
+                            apiKey = when {
+                                sourceType == SourceType.DispatcharrApiKey -> apiKey
+                                sourceType == SourceType.DispatcharrUserPass &&
+                                    dispatcharrMode == DispatcharrMode.ApiKey -> apiKey
+                                else -> null
+                            },
+                            username = when (sourceType) {
+                                SourceType.DispatcharrUserPass, SourceType.XtreamCodes -> username
+                                else -> null
+                            },
+                            password = when (sourceType) {
+                                SourceType.DispatcharrUserPass, SourceType.XtreamCodes -> password
+                                else -> null
+                            },
+                        )
+                        onBack()
+                    },
+                    enabled = canSave,
+                ) {
+                    Text(
+                        text = "Save",
+                        color = if (canSave) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.background,
+                titleContentColor = MaterialTheme.colorScheme.onBackground,
+            ),
+        )
+
+        if (playlist == null) {
+            Text(
+                "No playlist loaded",
+                modifier = Modifier.padding(24.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Column
+        }
+
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item {
+                Section(header = "Connection") {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = url,
+                            onValueChange = { url = it },
+                            label = {
+                                Text(
+                                    when (sourceType) {
+                                        SourceType.M3uUrl -> "Playlist URL"
+                                        SourceType.DispatcharrApiKey,
+                                        SourceType.DispatcharrUserPass -> "Server URL"
+                                        SourceType.XtreamCodes -> "Server URL"
+                                    },
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Type: ${sourceType.displayName} (cannot change here — use Change Playlist)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            when (sourceType) {
+                SourceType.DispatcharrApiKey -> item {
+                    Section(header = "Authentication") {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            OutlinedTextField(
+                                value = apiKey,
+                                onValueChange = { apiKey = it },
+                                label = { Text("API Key") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+                SourceType.DispatcharrUserPass -> item {
+                    Section(header = "Authentication") {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            SegmentedToggle(
+                                left = "Username & Password",
+                                right = "API Key",
+                                selected = dispatcharrMode,
+                                onSelect = { dispatcharrMode = it },
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            if (dispatcharrMode == DispatcharrMode.UsernamePassword) {
+                                OutlinedTextField(
+                                    value = username,
+                                    onValueChange = { username = it },
+                                    label = { Text("Username") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = password,
+                                    onValueChange = { password = it },
+                                    label = { Text("Password") },
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            } else {
+                                OutlinedTextField(
+                                    value = apiKey,
+                                    onValueChange = { apiKey = it },
+                                    label = { Text("API Key") },
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
+                SourceType.XtreamCodes -> item {
+                    Section(header = "Authentication") {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            OutlinedTextField(
+                                value = username,
+                                onValueChange = { username = it },
+                                label = { Text("Username") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = password,
+                                onValueChange = { password = it },
+                                label = { Text("Password") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+                SourceType.M3uUrl -> { /* no auth */ }
+            }
+
+            if (sourceType == SourceType.M3uUrl) {
+                item {
+                    Section(
+                        header = "EPG Source",
+                        footer = "Optional XMLTV URL. Leave empty if your M3U doesn't ship with a separate EPG.",
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            OutlinedTextField(
+                                value = epgUrl,
+                                onValueChange = { epgUrl = it },
+                                label = { Text("XMLTV URL") },
+                                singleLine = true,
+                                placeholder = { Text("https://example.com/xmltv.xml") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum class DispatcharrMode { UsernamePassword, ApiKey }
+
+@Composable
+private fun Section(
+    header: String,
+    footer: String? = null,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = header.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+        ) { content() }
+        if (footer != null) {
+            Text(
+                text = footer,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SegmentedToggle(
+    left: String,
+    right: String,
+    selected: DispatcharrMode,
+    onSelect: (DispatcharrMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SegmentChip(
+            label = left,
+            selected = selected == DispatcharrMode.UsernamePassword,
+            onClick = { onSelect(DispatcharrMode.UsernamePassword) },
+            modifier = Modifier.weight(1f),
+        )
+        SegmentChip(
+            label = right,
+            selected = selected == DispatcharrMode.ApiKey,
+            onClick = { onSelect(DispatcharrMode.ApiKey) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun SegmentChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                else androidx.compose.ui.graphics.Color.Transparent,
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}

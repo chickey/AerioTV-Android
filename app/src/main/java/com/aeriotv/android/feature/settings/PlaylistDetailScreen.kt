@@ -50,6 +50,7 @@ import java.util.Date
 @Composable
 fun PlaylistDetailScreen(
     onBack: () -> Unit,
+    onEdit: () -> Unit = {},
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -64,6 +65,11 @@ fun PlaylistDetailScreen(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
                     )
+                }
+            },
+            actions = {
+                TextButton(onClick = onEdit, enabled = playlist != null) {
+                    Text("Edit", color = MaterialTheme.colorScheme.primary)
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(

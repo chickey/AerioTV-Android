@@ -309,6 +309,59 @@ class PlaylistViewModel @Inject constructor(
     }
 
     /**
+     * Apply user edits to the active playlist. Reuses [PlaylistRepository.loadAndPersist]
+     * with `existingId` so the row's UUID stays stable. Mirrors iOS Edit Playlist
+     * Save action — connection details + auth credentials + EPG URL can change
+     * but the source type does not (iOS gates that too via a separate flow).
+     */
+    fun saveEdits(
+        name: String,
+        url: String,
+        epgUrl: String?,
+        apiKey: String?,
+        username: String?,
+        password: String?,
+    ) {
+        viewModelScope.launch {
+            val active = repository.activePlaylist() ?: return@launch
+            val sourceType = SourceType.entries.firstOrNull { it.name == active.sourceType }
+                ?: SourceType.M3uUrl
+            _state.update { it.copy(isLoading = true, error = null) }
+            val request = PlaylistRepository.SaveRequest(
+                sourceType = sourceType,
+                name = name.ifBlank { null },
+                url = url.trim(),
+                epgUrl = epgUrl?.trim()?.ifBlank { null },
+                apiKey = apiKey?.trim()?.ifBlank { null },
+                username = username?.trim()?.ifBlank { null },
+                password = password?.ifBlank { null },
+            )
+            repository.loadAndPersist(request, existingId = active.id).fold(
+                onSuccess = { (entity, channels) ->
+                    _state.update {
+                        it.copy(
+                            playlist = entity,
+                            channels = channels,
+                            isLoading = false,
+                            error = if (channels.isEmpty()) "No channels found." else null,
+                        )
+                    }
+                    loadEpgIfConfigured(entity)
+                },
+                onFailure = { t ->
+                    Log.w(TAG, "saveEdits failed", t)
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Save failed: ${t.message ?: t::class.simpleName}",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    /**
      * Probe the playlist URL. v1 re-runs the channel fetch as a connectivity
      * test — same code path the bootstrap uses, so success means the source
      * still responds with parseable content.
