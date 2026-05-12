@@ -201,6 +201,41 @@ class DvrViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Edits an already-scheduled Dispatcharr server recording. Mirrors
+     * scheduleServerRecording's signature minus the channel (the channel id
+     * can't change for an existing row). Caller passes pre-rolled times.
+     * Only valid for Source.Server recordings — local recordings (which are
+     * downloads, not scheduled tasks) cannot be edited in place.
+     */
+    suspend fun editServerRecording(
+        recordingId: Int,
+        startMillis: Long,
+        endMillis: Long,
+        title: String,
+        description: String,
+    ): Result<DispatcharrRecording> {
+        val playlist = playlistRepository.activePlaylist()
+            ?: return Result.failure(IllegalStateException("No playlist loaded."))
+        val key = playlist.apiKey
+        if (key.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
+        }
+        return runCatching {
+            val result = dispatcharrClient.updateRecording(
+                baseUrl = playlist.urlString,
+                apiKey = key,
+                recordingId = recordingId,
+                startIso = startMillis.toIsoUtc(),
+                endIso = endMillis.toIsoUtc(),
+                title = title,
+                description = description,
+            )
+            refresh()
+            result
+        }
+    }
+
     private companion object {
         const val TAG = "DvrViewModel"
     }

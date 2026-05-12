@@ -85,6 +85,8 @@ fun DvrTabContent(
     }
 
     var pendingDelete by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
+    var pendingEdit by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
+    var pendingMenu by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
 
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
@@ -161,7 +163,7 @@ fun DvrTabContent(
             items(items = state.visible, key = { it.id }) { rec ->
                 RecordingRow(
                     rec = rec,
-                    onLongPress = { pendingDelete = rec },
+                    onLongPress = { pendingMenu = rec },
                 )
             }
             if (state.visible.isEmpty()) {
@@ -173,6 +175,78 @@ fun DvrTabContent(
                 }
             }
         }
+    }
+
+    pendingMenu?.let { rec ->
+        val canEdit = rec.source == DvrViewModel.Source.Server &&
+            rec.status == DvrViewModel.Recording.Status.Scheduled
+        AlertDialog(
+            onDismissRequest = { pendingMenu = null },
+            title = { Text(rec.title, style = MaterialTheme.typography.titleMedium) },
+            text = {
+                Column {
+                    if (canEdit) {
+                        TextButton(
+                            onClick = {
+                                pendingEdit = rec
+                                pendingMenu = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Edit recording", color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            pendingDelete = rec
+                            pendingMenu = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Delete recording", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { pendingMenu = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    pendingEdit?.let { rec ->
+        EditRecordingSheet(
+            recording = rec,
+            onDismiss = { pendingEdit = null },
+            onSave = { newStart, newEnd, newTitle, newDescription ->
+                val id = rec.id.removePrefix("server-").toIntOrNull()
+                pendingEdit = null
+                if (id == null) {
+                    Toast.makeText(context, "Invalid recording id.", Toast.LENGTH_SHORT).show()
+                    return@EditRecordingSheet
+                }
+                scope.launch {
+                    viewModel.editServerRecording(
+                        recordingId = id,
+                        startMillis = newStart,
+                        endMillis = newEnd,
+                        title = newTitle,
+                        description = newDescription,
+                    ).fold(
+                        onSuccess = {
+                            Toast.makeText(context, "Recording updated.", Toast.LENGTH_SHORT).show()
+                        },
+                        onFailure = { t ->
+                            Toast.makeText(
+                                context,
+                                "Update failed: ${t.message ?: t::class.simpleName}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
+                }
+            },
+        )
     }
 
     pendingDelete?.let { rec ->

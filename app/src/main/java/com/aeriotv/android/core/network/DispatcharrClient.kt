@@ -14,6 +14,7 @@ import io.ktor.client.request.accept
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -259,6 +260,50 @@ class DispatcharrClient @Inject constructor() {
      */
     suspend fun listRecordings(baseUrl: String, apiKey: String): List<DispatcharrRecording> =
         fetchListOrResults("${baseUrl.trimEnd('/')}/api/channels/recordings/", apiKey)
+
+    /**
+     * PATCH /api/channels/recordings/{id}/ — partial-update a scheduled DVR
+     * row. Used by the DVR-tab edit sheet to bump pre-roll / post-roll on an
+     * already-scheduled recording without canceling and re-creating it (which
+     * would lose the row's id and any custom_properties Dispatcharr added).
+     *
+     * Currently we only mutate start_time, end_time, and the title/description
+     * embedded in custom_properties. The Dispatcharr REST ViewSet accepts
+     * either a full PUT or partial PATCH; PATCH is safer because we don't
+     * have to round-trip every field the server filled in.
+     */
+    suspend fun updateRecording(
+        baseUrl: String,
+        apiKey: String,
+        recordingId: Int,
+        startIso: String,
+        endIso: String,
+        title: String,
+        description: String,
+    ): DispatcharrRecording {
+        val customProps = buildJsonObject {
+            put("title", JsonPrimitive(title))
+            put("description", JsonPrimitive(description))
+        }
+        val body = buildJsonObject {
+            put("start_time", JsonPrimitive(startIso))
+            put("end_time", JsonPrimitive(endIso))
+            put("custom_properties", customProps)
+        }
+        val response: HttpResponse = client.patch(
+            "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/",
+        ) {
+            applyAuth(apiKey)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException(
+                "Recording update failed: HTTP ${response.status.value} ${response.status.description}",
+            )
+        }
+        return response.body()
+    }
 
     /**
      * GET /api/vod/movies/?page_size=100 — first page of VOD movies. iOS
