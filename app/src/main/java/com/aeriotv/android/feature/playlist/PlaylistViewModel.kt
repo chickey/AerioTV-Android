@@ -39,6 +39,13 @@ class PlaylistViewModel @Inject constructor(
         val name: String = "",
         /** Generic URL field; M3U URL for [SourceType.M3uUrl], base URL otherwise. */
         val url: String = "",
+        /**
+         * Optional LAN URL captured during onboarding for Dispatcharr / Xtream.
+         * When the device joins one of the user's saved home SSIDs (Network
+         * Settings) and this is non-blank, the runtime URL flips to this. The
+         * remote URL above stays the canonical "off-network" path.
+         */
+        val lanUrl: String = "",
         val epgUrl: String = "",
         val apiKey: String = "",
         val username: String = "",
@@ -81,6 +88,7 @@ class PlaylistViewModel @Inject constructor(
                     sourceType = sourceType,
                     name = saved.name.orEmpty(),
                     url = saved.urlString,
+                    lanUrl = saved.lanUrlString.orEmpty(),
                     epgUrl = saved.epgUrl.orEmpty(),
                     apiKey = saved.apiKey.orEmpty(),
                     username = saved.username.orEmpty(),
@@ -121,6 +129,9 @@ class PlaylistViewModel @Inject constructor(
     }
     fun onUrlChange(value: String) {
         _state.update { it.copy(url = value, error = null) }
+    }
+    fun onLanUrlChange(value: String) {
+        _state.update { it.copy(lanUrl = value, error = null) }
     }
     fun onEpgUrlChange(value: String) {
         _state.update { it.copy(epgUrl = value) }
@@ -210,6 +221,7 @@ class PlaylistViewModel @Inject constructor(
                 sourceType = s.sourceType,
                 name = s.name.trim().ifBlank { null },
                 url = url,
+                lanUrl = s.lanUrl.trim().ifBlank { null },
                 epgUrl = epgUrl,
                 apiKey = s.apiKey.trim().ifBlank { null },
                 username = s.username.trim().ifBlank { null },

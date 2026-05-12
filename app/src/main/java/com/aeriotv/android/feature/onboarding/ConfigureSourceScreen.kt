@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -263,6 +264,8 @@ private fun DispatcharrFields(
         )
     }
 
+    LanUrlField(state = state, viewModel = viewModel)
+
     SegmentedAuthControl(
         selected = authMode,
         onSelect = onAuthModeChange,
@@ -341,6 +344,7 @@ private fun XtreamFields(state: PlaylistViewModel.UiState, viewModel: PlaylistVi
             enabled = !state.isLoading,
         )
     }
+    LanUrlField(state = state, viewModel = viewModel)
     LabeledField(label = "Username") {
         IconTextField(
             value = state.username,
@@ -396,6 +400,33 @@ private fun M3uFields(state: PlaylistViewModel.UiState, viewModel: PlaylistViewM
     InfoBanner(
         text = "Paste your M3U playlist URL. Works with Dispatcharr's /output/m3u, any IPTV " +
                 "provider, or a direct .m3u file link.",
+    )
+}
+
+/**
+ * Optional LAN URL field. Pairs with the Server URL so the user can capture
+ * both the public/remote and the LAN-side host in one pass during onboarding;
+ * AerioTV swaps to the LAN value once the device joins a saved home SSID
+ * (Settings > Network > Home WiFi). M3U sources skip this — they're already
+ * URL-based and there's no auth credential reuse implied.
+ */
+@Composable
+private fun LanUrlField(state: PlaylistViewModel.UiState, viewModel: PlaylistViewModel) {
+    LabeledField(label = "LAN URL (optional)") {
+        IconTextField(
+            value = state.lanUrl,
+            onValueChange = viewModel::onLanUrlChange,
+            placeholder = "http://192.168.1.50:9191",
+            leading = Icons.Outlined.Wifi,
+            enabled = !state.isLoading,
+        )
+    }
+    Text(
+        text = "When you're on a saved home WiFi network, AerioTV routes through this URL " +
+                "instead of the public one above. Mark a home SSID in Settings > Network " +
+                "to activate the switch.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 

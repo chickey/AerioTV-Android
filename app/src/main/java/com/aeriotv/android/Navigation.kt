@@ -22,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import com.aeriotv.android.core.data.SourceType
+import com.aeriotv.android.core.pip.findActivity
 import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.feature.main.MainScaffold
 import com.aeriotv.android.feature.onboarding.ChooseSourceTypeScreen
@@ -36,6 +37,7 @@ import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.launch
 
 /**
  * EntryPoint accessor so the bootstrap composable can read DataStore-backed
@@ -145,6 +147,27 @@ fun AerioTVNavHost(
                 }
                 val vm: PlaylistViewModel = hiltViewModel(parent)
                 val state by vm.state.collectAsStateWithLifecycle()
+                // Sync sub-viewmodel handles the Google sign-in flow here so
+                // the Welcome screen stays stateless. Reusing the same VM
+                // means a successful sign-in shows up in Settings > Sync
+                // without a second sign-in round-trip later.
+                val syncVm: com.aeriotv.android.feature.settings.SyncSettingsViewModel = hiltViewModel(parent)
+                val syncBuildConfigured = remember { com.aeriotv.android.core.sync.SyncConfig.isConfigured() }
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                var googleSignInInFlight by remember { mutableStateOf(false) }
+                var welcomeNotConfiguredDialog by remember { mutableStateOf(false) }
+                val consentLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    contract = androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult(),
+                ) { result ->
+                    syncVm.acceptConsentResult(result.data)
+                    googleSignInInFlight = false
+                    android.widget.Toast.makeText(
+                        context,
+                        "Signed in to Drive. Open Settings > Sync to enable categories.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
 
                 LaunchedEffect(state.phase) {
                     if (state.phase == PlaylistViewModel.Phase.ChannelsReady) {
@@ -163,7 +186,81 @@ fun AerioTVNavHost(
                             popUpTo(Routes.WELCOME) { inclusive = true }
                         }
                     },
+                    googleSignInInProgress = googleSignInInFlight,
+                    onSignInWithGoogle = {
+                        if (!syncBuildConfigured) {
+                            welcomeNotConfiguredDialog = true
+                            return@WelcomeScreen
+                        }
+                        val activity = context.findActivity()
+                        if (activity == null) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Sign-in needs a foreground activity. Try again.",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            return@WelcomeScreen
+                        }
+                        googleSignInInFlight = true
+                        scope.launch {
+                            val email = syncVm.signInWithGoogle(activity)
+                            if (email == null) {
+                                googleSignInInFlight = false
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Sign-in cancelled or failed.",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                                return@launch
+                            }
+                            when (val driveResult = syncVm.requestDriveScope()) {
+                                is com.aeriotv.android.core.sync.DriveSyncManager.RequestResult.Authorized -> {
+                                    googleSignInInFlight = false
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Signed in as $email",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                                is com.aeriotv.android.core.sync.DriveSyncManager.RequestResult.NeedsConsent -> {
+                                    consentLauncher.launch(
+                                        androidx.activity.result.IntentSenderRequest.Builder(driveResult.intentSender).build(),
+                                    )
+                                }
+                                com.aeriotv.android.core.sync.DriveSyncManager.RequestResult.Failed, null -> {
+                                    googleSignInInFlight = false
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Drive authorization failed.",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        }
+                    },
                 )
+
+                if (welcomeNotConfiguredDialog) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { welcomeNotConfiguredDialog = false },
+                        title = { androidx.compose.material3.Text("Drive Sync isn't set up yet") },
+                        text = {
+                            androidx.compose.material3.Text(
+                                "This AerioTV build doesn't have a Google Cloud OAuth Web " +
+                                    "Client ID baked in. Add GOOGLE_DRIVE_WEB_CLIENT_ID to " +
+                                    "local.properties (and register this APK's signing-cert " +
+                                    "SHA-1 in the same Cloud project) before Sign in with " +
+                                    "Google can load.",
+                            )
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(
+                                onClick = { welcomeNotConfiguredDialog = false },
+                            ) { androidx.compose.material3.Text("Got it") }
+                        },
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    )
+                }
             }
 
             composable(Routes.CHOOSE_TYPE) { entry ->

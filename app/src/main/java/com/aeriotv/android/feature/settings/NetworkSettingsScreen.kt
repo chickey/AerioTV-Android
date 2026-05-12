@@ -295,14 +295,38 @@ private fun HomeWifiSection(
     onUpdateSsids: (Set<String>) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     var detectedSsid by remember { mutableStateOf(com.aeriotv.android.core.wifi.WifiSsidProbe.currentSsid(context)) }
     var permissionGranted by remember { mutableStateOf(com.aeriotv.android.core.wifi.WifiSsidProbe.hasPermission(context)) }
+    // Pixel 10 Pro XL emulator (API 37) requires the NEARBY_WIFI_DEVICES
+    // grant before WifiInfo.getSSID() returns anything but "<unknown ssid>".
+    // After the user returns from the system Settings page (or the runtime
+    // permission dialog) we re-check both permission state AND the SSID so
+    // the row updates without needing a manual Refresh tap.
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                permissionGranted = com.aeriotv.android.core.wifi.WifiSsidProbe.hasPermission(context)
+                detectedSsid = com.aeriotv.android.core.wifi.WifiSsidProbe.currentSsid(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
     ) { granted ->
         permissionGranted = granted
-        if (granted) detectedSsid = com.aeriotv.android.core.wifi.WifiSsidProbe.currentSsid(context)
+        // Re-probe even on denial — the user may have permanently denied,
+        // in which case detectedSsid stays null and the "Open App Settings"
+        // affordance below kicks in instead of an unhelpful greyed row.
+        detectedSsid = com.aeriotv.android.core.wifi.WifiSsidProbe.currentSsid(context)
     }
+    // Track whether the user has already tried granting once. After the first
+    // launcher dispatch we assume the OS dialog will not auto-show again if
+    // the user denied, so we surface a path to system Settings instead. iOS
+    // canon does the same with the location-denied banner.
+    var hasRequestedPermissionOnce by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var manualSsid by remember { mutableStateOf("") }
 
@@ -331,13 +355,38 @@ private fun HomeWifiSection(
                 if (!permissionGranted) {
                     androidx.compose.material3.TextButton(onClick = {
                         com.aeriotv.android.core.wifi.WifiSsidProbe.requiredPermission()?.let {
+                            hasRequestedPermissionOnce = true
                             permissionLauncher.launch(it)
                         }
                     }) { Text("Grant", color = MaterialTheme.colorScheme.primary) }
                 }
                 androidx.compose.material3.TextButton(onClick = {
+                    permissionGranted = com.aeriotv.android.core.wifi.WifiSsidProbe.hasPermission(context)
                     detectedSsid = com.aeriotv.android.core.wifi.WifiSsidProbe.currentSsid(context)
                 }) { Text("Refresh", color = MaterialTheme.colorScheme.primary) }
+            }
+
+            // Permission denied + already-asked path: deep-link to app's
+            // own system Settings page so the user can flip the toggle by
+            // hand. Without this, the second tap on "Grant" is a no-op on
+            // many OEMs and the user has no way forward.
+            if (!permissionGranted && hasRequestedPermissionOnce) {
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    text = "Permission still denied. AerioTV needs nearby-WiFi access to read " +
+                        "the connected SSID. Open the system app settings to grant it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                androidx.compose.material3.TextButton(onClick = {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.fromParts("package", context.packageName, null),
+                    ).apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    runCatching { context.startActivity(intent) }
+                }) {
+                    Text("Open App Settings", color = MaterialTheme.colorScheme.primary)
+                }
             }
 
             if (detectedSsid != null && detectedSsid !in homeSsids) {

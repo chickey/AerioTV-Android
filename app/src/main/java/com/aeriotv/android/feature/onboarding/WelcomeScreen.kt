@@ -3,6 +3,7 @@ package com.aeriotv.android.feature.onboarding
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
@@ -63,6 +65,15 @@ import com.aeriotv.android.feature.onboarding.components.SourceTypeCard
 fun WelcomeScreen(
     onConnectServer: () -> Unit,
     onSkip: () -> Unit,
+    /**
+     * Optional Sign-in-with-Google handler. When provided, a pill appears
+     * between Connect-a-Server and Skip on the welcome screen so the user
+     * can authenticate Drive Sync up front instead of being routed back to
+     * Settings later. Setting this null hides the row entirely (e.g. on
+     * builds that ship without a Google Cloud OAuth client ID baked in).
+     */
+    onSignInWithGoogle: (() -> Unit)? = null,
+    googleSignInInProgress: Boolean = false,
 ) {
     val config = LocalConfiguration.current
     // Two-column when the viewport is meaningfully wider than tall. Threshold
@@ -70,14 +81,16 @@ fun WelcomeScreen(
     // >=800h) while TV landscape and foldable-unfolded tip into two-column.
     val twoColumn = config.screenWidthDp >= 720 && config.screenHeightDp < 720
 
-    if (twoColumn) WelcomeTwoColumn(onConnectServer, onSkip)
-    else WelcomeSingleColumn(onConnectServer, onSkip)
+    if (twoColumn) WelcomeTwoColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
+    else WelcomeSingleColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
 }
 
 @Composable
 private fun WelcomeSingleColumn(
     onConnectServer: () -> Unit,
     onSkip: () -> Unit,
+    onSignInWithGoogle: (() -> Unit)?,
+    googleSignInInProgress: Boolean,
 ) {
     Box(
         modifier = Modifier
@@ -99,7 +112,12 @@ private fun WelcomeSingleColumn(
             Spacer(Modifier.height(20.dp))
             InfoCardsGroup()
             Spacer(Modifier.height(28.dp))
-            ActionButtons(onConnectServer = onConnectServer, onSkip = onSkip)
+            ActionButtons(
+                onConnectServer = onConnectServer,
+                onSkip = onSkip,
+                onSignInWithGoogle = onSignInWithGoogle,
+                googleSignInInProgress = googleSignInInProgress,
+            )
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -109,6 +127,8 @@ private fun WelcomeSingleColumn(
 private fun WelcomeTwoColumn(
     onConnectServer: () -> Unit,
     onSkip: () -> Unit,
+    onSignInWithGoogle: (() -> Unit)?,
+    googleSignInInProgress: Boolean,
 ) {
     Box(
         modifier = Modifier
@@ -116,7 +136,7 @@ private fun WelcomeTwoColumn(
             .background(MaterialTheme.colorScheme.background),
     ) {
         WelcomeAmbientOrbs(modifier = Modifier.fillMaxSize())
-        WelcomeTwoColumnRow(onConnectServer, onSkip)
+        WelcomeTwoColumnRow(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
     }
 }
 
@@ -124,6 +144,8 @@ private fun WelcomeTwoColumn(
 private fun WelcomeTwoColumnRow(
     onConnectServer: () -> Unit,
     onSkip: () -> Unit,
+    onSignInWithGoogle: (() -> Unit)?,
+    googleSignInInProgress: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -158,7 +180,12 @@ private fun WelcomeTwoColumnRow(
         ) {
             InfoCardsGroup()
             Spacer(Modifier.height(20.dp))
-            ActionButtons(onConnectServer = onConnectServer, onSkip = onSkip)
+            ActionButtons(
+                onConnectServer = onConnectServer,
+                onSkip = onSkip,
+                onSignInWithGoogle = onSignInWithGoogle,
+                googleSignInInProgress = googleSignInInProgress,
+            )
         }
     }
 }
@@ -216,6 +243,8 @@ private fun InfoCardsGroup() {
 private fun ActionButtons(
     onConnectServer: () -> Unit,
     onSkip: () -> Unit,
+    onSignInWithGoogle: (() -> Unit)? = null,
+    googleSignInInProgress: Boolean = false,
 ) {
     val gradient = accentBrush()
     val shape = RoundedCornerShape(28.dp)
@@ -252,6 +281,18 @@ private fun ActionButtons(
                 )
             }
         }
+        if (onSignInWithGoogle != null) {
+            Spacer(Modifier.height(12.dp))
+            // Optional Drive Sign-in path. Lives between Connect (primary) and
+            // Skip (secondary) so it reads as a "I already have devices set
+            // up, pull my data" alternative to fresh-server onboarding. The
+            // visual is the Google-compliant dark variant (#131314 BG +
+            // four-color G mark) so it stays on-brand against AerioTV navy.
+            WelcomeGoogleSignInButton(
+                enabled = !googleSignInInProgress,
+                onClick = onSignInWithGoogle,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onSkip) {
             Text(
@@ -261,6 +302,53 @@ private fun ActionButtons(
             )
         }
     }
+}
+
+/**
+ * Onboarding-flavour of the Google Sign-In button. Mirrors the dark variant
+ * in [com.aeriotv.android.feature.settings.SyncSettingsScreen.SignInWithGoogleButton]
+ * — same #131314 background, #8E918F border, four-color G mark drawn from
+ * res/drawable/ic_google_g.xml. Kept local so the welcome screen doesn't
+ * depend on Settings internals.
+ */
+@Composable
+private fun WelcomeGoogleSignInButton(enabled: Boolean, onClick: () -> Unit) {
+    val bg = if (enabled) Color(0xFF131314) else Color(0xFF131314).copy(alpha = 0.55f)
+    val stroke = Color(0xFF8E918F).copy(alpha = if (enabled) 1f else 0.55f)
+    val fg = if (enabled) Color(0xFFE3E3E3) else Color(0xFFE3E3E3).copy(alpha = 0.55f)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .border(1.dp, stroke, RoundedCornerShape(50))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            painter = androidx.compose.ui.res.painterResource(
+                id = com.aeriotv.android.R.drawable.ic_google_g,
+            ),
+            contentDescription = null,
+            // Tint.Unspecified preserves the four-color brand mark — Google
+            // brand guidelines forbid tinting the G to a single colour.
+            tint = Color.Unspecified,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.size(12.dp))
+        Text(
+            text = "Sign in with Google",
+            color = fg,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+    // Stroke goes after content so the rounded outline reads cleanly on top
+    // of the BG fill regardless of which composable above happens to clip
+    // its descendants.
 }
 
 @Composable
