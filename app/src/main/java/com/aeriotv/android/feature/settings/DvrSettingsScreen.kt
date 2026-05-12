@@ -23,6 +23,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,6 +42,9 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -120,12 +126,12 @@ fun DvrSettingsScreen(
             item {
                 Card(
                     header = "Local Storage",
-                    footer = "Cap applies to local-destination recordings on this device only. Server recordings are tracked by Dispatcharr.",
+                    footer = "Cap applies to local recordings on this device only. Server recordings live on Dispatcharr and are tracked there.",
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "Storage Cap",
+                                text = "Maximum",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onBackground,
                                 fontWeight = FontWeight.Medium,
@@ -152,13 +158,22 @@ fun DvrSettingsScreen(
                         Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "Used: ${formatStorage(usedMB)} / ${formatStorage(capMB)}",
+                                text = "${formatStorage(usedMB)} of ${formatStorage(capMB)} used",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (usedFraction > 0.8f)
                                     MaterialTheme.colorScheme.error
                                 else
                                     MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "${(usedFraction * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (usedFraction > 0.8f)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                         Spacer(Modifier.height(4.dp))
@@ -178,34 +193,31 @@ fun DvrSettingsScreen(
 
             item {
                 Card(
-                    header = "Default Pre-Roll",
-                    footer = "Buffer added before the scheduled start. Applies to new recordings; existing ones aren't touched.",
+                    header = "Default Recording Buffers",
+                    footer = "Buffers extend new recordings beyond the scheduled window. Existing recordings aren't touched. Useful for sports and live events that run over.",
                 ) {
-                    RollRow(
-                        options = ROLL_OPTIONS,
-                        selected = preRoll,
-                        onSelect = settingsVm::setDvrDefaultPreRollMins,
-                    )
-                }
-            }
-
-            item {
-                Card(
-                    header = "Default Post-Roll",
-                    footer = "Buffer added after the scheduled end. Useful for sports + live events that run over.",
-                ) {
-                    RollRow(
-                        options = ROLL_OPTIONS,
-                        selected = postRoll,
-                        onSelect = settingsVm::setDvrDefaultPostRollMins,
-                    )
+                    Column {
+                        BufferRow(
+                            label = "Start Early",
+                            options = ROLL_OPTIONS,
+                            selected = preRoll,
+                            onSelect = settingsVm::setDvrDefaultPreRollMins,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                        BufferRow(
+                            label = "End Late",
+                            options = ROLL_OPTIONS,
+                            selected = postRoll,
+                            onSelect = settingsVm::setDvrDefaultPostRollMins,
+                        )
+                    }
                 }
             }
 
             item {
                 Card(
                     header = "Output Folder",
-                    footer = "Recordings are saved to the picked folder via Storage Access Framework. The app retains read+write access across reboots.",
+                    footer = "Local recordings save here. Picked via Storage Access Framework so AerioTV retains read+write access across reboots.",
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text(
@@ -289,39 +301,76 @@ private fun Card(
     }
 }
 
+/**
+ * Compact buffer-picker row matching iOS DVR Settings > DEFAULT RECORDING
+ * BUFFERS. Shows the label + the current value as a chevron-tagged value;
+ * tapping expands a DropdownMenu of the supported minute options. Two
+ * BufferRows share one card via stacked layout.
+ */
 @Composable
-private fun RollRow(
+private fun BufferRow(
+    label: String,
     options: List<Int>,
     selected: Int,
     onSelect: (Int) -> Unit,
 ) {
-    Column {
-        options.forEachIndexed { idx, mins ->
-            val label = if (mins == 0) "None" else "$mins min"
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelect(mins) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(
-                    selected = mins == selected,
-                    onClick = { onSelect(mins) },
-                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary),
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { menuOpen = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = formatRoll(selected),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.size(6.dp))
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            options.forEach { mins ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = mins == selected,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary),
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(formatRoll(mins))
+                        }
+                    },
+                    onClick = {
+                        onSelect(mins)
+                        menuOpen = false
+                    },
                 )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-            }
-            if (idx < options.lastIndex) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
             }
         }
     }
 }
+
+private fun formatRoll(mins: Int): String = if (mins == 0) "None" else "$mins min"
 
 private fun formatStorage(mb: Int): String {
     if (mb >= 1024) {

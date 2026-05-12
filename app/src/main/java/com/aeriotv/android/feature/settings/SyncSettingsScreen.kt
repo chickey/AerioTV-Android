@@ -98,6 +98,11 @@ fun SyncSettingsScreen(
     val configured = remember { SyncConfig.isConfigured() }
 
     var inFlight by remember { mutableStateOf(false) }
+    // When Sign-in with Google is tapped on a build without an OAuth client
+    // ID baked in, surface an explanatory dialog instead of silently doing
+    // nothing — the prior "disabled button + no feedback" UX had testers
+    // believing the integration itself was broken.
+    var notConfiguredDialogOpen by remember { mutableStateOf(false) }
 
     // Consent intent launcher for step 2 of sign-in. AuthorizationClient may
     // return either an access token outright or a pendingIntent we have to
@@ -220,8 +225,18 @@ fun SyncSettingsScreen(
                         )
                     } else {
                         SignInWithGoogleButton(
-                            enabled = configured && !inFlight,
-                            onClick = triggerSignIn,
+                            // Stay enabled even without OAuth config so the
+                            // tap surfaces the explanation dialog. inFlight
+                            // is the only true disabled state — prevents
+                            // double-launching the credential picker.
+                            enabled = !inFlight,
+                            onClick = {
+                                if (!configured) {
+                                    notConfiguredDialogOpen = true
+                                } else {
+                                    triggerSignIn()
+                                }
+                            },
                         )
                         if (!configured) {
                             Spacer(Modifier.height(8.dp))
@@ -308,6 +323,31 @@ fun SyncSettingsScreen(
             }
         }
         }
+    }
+
+    if (notConfiguredDialogOpen) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { notConfiguredDialogOpen = false },
+            title = { Text("Drive Sync isn't set up yet") },
+            text = {
+                Text(
+                    "This AerioTV build doesn't have a Google Cloud OAuth Web Client ID baked in, " +
+                        "so the Sign in with Google sheet can't load.\n\n" +
+                        "To enable Drive Sync on your own build, create an OAuth Web Client ID in " +
+                        "Google Cloud Console, register the signing-cert SHA-1 of this APK as an " +
+                        "Android Client in the same project, then add the line " +
+                        "GOOGLE_DRIVE_WEB_CLIENT_ID=<your-id> to local.properties before rebuilding.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { notConfiguredDialogOpen = false }) {
+                    Text("Got it")
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onBackground,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

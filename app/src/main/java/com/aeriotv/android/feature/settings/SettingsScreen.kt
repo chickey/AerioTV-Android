@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
@@ -132,7 +133,18 @@ fun SettingsScreen(
             ),
         )
 
+        // Center + cap the form on wider viewports. The Pixel Tablet,
+        // unfolded foldables, AND phone-landscape (~997 dp wide on a
+        // Pixel 10 Pro XL) all hit the Expanded breakpoint, which without
+        // the cap stretches a single column of settings rows edge-to-edge
+        // and turns the playlist card into a 900-dp-wide stripe. iOS gets
+        // the equivalent narrowing for free via insetGrouped.
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter,
+        ) {
         LazyColumn(
+            modifier = Modifier.adaptiveFormWidth().fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
@@ -221,6 +233,7 @@ fun SettingsScreen(
                     onReportIssue = { openUrl(context, "https://github.com/jonzey231/AerioTV-Android/issues/new") },
                 )
             }
+        }
         }
     }
 

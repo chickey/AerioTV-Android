@@ -14,12 +14,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -28,9 +32,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,7 +45,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,14 +56,23 @@ import com.aeriotv.android.core.category.ProgramCategory
 import com.aeriotv.android.core.category.parseHex
 import com.aeriotv.android.ui.adaptive.rememberViewport
 import com.aeriotv.android.ui.theme.AppTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.widthIn
 
 /**
- * Appearance sub-screen. Mirrors iOS Settings -> Appearance (project_aeriotv_ios_canon.md).
- * Phase 8a delivered the 6-theme picker; Phase 15 adds the category palette
- * section (4 default buckets + "Add more categories" + Reset to defaults) and
- * the master Enable Category Colors toggle.
+ * Appearance sub-screen. Mirrors iOS Settings -> Appearance
+ * (project_aeriotv_ios_canon.md "Appearance" section).
+ *
+ * Theme card -> 6 brand presets + Custom Accent override + a live Preview
+ * tile so the user can see how their accent reads on a card without leaving
+ * Settings. Display Scale card -> independent Movies & Series / Live TV
+ * sliders (85-125%). Category Colors card -> master toggle. Palette card ->
+ * default buckets + Add More Categories + Reset.
+ *
+ * Theme propagation: changes from `viewModel.setSelectedTheme` /
+ * `setUseCustomAccent` / `setCustomAccentHex` flow through DataStore into
+ * MainActivity's collectAsState bindings, which rebuild AerioTVTheme's
+ * Material3 colorScheme. Every surface that reads MaterialTheme.colorScheme
+ * (top bars, nav bar, sheets, dialogs, mini-player, splash) re-themes in
+ * the same frame — no recreate needed.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,7 +106,7 @@ fun AppearanceSettingsScreen(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
                         tint = MaterialTheme.colorScheme.primary,
-                        )
+                    )
                 }
             },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -103,104 +118,136 @@ fun AppearanceSettingsScreen(
         val vp = rememberViewport()
         Box(
             modifier = Modifier.fillMaxSize(),
-            contentAlignment = androidx.compose.ui.Alignment.TopCenter,
+            contentAlignment = Alignment.TopCenter,
         ) {
-        LazyColumn(
-            modifier = if (vp.formMaxWidth != androidx.compose.ui.unit.Dp.Unspecified)
-                Modifier.widthIn(max = vp.formMaxWidth)
-            else
-                Modifier,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                SectionHeader("Theme", "Choose the colour palette used across the app. Changes apply immediately and persist across launches.")
-            }
-            items(AppTheme.entries, key = { it.name }) { theme ->
-                ThemeRow(
-                    theme = theme,
-                    selected = theme == currentTheme,
-                    onClick = { viewModel.setSelectedTheme(theme) },
-                )
-            }
-
-            item {
-                CustomAccentRow(
-                    enabled = useCustomAccent,
-                    hex = customAccentHex,
-                    onToggle = viewModel::setUseCustomAccent,
-                    onPick = { accentPickerOpen = true },
-                )
-            }
-
-            item { Spacer(Modifier.height(8.dp)) }
-            item {
-                SectionHeader(
-                    "Display Scale",
-                    "Independent scale for Movies & Series and Live TV List. 100% matches the default; 85–125% lets you trade density for readability.",
-                )
-            }
-            item {
-                ScaleSliderRow(
-                    label = "Movies & Series",
-                    value = scaleMovies,
-                    onValueChange = viewModel::setDisplayScaleMovies,
-                )
-            }
-            item {
-                ScaleSliderRow(
-                    label = "Live TV List",
-                    value = scaleLiveTV,
-                    onValueChange = viewModel::setDisplayScaleLiveTV,
-                )
-            }
-
-            item { Spacer(Modifier.height(8.dp)) }
-            item {
-                SectionHeader(
-                    "Palette",
-                    "Tint EPG cells and channel cards by programme category. Long-press a colour to override its hex.",
-                )
-            }
-            item {
-                PaletteToggleRow(
-                    enabled = palette.masterEnabled,
-                    onToggle = viewModel::setCategoryColorsEnabled,
-                )
-            }
-            items(ProgramCategory.defaultBuckets, key = { it.storageSuffix }) { bucket ->
-                Box(modifier = Modifier.alpha(if (palette.masterEnabled) 1f else 0.4f)) {
-                    CategoryPaletteRow(
-                        bucket = bucket,
-                        hex = palette.hexFor(bucket),
-                        onClick = { if (palette.masterEnabled) pickerTarget = bucket },
-                    )
-                }
-            }
-            item {
-                Box(modifier = Modifier.alpha(if (palette.masterEnabled) 1f else 0.4f)) {
-                    AddMoreCategoriesRow(
-                        extraOn = ProgramCategory.additionalBuckets.count { palette.isBucketEnabled(it) },
-                        customCount = palette.custom.size,
-                        onClick = { if (palette.masterEnabled) onOpenAddMoreCategories() },
-                    )
-                }
-            }
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .alpha(if (palette.masterEnabled) 1f else 0.4f),
+            LazyColumn(
+                modifier = if (vp.formMaxWidth != Dp.Unspecified)
+                    Modifier.widthIn(max = vp.formMaxWidth)
+                else
+                    Modifier,
+                // Bottom padding covers the bottom-nav bar (~80 dp) plus
+                // 24 dp breathing room, so the last LazyColumn item ("Reset
+                // Colors to Defaults" under the Palette card) isn't clipped
+                // behind MainScaffold's NavigationBar. Without this, the
+                // user can't scroll past the nav bar to reach the Reset row
+                // or the Add More Categories navigator — the LazyColumn
+                // hits its content edge first.
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 12.dp,
+                    bottom = 104.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                // THEME card — six brand presets + Custom Accent override row.
+                settingsCard(
+                    header = "Theme",
+                    footer = "Choose the palette used across the app. Switching themes applies live; the preset accent kicks in unless Custom Accent is on.",
                 ) {
-                    TextButton(onClick = { if (palette.masterEnabled) viewModel.resetCategoryPalette() }) {
+                    AppTheme.entries.forEachIndexed { index, theme ->
+                        if (index > 0) DividerRow()
+                        ThemeRow(
+                            theme = theme,
+                            selected = theme == currentTheme,
+                            onClick = { viewModel.setSelectedTheme(theme) },
+                        )
+                    }
+                    DividerRow()
+                    CustomAccentRow(
+                        enabled = useCustomAccent,
+                        hex = customAccentHex,
+                        onToggle = viewModel::setUseCustomAccent,
+                        onPick = { accentPickerOpen = true },
+                    )
+                }
+
+                // PREVIEW card — shows how the active theme reads on a card,
+                // including the accent-tinted title and Now-Playing pill.
+                item {
+                    PreviewCard(
+                        theme = currentTheme,
+                        customAccentHex = customAccentHex.takeIf { useCustomAccent },
+                    )
+                }
+
+                // DISPLAY SCALE card — independent sliders for the two
+                // density-tunable surfaces (Movies & Series, Live TV List).
+                settingsCard(
+                    header = "Display Scale",
+                    footer = "Independent scale for Movies & Series and Live TV List. 100% matches the default; 85-125% lets you trade density for readability. Changes apply live.",
+                ) {
+                    ScaleSliderRow(
+                        label = "Movies & Series",
+                        value = scaleMovies,
+                        onValueChange = viewModel::setDisplayScaleMovies,
+                    )
+                    DividerRow()
+                    ScaleSliderRow(
+                        label = "Live TV List",
+                        value = scaleLiveTV,
+                        onValueChange = viewModel::setDisplayScaleLiveTV,
+                    )
+                }
+
+                // CATEGORY COLORS card — master toggle that gates the
+                // palette card below. iOS keeps these as separate sections
+                // for the same reason: the master toggle is binary and gets
+                // its own footer, the palette grid is browse-and-tweak.
+                settingsCard(
+                    header = "Category Colors",
+                    footer = "Tint EPG cells and channel cards by programme category. Long-press a swatch below to override its hex.",
+                ) {
+                    ToggleRow(
+                        title = "Color Programs by Category",
+                        subtitle = "Apply category tints to the guide and channel rows.",
+                        checked = palette.masterEnabled,
+                        onCheckedChange = viewModel::setCategoryColorsEnabled,
+                    )
+                }
+
+                // PALETTE card — the default 4 buckets plus the "Add more
+                // categories" navigator and the Reset link.
+                settingsCard(
+                    header = "Palette",
+                    footer = null,
+                ) {
+                    ProgramCategory.defaultBuckets.forEachIndexed { idx, bucket ->
+                        if (idx > 0) DividerRow()
+                        Box(modifier = Modifier.alpha(if (palette.masterEnabled) 1f else 0.4f)) {
+                            CategoryPaletteRow(
+                                bucket = bucket,
+                                hex = palette.hexFor(bucket),
+                                onClick = { if (palette.masterEnabled) pickerTarget = bucket },
+                            )
+                        }
+                    }
+                    DividerRow()
+                    Box(modifier = Modifier.alpha(if (palette.masterEnabled) 1f else 0.4f)) {
+                        AddMoreCategoriesRow(
+                            extraOn = ProgramCategory.additionalBuckets.count { palette.isBucketEnabled(it) },
+                            customCount = palette.custom.size,
+                            onClick = { if (palette.masterEnabled) onOpenAddMoreCategories() },
+                        )
+                    }
+                    DividerRow()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = palette.masterEnabled) { viewModel.resetCategoryPalette() }
+                            .alpha(if (palette.masterEnabled) 1f else 0.4f)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
                             text = "Reset Colors to Defaults",
-                            color = androidx.compose.ui.graphics.Color(0xFFFB8C00),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFFFB8C00),
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }
             }
-        }
         }
     }
 
@@ -239,48 +286,341 @@ fun AppearanceSettingsScreen(
     }
 }
 
-@Composable
-private fun SectionHeader(label: String, body: String) {
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+/**
+ * LazyListScope helper that lays out a header/card/footer triplet in three
+ * items so the rounded card and the header keep their iOS-style 6dp gap and
+ * the footer renders below the card edge. Matches the AppBehaviors /
+ * Multiview / DVR SettingsCard composable visually, just unrolled for
+ * LazyColumn.
+ */
+private fun LazyListScope.settingsCard(
+    header: String,
+    footer: String?,
+    content: @Composable () -> Unit,
+) {
+    item {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = header.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+            ) {
+                content()
+            }
+            if (footer != null) {
+                Text(
+                    text = footer,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun PaletteToggleRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+private fun DividerRow() {
+    HorizontalDivider(
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f),
+        modifier = Modifier.padding(start = 16.dp),
+    )
+}
+
+@Composable
+private fun ThemeRow(
+    theme: AppTheme,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(theme.appBackground)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(8.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(theme.accentPrimary),
+            )
+        }
+        Spacer(Modifier.size(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = theme.displayName,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = themeSubtitle(theme),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = "Selected",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+private fun themeSubtitle(theme: AppTheme): String = when (theme) {
+    AppTheme.Aerio -> "Cyan on deep navy (default)"
+    AppTheme.Midnight -> "Cool blue on near-black"
+    AppTheme.Sunset -> "Warm orange on near-black"
+    AppTheme.Forest -> "Green on near-black"
+    AppTheme.Lavender -> "Purple on near-black"
+    AppTheme.Monochrome -> "Greyscale on near-black"
+}
+
+/**
+ * Custom accent color row. Mirrors iOS Appearance > "Custom Accent Color"
+ * toggle + color picker (ThemeManager useCustomAccent / customAccentHex).
+ * Toggle enables the override; tapping the swatch opens the hex picker.
+ */
+@Composable
+private fun CustomAccentRow(
+    enabled: Boolean,
+    hex: String,
+    onToggle: (Boolean) -> Unit,
+    onPick: () -> Unit,
+) {
+    val swatch = if (enabled && hex.length == 6) parseHex(hex)
+    else MaterialTheme.colorScheme.primary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Enable Category Colors",
+                text = "Custom Accent Color",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
             )
             Text(
-                text = "Tint EPG cells and channel cards by programme category.",
+                text = if (enabled && hex.isNotBlank()) "Override active: #${hex.uppercase()}"
+                else "Override the preset accent with your own hex.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = enabled, onCheckedChange = onToggle)
+        if (enabled) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(swatch)
+                    .border(
+                        width = 1.5.dp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(50),
+                    )
+                    .clickable(onClick = onPick),
+            )
+            Spacer(Modifier.size(8.dp))
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = { isOn ->
+                onToggle(isOn)
+                if (isOn && hex.isBlank()) onPick()
+            },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+            ),
+        )
+    }
+}
+
+/**
+ * Live preview tile that renders the active accent over the active card
+ * background, so the user sees the actual cyan/orange/etc. they're about
+ * to commit to before leaving the screen. The accent is pulled from the
+ * customAccentHex when set, otherwise from the theme's preset.
+ */
+@Composable
+private fun PreviewCard(theme: AppTheme, customAccentHex: String?) {
+    val accent = if (customAccentHex != null && customAccentHex.length == 6) parseHex(customAccentHex)
+    else theme.accentPrimary
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "PREVIEW",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(theme.cardBackground)
+                .border(
+                    width = 1.dp,
+                    color = accent.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0xFFFF4757)),
+                )
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    text = "LIVE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFFF4757),
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.size(10.dp))
+                Text(
+                    text = "Channel 042",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accent.copy(alpha = 0.65f),
+                )
+            }
+            Text(
+                text = "AerioTV Sample Program",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "8:00 PM - 9:00 PM  ·  30m remaining",
+                style = MaterialTheme.typography.bodySmall,
+                color = accent.copy(alpha = 0.65f),
+            )
+            Spacer(Modifier.size(4.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(accent.copy(alpha = 0.25f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.5f)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(accent),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.size(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+            ),
+        )
+    }
+}
+
+@Composable
+private fun ScaleSliderRow(
+    label: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${(value * 100).toInt()}%",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 0.85f..1.25f,
+            steps = 7, // 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.25
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
     }
 }
 
@@ -294,8 +634,6 @@ private fun CategoryPaletteRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -340,17 +678,16 @@ private fun AddMoreCategoriesRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Add more categories",
+                text = "Add More Categories",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = subtitle,
@@ -358,184 +695,18 @@ private fun AddMoreCategoriesRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            text = "▸",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-@Composable
-private fun ThemeRow(
-    theme: AppTheme,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(theme.cardBackground)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) theme.accentPrimary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(12.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(theme.appBackground),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.accentPrimary),
-            )
-        }
-        Spacer(Modifier.size(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = theme.displayName,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = themeSubtitle(theme),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (selected) {
-            Icon(
-                imageVector = Icons.Filled.Check,
-                contentDescription = "Selected",
-                tint = theme.accentPrimary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ScaleSliderRow(
-    label: String,
-    value: Float,
-    onValueChange: (Float) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "${(value * 100).toInt()}%",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = 0.85f..1.25f,
-            steps = 7, // 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.25
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-            ),
-        )
-    }
-}
-
-private fun themeSubtitle(theme: AppTheme): String = when (theme) {
-    AppTheme.Aerio -> "Cyan on deep navy (default)"
-    AppTheme.Midnight -> "Cool blue on near-black"
-    AppTheme.Sunset -> "Warm orange on near-black"
-    AppTheme.Forest -> "Green on near-black"
-    AppTheme.Lavender -> "Purple on near-black"
-    AppTheme.Monochrome -> "Greyscale on near-black"
-}
-
-/**
- * Custom accent color row. Mirrors iOS Appearance > "Custom Accent Color"
- * toggle + color picker (ThemeManager useCustomAccent / customAccentHex).
- * Toggle enables the override; tapping the swatch opens the hex picker.
- */
-@Composable
-private fun CustomAccentRow(
-    enabled: Boolean,
-    hex: String,
-    onToggle: (Boolean) -> Unit,
-    onPick: () -> Unit,
-) {
-    val swatch = if (enabled && hex.length == 6) com.aeriotv.android.core.category.parseHex(hex)
-    else MaterialTheme.colorScheme.primary
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Custom Accent Color",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = if (enabled && hex.isNotBlank()) "Override active: #$hex"
-                else "Override the preset accent with your own hex.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (enabled) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(swatch)
-                    .border(
-                        width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(50),
-                    )
-                    .clickable(onClick = onPick),
-            )
-            Spacer(Modifier.size(8.dp))
-        }
-        androidx.compose.material3.Switch(checked = enabled, onCheckedChange = { isOn ->
-            onToggle(isOn)
-            if (isOn && hex.isBlank()) onPick()
-        })
     }
 }
 
 @Composable
 private fun AccentPickerDialog(
     current: String,
-    preset: androidx.compose.ui.graphics.Color,
+    preset: Color,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onReset: () -> Unit,
@@ -543,20 +714,20 @@ private fun AccentPickerDialog(
     var input by remember { mutableStateOf(current.uppercase()) }
     val sanitized = input.trim().removePrefix("#").uppercase()
     val isValid = sanitized.length == 6 && sanitized.all { it in HEX_CHARS_ACCENT }
-    val preview = if (isValid) com.aeriotv.android.core.category.parseHex(sanitized) else preset
+    val preview = if (isValid) parseHex(sanitized) else preset
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            androidx.compose.material3.TextButton(
+            TextButton(
                 onClick = { if (isValid) onSave(sanitized) },
                 enabled = isValid,
             ) { Text("Save") }
         },
         dismissButton = {
             Row {
-                androidx.compose.material3.TextButton(onClick = onReset) { Text("Reset") }
-                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onReset) { Text("Reset") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
         title = { Text("Custom Accent") },

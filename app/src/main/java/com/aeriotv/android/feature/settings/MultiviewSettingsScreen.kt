@@ -90,7 +90,7 @@ fun MultiviewSettingsScreen(
         ) {
             SettingsCard(
                 header = "Audio Focus Indicator",
-                footer = "How the multiview grid highlights which tile is playing sound. Center Icon fades with the chrome; Gray Outline keeps a muted border always visible; Accent Outline auto-hides after 5 seconds.",
+                footer = "How the grid shows which tile is unmuted. Center Icon fades with the chrome, Gray Outline stays visible, Accent Outline appears on switch and fades after 5 seconds.",
             ) {
                 AUDIO_FOCUS_OPTIONS.forEachIndexed { idx, opt ->
                     RadioRow(
@@ -105,17 +105,20 @@ fun MultiviewSettingsScreen(
                 }
             }
 
-            SettingsCard(header = "Tile Appearance", footer = null) {
+            SettingsCard(
+                header = "Tile Appearance",
+                footer = "How tiles sit in the grid. Both default to off, matching the iOS edge-to-edge look.",
+            ) {
                 ToggleRow(
-                    title = "Tile padding",
-                    subtitle = "Adds a small gap between tiles for visual separation.",
+                    title = "Padding Between Tiles",
+                    subtitle = "Add a small gap between tiles for visual separation.",
                     checked = padding,
                     onCheckedChange = viewModel::setMultiviewTilePadding,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                 ToggleRow(
-                    title = "Rounded corners",
-                    subtitle = "Softens tile edges with rounded corners.",
+                    title = "Rounded Corners",
+                    subtitle = "Soften tile edges with a 12dp corner radius.",
                     checked = rounded,
                     onCheckedChange = viewModel::setMultiviewTileCornersRounded,
                 )
@@ -130,7 +133,7 @@ private data class AudioFocusOption(val id: String, val label: String, val detai
 private val AUDIO_FOCUS_OPTIONS: List<AudioFocusOption> = listOf(
     AudioFocusOption("centerIcon", "Center Icon", "Speaker icon centered on the active tile. Default."),
     AudioFocusOption("grayPersistent", "Gray Outline", "Subtle gray border always around the active tile."),
-    AudioFocusOption("themeFading", "Accent Outline (Fading)", "Cyan border that auto-hides after 5 seconds."),
+    AudioFocusOption("themeFading", "Accent Outline (Fading)", "Accent-tinted border that auto-hides after 5 seconds."),
 )
 
 @Composable
