@@ -45,17 +45,25 @@ class AerioTVApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         dispatcharrWarmup.bind()
-        // Kick off the libmpv process-wide warm-up. Internally defers
-        // 800 ms behind launch + runs on a background dispatcher so it
-        // never competes with the visible cold-launch sequence for the
-        // JNI mutex. iOS does the equivalent via MPVLibraryWarmup.warmUp()
-        // (MPVPlayerView.swift lines 39-86); on iOS this single change
-        // is the headline reason channel-tap startup feels instant. The
-        // first PlayerScreen composition waits up to 5 s for this to
-        // complete before its real mpv.create() call, so the user-facing
-        // handle pays only loadfile cost instead of the full process-wide
-        // codec/protocol/hwdec/mediacodec-bridge registration too.
-        MpvLibraryWarmup.start(this)
+        // MpvLibraryWarmup.start(this) — DISABLED.
+        //
+        // The iOS-canonical pattern (mpv_create + mpv_initialize +
+        // mpv_terminate_destroy on a throwaway handle at app launch)
+        // does not port cleanly to mpv-android-lib 0.1.12. Calling
+        // MPV.destroy() on the throwaway breaks subsequent user-facing
+        // MPV instances on both emulator + physical Samsung devices --
+        // the player chrome loads but the stream never begins, no
+        // events, no first frame. Working theory: mpv-android-lib's
+        // nativeDestroy releases JNI globals or the JavaVM cache that
+        // are then unavailable to the next nativeCreate. Reproducible
+        // 100% with the warmup on, gone 100% with it off.
+        //
+        // Future work: investigate keeping the warmed handle alive
+        // (don't destroy() it -- "leak" the JNI globals deliberately)
+        // OR reuse the warmed handle as the user-facing handle. Both
+        // need API changes in MPVPlayerHolder to thread the existing
+        // MPV instance through instead of always letting BaseMPVView
+        // create its own.
         appScope.launch {
             appPreferences.debugLoggingEnabled.collectLatest { enabled ->
                 debugLogger.setEnabled(enabled)
