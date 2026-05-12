@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,7 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -106,17 +107,24 @@ fun SyncSettingsScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Sync", style = MaterialTheme.typography.titleMedium) },
+        CenterAlignedTopAppBar(
+            title = {
+                Text(
+                    text = "Sync",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),
@@ -275,25 +283,41 @@ fun SyncSettingsScreen(
 
 @Composable
 private fun ConfigBanner() {
-    Box(
+    // Muted info-toned (not red-error-panic) card. The OAuth client is a
+    // developer-setup gap, not an end-user fault — the previous red
+    // banner read as "the app is broken" on every cold launch before
+    // anyone signed in. Keep the explanation, drop the volume.
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.18f))
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .background(accent.copy(alpha = 0.10f))
+            .border(0.5.dp, accent.copy(alpha = 0.30f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Column {
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(16.dp).padding(top = 2.dp),
+        )
+        Spacer(Modifier.size(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Drive Sync needs a Google Cloud OAuth client",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
+                text = "Drive Sync setup pending",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.SemiBold,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
             Text(
-                text = "Add GOOGLE_DRIVE_WEB_CLIENT_ID=<your-web-client-id> to local.properties (gitignored) and register this build's signing-cert SHA-1 with an Android client id in the same Cloud project. Until then, Sign in with Google will refuse.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                text = "Add GOOGLE_DRIVE_WEB_CLIENT_ID to local.properties and register " +
+                    "this build's signing-cert SHA-1 in the same Google Cloud project. " +
+                    "Until then, Sign in with Google stays disabled.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

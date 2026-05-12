@@ -1,103 +1,424 @@
 package com.aeriotv.android.feature.settings
 
+import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.Article
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.LiveTv
+import androidx.compose.material.icons.outlined.NetworkCheck
+import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.BuildConfig
-import android.os.Build
+import com.aeriotv.android.core.debug.DebugLogger
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.delay
 
 /**
- * Developer sub-screen. Phase 8c lands the read-only build / device info that
- * iOS DeveloperSettingsView surfaces at the top of its tree. Diagnostic
- * toggles (verbose logging, advanced MPV stats, in-app log viewer) land
- * incrementally as the phases that need them ship.
+ * Settings -> Developer. Mirrors iOS DeveloperSettingsView (lines 9-444):
+ *
+ *  - Build / Device facts at the top (always-on, read-only).
+ *  - Logging section: Debug Logging master toggle with iOS-style confirm
+ *    dialogs on enable / disable, so the user can read what file-logging
+ *    actually does before flipping it on.
+ *  - Log File section (appears once logging has been on or the file
+ *    already exists): file size readout, View Log File, Share Log File,
+ *    Clear Log File. View opens an in-app viewer; Share hands the file
+ *    off via FileProvider so the user can attach it to a GitHub Issue.
+ *  - What's Captured: documentation rows so the user knows exactly what
+ *    flipping the toggle on starts persisting.
+ *
+ * Mirrors iOS section copy verbatim where the meaning carries cleanly
+ * across platforms ("Logs include network requests, playback events..."
+ * etc.). Android-specific lines call out filesDir-based storage instead
+ * of iOS's "On My iPhone › AerioTV" Files-app shorthand.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeveloperSettingsScreen(onBack: () -> Unit) {
+fun DeveloperSettingsScreen(
+    onBack: () -> Unit,
+    onOpenLogViewer: () -> Unit = {},
+    settingsVm: SettingsViewModel = hiltViewModel(),
+) {
+    val context = LocalContext.current
+    val debugLogger = remember {
+        val entry = EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            com.aeriotv.android.core.debug.DebugLoggerEntryPoint::class.java,
+        )
+        entry.debugLogger()
+    }
+    val loggingEnabled by settingsVm.debugLoggingEnabled.collectAsStateWithLifecycle(initialValue = false)
+
+    var pendingEnable by remember { mutableStateOf(false) }
+    var pendingDisable by remember { mutableStateOf(false) }
+    var pendingClear by remember { mutableStateOf(false) }
+
+    // Poll the file size while we're on this screen so the displayed value
+    // tracks live writes. 1 Hz is plenty for a multi-MB file; iOS does the
+    // same in refreshLogSize via .task().
+    var sizeBytes by remember { mutableLongStateOf(debugLogger.logSizeBytes()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            sizeBytes = debugLogger.logSizeBytes()
+            delay(1000L)
+        }
+    }
+    val logFileExists = sizeBytes > 0L || debugLogger.logFile().exists()
+
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Developer", style = MaterialTheme.typography.titleMedium) },
+        CenterAlignedTopAppBar(
+            title = {
+                Text(
+                    text = "Developer",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),
         )
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            InfoCard(header = "Build") {
-                LabelValue("Application ID", BuildConfig.APPLICATION_ID)
-                Divider()
-                LabelValue("Version", BuildConfig.VERSION_NAME)
-                Divider()
-                LabelValue("Version Code", BuildConfig.VERSION_CODE.toString())
-                Divider()
-                LabelValue("Build Type", BuildConfig.BUILD_TYPE)
-                Divider()
-                LabelValue("Debug Build", BuildConfig.DEBUG.toString())
+            item("logging") {
+                LoggingSection(
+                    enabled = loggingEnabled,
+                    onRequestEnable = { pendingEnable = true },
+                    onRequestDisable = { pendingDisable = true },
+                )
             }
 
-            InfoCard(header = "Device") {
-                LabelValue("Manufacturer", Build.MANUFACTURER)
-                Divider()
-                LabelValue("Model", Build.MODEL)
-                Divider()
-                LabelValue("Android SDK", Build.VERSION.SDK_INT.toString())
-                Divider()
-                LabelValue("Android Release", Build.VERSION.RELEASE)
-            }
-
-            InfoCard(header = "Coming Soon") {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(
-                        text = "Verbose MPV logging, in-app log viewer, and the diagnostic-share button land alongside their consumers in later phases.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (logFileExists) {
+                item("log-file") {
+                    LogFileSection(
+                        sizeBytes = sizeBytes,
+                        onView = onOpenLogViewer,
+                        onShare = { shareLogFile(context, debugLogger) },
+                        onClear = { pendingClear = true },
                     )
                 }
             }
+
+            item("captured") { WhatsCapturedSection() }
+
+            item("build") { BuildInfoSection() }
+        }
+    }
+
+    if (pendingEnable) {
+        AlertDialog(
+            onDismissRequest = { pendingEnable = false },
+            title = { Text("Enable Debug Logging?") },
+            text = {
+                Text(
+                    "AerioTV will write detailed diagnostic logs to a file in the app's " +
+                        "private storage.\n\nLogs include network requests, playback events, " +
+                        "and error details. They never leave the device unless you share the " +
+                        "file from this screen.\n\nLogging has a minor impact on performance " +
+                        "and storage. You can disable it at any time.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingEnable = false
+                    settingsVm.setDebugLoggingEnabled(true)
+                }) { Text("Enable Logging") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingEnable = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (pendingDisable) {
+        AlertDialog(
+            onDismissRequest = { pendingDisable = false },
+            title = { Text("Disable Debug Logging?") },
+            text = {
+                Text("The existing log file will be kept. You can share or clear it at any time.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDisable = false
+                    settingsVm.setDebugLoggingEnabled(false)
+                }) { Text("Disable", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDisable = false }) { Text("Keep Logging") }
+            },
+        )
+    }
+
+    if (pendingClear) {
+        AlertDialog(
+            onDismissRequest = { pendingClear = false },
+            title = { Text("Clear Log File?") },
+            text = {
+                Text("This permanently deletes the current aerio_debug_logs.txt. This cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingClear = false
+                    debugLogger.clearLogs()
+                }) { Text("Clear Logs", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClear = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LoggingSection(
+    enabled: Boolean,
+    onRequestEnable: () -> Unit,
+    onRequestDisable: () -> Unit,
+) {
+    DevSectionGroup(
+        header = "Logging",
+        footer = "When enabled, detailed logs are written to a file in the app's private " +
+            "storage. Logs include network requests, playback events, EPG activity, errors, " +
+            "and app lifecycle events. No personally identifiable information is collected.",
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(
+                        if (enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.BugReport,
+                    contentDescription = null,
+                    tint = if (enabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.size(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Debug Logging",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = if (enabled) "Active — writing to aerio_debug_logs.txt"
+                    else "Off — no data is collected",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (enabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { value ->
+                    if (value) onRequestEnable() else onRequestDisable()
+                },
+            )
         }
     }
 }
 
 @Composable
-private fun InfoCard(header: String, content: @Composable () -> Unit) {
+private fun LogFileSection(
+    sizeBytes: Long,
+    onView: () -> Unit,
+    onShare: () -> Unit,
+    onClear: () -> Unit,
+) {
+    DevSectionGroup(
+        header = "Log File",
+        footer = "Logs rotate automatically when the file exceeds 10 MB. The previous log is " +
+            "preserved as aerio_debug_logs_archive.txt.",
+    ) {
+        InfoRow(
+            icon = Icons.Outlined.Description,
+            label = "Log File Size",
+            value = formatBytes(sizeBytes),
+        )
+        DevRowDivider()
+        ActionRow(
+            icon = Icons.Outlined.Article,
+            label = "View Log File",
+            subtitle = "Scroll through entries in the app",
+            onClick = onView,
+        )
+        DevRowDivider()
+        ActionRow(
+            icon = Icons.Filled.Share,
+            label = "Share Log File",
+            subtitle = "Email, Messages, Drive, etc.",
+            onClick = onShare,
+        )
+        DevRowDivider()
+        ActionRow(
+            icon = Icons.Filled.Delete,
+            label = "Clear Log File",
+            subtitle = null,
+            onClick = onClear,
+            destructive = true,
+        )
+    }
+}
+
+@Composable
+private fun WhatsCapturedSection() {
+    DevSectionGroup(
+        header = "What's Captured",
+        footer = "Logs include only diagnostic context. AerioTV never logs your Dispatcharr " +
+            "credentials, watch progress identifiers, or any payload that would identify you.",
+    ) {
+        CategoryRow(
+            icon = Icons.Outlined.NetworkCheck,
+            title = "Network",
+            detail = "All API requests — URL, method, status code, duration, payload size",
+        )
+        DevRowDivider()
+        CategoryRow(
+            icon = Icons.Filled.PlayArrow,
+            title = "Playback",
+            detail = "Stream URLs loaded, player state transitions, DVR mode, failover attempts",
+        )
+        DevRowDivider()
+        CategoryRow(
+            icon = Icons.Filled.CalendarMonth,
+            title = "EPG",
+            detail = "Current program fetches, upcoming program loads, decode errors",
+        )
+        DevRowDivider()
+        CategoryRow(
+            icon = Icons.Outlined.LiveTv,
+            title = "Channels",
+            detail = "Channel list loads, source type, item counts, timing",
+        )
+        DevRowDivider()
+        CategoryRow(
+            icon = Icons.Outlined.OpenInNew,
+            title = "Lifecycle",
+            detail = "App foreground/background, launch, scene transitions",
+        )
+        DevRowDivider()
+        CategoryRow(
+            icon = Icons.Outlined.WarningAmber,
+            title = "Errors",
+            detail = "Caught exceptions with full context, source file and line number",
+        )
+        DevRowDivider()
+        CategoryRow(
+            icon = Icons.Outlined.Speed,
+            title = "Performance",
+            detail = "Timed operations — parse time, load time, memory at session start",
+        )
+    }
+}
+
+@Composable
+private fun BuildInfoSection() {
+    DevSectionGroup(header = "Build") {
+        InfoRow(icon = Icons.Outlined.Build, label = "Application ID", value = BuildConfig.APPLICATION_ID)
+        DevRowDivider()
+        InfoRow(icon = null, label = "Version", value = BuildConfig.VERSION_NAME)
+        DevRowDivider()
+        InfoRow(icon = null, label = "Version Code", value = BuildConfig.VERSION_CODE.toString())
+        DevRowDivider()
+        InfoRow(icon = null, label = "Build Type", value = BuildConfig.BUILD_TYPE)
+        DevRowDivider()
+        InfoRow(icon = null, label = "Manufacturer", value = android.os.Build.MANUFACTURER)
+        DevRowDivider()
+        InfoRow(icon = null, label = "Model", value = android.os.Build.MODEL)
+        DevRowDivider()
+        InfoRow(
+            icon = null,
+            label = "Android",
+            value = "${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",
+        )
+    }
+}
+
+// MARK: - Shared section shell
+
+@Composable
+private fun DevSectionGroup(
+    header: String,
+    footer: String? = null,
+    content: @Composable () -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             text = header.uppercase(),
@@ -109,22 +430,47 @@ private fun InfoCard(header: String, content: @Composable () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
-        ) {
-            content()
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)),
+        ) { content() }
+        if (footer != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = footer,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun LabelValue(label: String, value: String) {
+private fun DevRowDivider() {
+    HorizontalDivider(
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f),
+        modifier = Modifier.padding(start = 14.dp),
+    )
+}
+
+@Composable
+private fun InfoRow(icon: ImageVector?, label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.size(8.dp))
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
@@ -141,6 +487,120 @@ private fun LabelValue(label: String, value: String) {
 }
 
 @Composable
-private fun Divider() {
-    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+private fun ActionRow(
+    icon: ImageVector,
+    label: String,
+    subtitle: String?,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+) {
+    val accent = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.size(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = accent,
+                fontWeight = FontWeight.Medium,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryRow(icon: ImageVector, title: String, detail: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .size(18.dp)
+                .padding(top = 2.dp),
+        )
+        Spacer(Modifier.size(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun shareLogFile(
+    context: android.content.Context,
+    debugLogger: DebugLogger,
+) {
+    val file = debugLogger.logFile()
+    if (!file.exists() || file.length() == 0L) {
+        android.widget.Toast.makeText(context, "No log file to share yet.", android.widget.Toast.LENGTH_SHORT).show()
+        return
+    }
+    val uri = runCatching {
+        FileProvider.getUriForFile(context, "${BuildConfig.APPLICATION_ID}.fileprovider", file)
+    }.getOrElse {
+        android.widget.Toast.makeText(
+            context,
+            "Couldn't prepare log for share: ${it.message ?: it::class.simpleName}",
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+        return
+    }
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, "AerioTV debug logs")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    val chooser = Intent.createChooser(sendIntent, "Share Log File")
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(chooser) }
+        .onFailure {
+            android.widget.Toast.makeText(
+                context,
+                "No app available to receive the log file.",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0L) return "Empty"
+    val kb = bytes / 1024.0
+    if (kb < 1024.0) return String.format(java.util.Locale.US, "%.1f KB", kb)
+    val mb = kb / 1024.0
+    return String.format(java.util.Locale.US, "%.2f MB", mb)
 }

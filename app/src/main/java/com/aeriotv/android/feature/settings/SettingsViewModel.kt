@@ -69,6 +69,12 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { prefs.setAppleTVChannelFlip(value) }
     }
 
+    // Developer
+    val debugLoggingEnabled: Flow<Boolean> = prefs.debugLoggingEnabled
+    fun setDebugLoggingEnabled(value: Boolean) {
+        viewModelScope.launch { prefs.setDebugLoggingEnabled(value) }
+    }
+
     val autoResumeLastChannel: Flow<Boolean> = prefs.autoResumeLastChannel
     fun setAutoResumeLastChannel(value: Boolean) {
         viewModelScope.launch { prefs.setAutoResumeLastChannel(value) }

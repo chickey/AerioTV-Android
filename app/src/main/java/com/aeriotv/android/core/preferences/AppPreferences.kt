@@ -122,6 +122,18 @@ class AppPreferences @Inject constructor(
     }
 
     /**
+     * iOS `debugLoggingEnabled` parity (DeveloperSettingsView line 14). The
+     * Settings -> Developer screen flips this on/off; the DebugLogger
+     * singleton reads it on startup and on every change to know whether to
+     * persist log lines to disk. Defaults off so a stock install never
+     * burns storage on logs the user didn't ask for.
+     */
+    val debugLoggingEnabled: Flow<Boolean> = store.data.map { it[KEY_DEBUG_LOGGING_ENABLED] ?: false }
+    suspend fun setDebugLoggingEnabled(value: Boolean) {
+        store.edit { it[KEY_DEBUG_LOGGING_ENABLED] = value }
+    }
+
+    /**
      * iOS `appBehaviorsAutoResumeLastChannel` parity. Stub for now (Android
      * has no mini-player surface yet). Stored anyway so a future port can
      * flip it on without losing the user's prior choice.
@@ -442,6 +454,7 @@ class AppPreferences @Inject constructor(
         val KEY_CUSTOM_ACCENT_HEX = stringPreferencesKey("custom_accent_hex")
         val KEY_DEFAULT_LIVE_TV_VIEW = stringPreferencesKey("default_live_tv_view")
         val KEY_SKIP_LOADING_SCREEN = booleanPreferencesKey("app_behaviors_skip_loading_screen")
+        val KEY_DEBUG_LOGGING_ENABLED = booleanPreferencesKey("debug_logging_enabled")
         val KEY_APPLE_TV_CHANNEL_FLIP = booleanPreferencesKey("app_behaviors_apple_tv_channel_flip")
         val KEY_AUTO_RESUME_LAST_CHANNEL = booleanPreferencesKey("app_behaviors_auto_resume_last_channel")
         val KEY_LAST_WATCHED_CHANNEL_ID = stringPreferencesKey("last_watched_channel_id")

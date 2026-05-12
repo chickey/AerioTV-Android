@@ -70,5 +70,21 @@
         <receiver
             android:name=".feature.reminders.ReminderBroadcastReceiver"
             android:exported="false" />
+
+        <!--
+            FileProvider for sharing debug logs out of the app's private
+            filesDir/logs/. Settings -> Developer -> Share Log File grants
+            a temporary read-URI to the receiving app via this authority.
+            The path set is declared in res/xml/log_file_paths.xml.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/log_file_paths" />
+        </provider>
     </application>
 </manifest>

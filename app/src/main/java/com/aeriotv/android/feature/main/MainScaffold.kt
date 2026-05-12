@@ -213,6 +213,7 @@ private fun SettingsTabContent() {
     var playlistDetailOpen by remember { mutableStateOf(false) }
     var editPlaylistOpen by remember { mutableStateOf(false) }
     var playlistsOpen by remember { mutableStateOf(false) }
+    var logViewerOpen by remember { mutableStateOf(false) }
     var addPlaylistStep by remember { mutableStateOf<AddPlaylistStep>(AddPlaylistStep.None) }
     val playlistVm: PlaylistViewModel = hiltViewModel()
     val playlistState by playlistVm.state.collectAsStateWithLifecycle()
@@ -232,7 +233,8 @@ private fun SettingsTabContent() {
     }
     androidx.activity.compose.BackHandler(
         enabled = section != null || addMoreOpen || playlistDetailOpen ||
-            editPlaylistOpen || playlistsOpen || addPlaylistStep != AddPlaylistStep.None,
+            editPlaylistOpen || playlistsOpen || logViewerOpen ||
+            addPlaylistStep != AddPlaylistStep.None,
     ) {
         when {
             addPlaylistStep is AddPlaylistStep.Configure -> addPlaylistStep = AddPlaylistStep.ChooseType
@@ -241,6 +243,7 @@ private fun SettingsTabContent() {
             editPlaylistOpen -> editPlaylistOpen = false
             playlistDetailOpen -> playlistDetailOpen = false
             addMoreOpen -> addMoreOpen = false
+            logViewerOpen -> logViewerOpen = false
             else -> section = null
         }
     }
@@ -292,7 +295,13 @@ private fun SettingsTabContent() {
             onBack = { section = null },
         )
         section == SettingsSection.DvrSettings -> DvrSettingsScreen(onBack = { section = null })
-        section == SettingsSection.Developer -> DeveloperSettingsScreen(onBack = { section = null })
+        logViewerOpen -> com.aeriotv.android.feature.settings.LogViewerScreen(
+            onBack = { logViewerOpen = false },
+        )
+        section == SettingsSection.Developer -> DeveloperSettingsScreen(
+            onBack = { section = null },
+            onOpenLogViewer = { logViewerOpen = true },
+        )
     }
 }
 
