@@ -4,6 +4,8 @@ import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,7 +92,16 @@ fun AppBehaviorsSettingsScreen(
             modifier = Modifier
                 .adaptiveFormWidth()
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 12.dp,
+                    // 104dp bottom clears the MainScaffold NavigationBar
+                    // so the Default Tab list at the bottom stays
+                    // reachable on short displays.
+                    bottom = 104.dp,
+                ),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             SettingsGroup(header = "Launch", footer = "Skip loading screen may cause brief stutter while data hydrates. Resume last channel re-opens the player on launch if the saved channel still exists in your playlist.") {

@@ -146,7 +146,14 @@ fun PlaylistsScreen(
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.adaptiveFormWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            // 104dp bottom clears the MainScaffold NavigationBar so the
+            // last playlist row stays draggable down to the very bottom.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 12.dp,
+                bottom = 104.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(workingOrder, key = { it.id }) { pl ->

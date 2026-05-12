@@ -141,7 +141,15 @@ fun DeveloperSettingsScreen(
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            // 104dp bottom clears the MainScaffold NavigationBar so the
+            // Build section (version code, "What's Captured" list) isn't
+            // clipped.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 12.dp,
+                bottom = 104.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item("logging") {

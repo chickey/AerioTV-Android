@@ -184,7 +184,15 @@ fun SyncSettingsScreen(
             // sized to wrap its contents and Settings -> Sync was stuck on
             // whatever fit above the bottom edge.
             modifier = Modifier.adaptiveFormWidth().fillMaxHeight(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            // 104dp bottom clears the MainScaffold NavigationBar so the
+            // Actions card (Sync Now + Clear Drive Data) isn't clipped
+            // when signed in.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 12.dp,
+                bottom = 104.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (!signedIn) {

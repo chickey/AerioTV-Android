@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -120,7 +121,15 @@ fun DvrSettingsScreen(
             contentAlignment = androidx.compose.ui.Alignment.TopCenter,
         ) {
         LazyColumn(
-            modifier = Modifier.adaptiveFormWidth().fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.adaptiveFormWidth().fillMaxSize(),
+            // Bottom padding clears the MainScaffold NavigationBar (~80dp)
+            // so the final card (Output Folder + its footer) isn't clipped.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 12.dp,
+                bottom = 104.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {

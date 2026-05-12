@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -111,6 +112,14 @@ fun NetworkSettingsScreen(
             HomeWifiSection(
                 homeSsids = homeSsids,
                 onUpdateSsids = viewModel::setHomeSsids,
+            )
+            // 104dp tail spacer clears the MainScaffold NavigationBar
+            // (Column uses verticalScroll, not LazyColumn, so we can't
+            // express this as contentPadding). Without it, the Home WiFi
+            // section's saved-network list gets clipped behind the nav
+            // bar when more than two SSIDs are pinned.
+            androidx.compose.foundation.layout.Spacer(
+                modifier = Modifier.height(104.dp),
             )
         }
         }

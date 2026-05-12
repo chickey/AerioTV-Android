@@ -108,7 +108,14 @@ fun PlaylistDetailScreen(
         ) {
         LazyColumn(
             modifier = Modifier.adaptiveFormWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            // 104dp bottom clears the MainScaffold NavigationBar so the
+            // Danger Zone (Delete) row at the end stays reachable.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 16.dp,
+                bottom = 104.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
