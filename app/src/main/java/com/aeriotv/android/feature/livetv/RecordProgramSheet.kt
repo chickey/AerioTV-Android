@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.feature.dvr.DvrViewModel
+import com.aeriotv.android.feature.dvr.LocalRecordingService
+import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.launch
@@ -65,6 +67,7 @@ fun RecordProgramSheet(
     target: ProgramInfoTarget,
     onDismiss: () -> Unit,
     dvrViewModel: DvrViewModel = hiltViewModel(),
+    playlistViewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -115,11 +118,41 @@ fun RecordProgramSheet(
                     onClick = {
                         val dispatcharrId = target.channelDispatcharrId
                         if (!destinationServer) {
-                            Toast.makeText(
-                                context,
-                                "Local recording lands with Phase 9b.",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            // Local recording. We don't have direct access to
+                            // the channel's stream URL from the target; pull
+                            // the active channel context from the playlist VM
+                            // and resolve via channelName fallback. For
+                            // "Record from Now" the channel is the one
+                            // currently playing, so the user has just
+                            // triggered Record from the Player chrome.
+                            val playlistState = playlistViewModel.state.value
+                            val channel = playlistState.channels.firstOrNull {
+                                it.name == target.channelName
+                            }
+                            val streamUrl = channel?.url
+                            val apiKey = playlistState.playlist?.apiKey
+                            if (streamUrl.isNullOrBlank()) {
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't locate stream URL for ${target.channelName}.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                val durationMs = (target.endMillis + postRoll * 60_000L) -
+                                        System.currentTimeMillis()
+                                LocalRecordingService.start(
+                                    context = context,
+                                    streamUrl = streamUrl,
+                                    title = target.title.ifBlank { target.channelName },
+                                    apiKey = apiKey.orEmpty(),
+                                    durationMs = durationMs.coerceAtLeast(60_000L),
+                                )
+                                Toast.makeText(
+                                    context,
+                                    "Recording started locally.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
                             onDismiss()
                             return@TextButton
                         }

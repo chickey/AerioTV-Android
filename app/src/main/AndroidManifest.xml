@@ -9,6 +9,14 @@
         android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Phase 9b Local DVR. Foreground service handles in-flight downloads
+         so Android doesn't kill the recording when the user backgrounds the
+         app. mediaPlayback service type matches the spirit of the work even
+         though we're writing the stream to disk rather than rendering it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- API 33+ explicit runtime permission for the ongoing notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".AerioTVApplication"
@@ -33,5 +41,10 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".feature.dvr.LocalRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>
