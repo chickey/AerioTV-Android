@@ -157,16 +157,43 @@ fun AerioTVNavHost(
                 val scope = androidx.compose.runtime.rememberCoroutineScope()
                 var googleSignInInFlight by remember { mutableStateOf(false) }
                 var welcomeNotConfiguredDialog by remember { mutableStateOf(false) }
+                // Shared restore closure: pulls all categories from Drive,
+                // then asks PlaylistViewModel to re-bootstrap from whatever
+                // playlists just landed in the DB. The existing
+                // LaunchedEffect that watches `state.phase == ChannelsReady`
+                // will trip and navigate to MAIN on its own, so the Welcome
+                // screen never has to ask the navController itself. Called
+                // from BOTH the immediate Authorized branch and the
+                // post-consent launcher result so the flow is identical
+                // regardless of whether the user had granted Drive scope
+                // on a previous session.
+                val tryRestoreAndAdvance: suspend (String?) -> Unit = { signedInEmail ->
+                    val pulled = runCatching { syncVm.restoreFromDrive() }
+                        .getOrDefault(emptyMap())
+                    val playlistsRestored = pulled[com.aeriotv.android.core.sync.SyncCategory.Playlists] == true
+                    val activated = if (playlistsRestored) {
+                        runCatching { vm.loadActivePlaylistIfAvailable() }.getOrDefault(false)
+                    } else false
+                    val message = when {
+                        activated -> "Signed in as ${signedInEmail.orEmpty()}. Restoring your data..."
+                        signedInEmail != null -> "Signed in as $signedInEmail. No playlists in Drive yet -- set one up below."
+                        else -> "Signed in. No playlists in Drive yet."
+                    }
+                    android.widget.Toast.makeText(
+                        context,
+                        message,
+                        if (activated) android.widget.Toast.LENGTH_SHORT else android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
+
                 val consentLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                     contract = androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult(),
                 ) { result ->
                     syncVm.acceptConsentResult(result.data)
-                    googleSignInInFlight = false
-                    android.widget.Toast.makeText(
-                        context,
-                        "Signed in to Drive. Open Settings > Sync to enable categories.",
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
+                    scope.launch {
+                        tryRestoreAndAdvance(null)
+                        googleSignInInFlight = false
+                    }
                 }
 
                 LaunchedEffect(state.phase) {
@@ -215,12 +242,8 @@ fun AerioTVNavHost(
                             }
                             when (val driveResult = syncVm.requestDriveScope()) {
                                 is com.aeriotv.android.core.sync.DriveSyncManager.RequestResult.Authorized -> {
+                                    tryRestoreAndAdvance(email)
                                     googleSignInInFlight = false
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Signed in as $email",
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
                                 }
                                 is com.aeriotv.android.core.sync.DriveSyncManager.RequestResult.NeedsConsent -> {
                                     consentLauncher.launch(

@@ -458,6 +458,27 @@ class PlaylistViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Re-resolve the active playlist from the database and load it. Used by
+     * the Welcome screen after a Drive Sync pull lands new rows -- without
+     * this, the UI is still parked on Phase.NeedsUrl from the initial cold
+     * launch and the LaunchedEffect that watches `state.phase ==
+     * ChannelsReady` for the auto-advance never fires.
+     *
+     * Returns true when an active playlist was found and queued for load;
+     * false when the DB is still empty after the restore (Drive AppData was
+     * empty on this account, or only non-playlist categories were pulled).
+     */
+    suspend fun loadActivePlaylistIfAvailable(): Boolean {
+        val active = repository.activePlaylist() ?: return false
+        // switchToPlaylist already wraps the full "set active + fetch
+        // channels + advance phase + kick EPG" pipeline used elsewhere
+        // (manual playlist switch in Settings), so we route through it
+        // instead of duplicating the state-machine progression here.
+        switchToPlaylist(active.id)
+        return true
+    }
+
     /** Persist a user-chosen ordering of playlists (top-to-bottom). Used by
      * the Playlists drag-to-reorder UI. */
     fun applyPlaylistOrder(orderedIds: List<String>) {

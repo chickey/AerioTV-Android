@@ -82,4 +82,28 @@ class SyncSettingsViewModel @Inject constructor(
         val pulled = sync.pullAll(token, enabled)
         return pushed.mapValues { (cat, ok) -> ok && (pulled[cat] != false) }
     }
+
+    /**
+     * Pull-only counterpart to [syncNow], used by the Welcome onboarding
+     * "Sign in with Google" pill. Right after the user authorizes the Drive
+     * scope on a fresh device, we want to lift any playlists / watch progress
+     * / reminders / prefs / credentials from their Drive AppData folder so
+     * the device is fully usable without re-typing a server URL. Push is
+     * deliberately skipped here -- a fresh install has nothing to push, and
+     * a partial local state would otherwise overwrite the canonical remote
+     * snapshot on a phantom write.
+     *
+     * Returns the count of categories that successfully pulled at least one
+     * row. Callers can branch on `playlistsPulled` specifically (the first
+     * value of the returned map keyed by [SyncCategory.Playlists]) to decide
+     * whether to auto-advance the Welcome flow into the main app.
+     */
+    suspend fun restoreFromDrive(): Map<SyncCategory, Boolean> {
+        val token = (sync.status.value as? DriveSyncManager.Status.SignedIn)?.accessToken
+            ?: return emptyMap()
+        // Pull everything regardless of the user's per-category toggles --
+        // first-launch restore wants the full snapshot. The toggles still
+        // gate subsequent SyncWorker passes once the user is settled.
+        return sync.pullAll(token, SyncCategory.entries.toSet())
+    }
 }
