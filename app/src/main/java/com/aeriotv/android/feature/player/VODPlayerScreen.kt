@@ -92,6 +92,11 @@ fun VODPlayerScreen(
     videoId: String? = null,
     posterUrl: String? = null,
 ) {
+    // Keep the screen on during VOD playback. Matches PlayerScreen for the
+    // same reason: system screen-timeout would otherwise dim/sleep the panel
+    // mid-movie. iOS parity via IdleTimerRefCount.
+    KeepScreenOnWhilePlaying()
+
     val settingsVm: SettingsViewModel = hiltViewModel()
     val streamBufferSize by settingsVm.streamBufferSize.collectAsStateWithLifecycle(initialValue = "default")
     val watchVm: WatchProgressViewModel = hiltViewModel()

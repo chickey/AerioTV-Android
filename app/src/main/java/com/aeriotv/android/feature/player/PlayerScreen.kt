@@ -68,6 +68,16 @@ fun PlayerScreen(
     onClose: () -> Unit = {},
     onLaunchMultiview: () -> Unit = {},
 ) {
+    // Hold the screen awake while the fullscreen player is mounted. Without
+    // this the system screen-timeout fires mid-stream after its idle window
+    // (Samsung defaults to 30s in dim mode) and the user has to wake the
+    // phone to keep watching. Mirrors iOS IdleTimerRefCount.increment() on
+    // playback start (MPVPlayerView.swift line 4422). The DisposableEffect
+    // inside KeepScreenOnWhilePlaying cleans the flag up automatically when
+    // PlayerScreen leaves composition -- mini-player promotion + back-out
+    // both trigger the dispose path naturally.
+    KeepScreenOnWhilePlaying()
+
     val context = LocalContext.current
     val settingsVm: SettingsViewModel = hiltViewModel()
     val miniPlayerVm: MiniPlayerViewModel = hiltViewModel()

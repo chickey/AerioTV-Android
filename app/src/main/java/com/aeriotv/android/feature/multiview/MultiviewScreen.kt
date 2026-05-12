@@ -72,6 +72,11 @@ fun MultiviewScreen(
     storeHandle: MultiviewStoreHandle = rememberMultiviewStoreHandle(),
     settingsVm: SettingsViewModel = hiltViewModel(),
 ) {
+    // Keep the screen on while multiview is active. Same reason as
+    // PlayerScreen -- watching 2-9 live streams without the screen
+    // sleeping mid-grid. iOS parity via IdleTimerRefCount.
+    com.aeriotv.android.feature.player.KeepScreenOnWhilePlaying()
+
     val selected by storeHandle.selected.collectAsState()
     val focused by storeHandle.audioFocusedIndex.collectAsState()
     val bufferSize by settingsVm.streamBufferSize.collectAsState(initial = "default")
