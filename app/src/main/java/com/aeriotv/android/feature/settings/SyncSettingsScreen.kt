@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,8 +26,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -134,13 +137,53 @@ fun SyncSettingsScreen(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = androidx.compose.ui.Alignment.TopCenter,
         ) {
+        val signedIn = statusObj is DriveSyncManager.Status.SignedIn
+        // Single coroutine-launching closure shared between the inline Sign-In
+        // button below the account card and any future entry point that wants
+        // to kick off the flow.
+        val triggerSignIn = {
+            val activity = context.findActivity()
+            if (activity != null) {
+                inFlight = true
+                scope.launch {
+                    val email = viewModel.signInWithGoogle(activity)
+                    if (email == null) {
+                        inFlight = false
+                        Toast.makeText(context, "Sign-in cancelled or failed.", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    when (val driveResult = viewModel.requestDriveScope()) {
+                        is DriveSyncManager.RequestResult.Authorized -> {
+                            inFlight = false
+                            Toast.makeText(context, "Signed in as $email", Toast.LENGTH_SHORT).show()
+                        }
+                        is DriveSyncManager.RequestResult.NeedsConsent -> {
+                            consentLauncher.launch(
+                                IntentSenderRequest.Builder(driveResult.intentSender).build(),
+                            )
+                            // inFlight cleared by the launcher callback.
+                        }
+                        DriveSyncManager.RequestResult.Failed,
+                        null -> {
+                            inFlight = false
+                            Toast.makeText(context, "Drive authorization failed.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+
         LazyColumn(
-            modifier = Modifier.adaptiveFormWidth(),
+            // fillMaxHeight bounds the LazyColumn so its inner viewport can
+            // scroll past the first screen of content — without it, the column
+            // sized to wrap its contents and Settings -> Sync was stuck on
+            // whatever fit above the bottom edge.
+            modifier = Modifier.adaptiveFormWidth().fillMaxHeight(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!configured) {
-                item { ConfigBanner() }
+            if (!signedIn) {
+                item { SignedOutWelcomeBanner() }
             }
             item {
                 Section(
@@ -148,57 +191,44 @@ fun SyncSettingsScreen(
                     footer = "Playlists, watch progress, reminders, app preferences and credentials sync via your Drive AppData folder. Files are scoped per-app and never appear in your main Drive UI.",
                 ) {
                     AccountRow(
-                        signedIn = statusObj is DriveSyncManager.Status.SignedIn,
+                        signedIn = signedIn,
                         email = accountEmail,
-                        configured = configured,
-                        inFlight = inFlight,
-                        onSignIn = {
-                            val activity = context.findActivity() ?: return@AccountRow
-                            inFlight = true
-                            scope.launch {
-                                val email = viewModel.signInWithGoogle(activity)
-                                if (email == null) {
-                                    inFlight = false
-                                    Toast.makeText(context, "Sign-in cancelled or failed.", Toast.LENGTH_SHORT).show()
-                                    return@launch
-                                }
-                                val driveResult = viewModel.requestDriveScope()
-                                when (driveResult) {
-                                    is DriveSyncManager.RequestResult.Authorized -> {
-                                        inFlight = false
-                                        Toast.makeText(context, "Signed in as $email", Toast.LENGTH_SHORT).show()
-                                    }
-                                    is DriveSyncManager.RequestResult.NeedsConsent -> {
-                                        consentLauncher.launch(
-                                            IntentSenderRequest.Builder(driveResult.intentSender).build(),
-                                        )
-                                        // inFlight cleared by the launcher callback.
-                                    }
-                                    DriveSyncManager.RequestResult.Failed,
-                                    null -> {
-                                        inFlight = false
-                                        Toast.makeText(context, "Drive authorization failed.", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                        },
-                        onSignOut = {
-                            viewModel.signOut()
-                            Toast.makeText(context, "Signed out of Drive.", Toast.LENGTH_SHORT).show()
-                        },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                     ToggleRow(
                         title = "Sync enabled",
-                        subtitle = if (statusObj is DriveSyncManager.Status.SignedIn)
+                        subtitle = if (signedIn)
                             "Auto-syncing the categories you've toggled below."
                         else
-                            "Sign in above, then enable sync to push and pull data.",
+                            "Sign in below, then enable sync to push and pull data.",
                         checked = masterEnabled,
                         onCheckedChange = viewModel::setMasterEnabled,
                     )
                 }
             }
+            // Sign-in / sign-out lives in its own row below the account card so
+            // the button has breathing room instead of getting squeezed into
+                // the right edge of a multi-line description row.
+                item {
+                    if (signedIn) {
+                        SignOutButton(
+                            enabled = !inFlight,
+                            onClick = {
+                                viewModel.signOut()
+                                Toast.makeText(context, "Signed out of Drive.", Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                    } else {
+                        SignInWithGoogleButton(
+                            enabled = configured && !inFlight,
+                            onClick = triggerSignIn,
+                        )
+                        if (!configured) {
+                            Spacer(Modifier.height(8.dp))
+                            DeveloperConfigHint()
+                        }
+                    }
+                }
 
             item {
                 Section(header = "Categories", footer = "Choose what syncs across your devices.") {
@@ -281,12 +311,13 @@ fun SyncSettingsScreen(
     }
 }
 
+/**
+ * Friendly intro banner shown while the user hasn't signed in. The OAuth
+ * config check moved to its own [DeveloperConfigHint] beneath the button,
+ * so this card stays user-facing copy regardless of build state.
+ */
 @Composable
-private fun ConfigBanner() {
-    // Muted info-toned (not red-error-panic) card. The OAuth client is a
-    // developer-setup gap, not an end-user fault — the previous red
-    // banner read as "the app is broken" on every cold launch before
-    // anyone signed in. Keep the explanation, drop the volume.
+private fun SignedOutWelcomeBanner() {
     val accent = MaterialTheme.colorScheme.primary
     Row(
         modifier = Modifier
@@ -306,16 +337,16 @@ private fun ConfigBanner() {
         Spacer(Modifier.size(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Drive Sync setup pending",
+                text = "Drive Sync isn't set up yet",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "Add GOOGLE_DRIVE_WEB_CLIENT_ID to local.properties and register " +
-                    "this build's signing-cert SHA-1 in the same Google Cloud project. " +
-                    "Until then, Sign in with Google stays disabled.",
+                text = "Tap Sign in with Google below to connect your account. AerioTV will " +
+                    "then keep your playlists, watch progress, reminders, and preferences in " +
+                    "sync across every device signed into the same Google account.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -323,24 +354,57 @@ private fun ConfigBanner() {
     }
 }
 
+/**
+ * Tiny dev-facing note that surfaces only when the OAuth client ID is
+ * missing from BuildConfig. Sits below the disabled Sign-In button instead
+ * of dominating the screen with a red error banner. End-user releases ship
+ * with the ID baked in and never see this row.
+ */
 @Composable
-private fun AccountRow(
-    signedIn: Boolean,
-    email: String,
-    configured: Boolean,
-    inFlight: Boolean,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
-) {
+private fun DeveloperConfigHint() {
+    Text(
+        text = "This build doesn't have a Google Cloud OAuth client configured, so " +
+            "Sign in with Google is disabled. Add GOOGLE_DRIVE_WEB_CLIENT_ID to " +
+            "local.properties and register the signing-cert SHA-1 in the same Cloud project.",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+}
+
+@Composable
+private fun AccountRow(signedIn: Boolean, email: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(
+                    if (signedIn) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (signedIn)
+                    androidx.compose.material.icons.Icons.Filled.AccountCircle
+                else
+                    androidx.compose.material.icons.Icons.Outlined.AccountCircle,
+                contentDescription = null,
+                tint = if (signedIn) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Spacer(Modifier.size(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (signedIn) "Signed in to Drive" else "Sign in with Google",
+                text = if (signedIn) "Signed in to Drive" else "Not signed in",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
@@ -349,25 +413,40 @@ private fun AccountRow(
                 text = when {
                     signedIn && email.isNotBlank() -> email
                     signedIn -> "Account connected"
-                    else -> "Grants Drive AppData access. Files stay private to AerioTV."
+                    else -> "Sign in to start syncing across devices"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (signedIn) {
-            TextButton(onClick = onSignOut, enabled = !inFlight) {
-                Text(
-                    text = "Sign out",
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        } else {
-            SignInWithGoogleButton(
-                enabled = configured && !inFlight,
-                onClick = onSignIn,
-            )
-        }
+    }
+}
+
+/**
+ * Full-width Sign-Out CTA — pairs visually with [SignInWithGoogleButton]
+ * (same rounded-pill height and stretch). Renders below the account card
+ * when signed in so the destructive action has space to breathe.
+ */
+@Composable
+private fun SignOutButton(enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+            .border(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f), RoundedCornerShape(50))
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "Sign out",
+            color = if (enabled) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -380,17 +459,23 @@ private fun AccountRow(
  */
 @Composable
 private fun SignInWithGoogleButton(enabled: Boolean, onClick: () -> Unit) {
+    // Full-width, fixed-height pill so the Google-branded CTA reads as a
+    // primary action below the account card instead of the cramped right-
+    // aligned chip the earlier revision squeezed onto the AccountRow.
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .fillMaxWidth()
+            .height(48.dp)
+            .clip(RoundedCornerShape(50))
             .background(Color.White.copy(alpha = if (enabled) 1f else 0.55f))
-            .border(1.dp, Color(0xFFDADCE0), RoundedCornerShape(20.dp))
+            .border(1.dp, Color(0xFFDADCE0), RoundedCornerShape(50))
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
     ) {
-        GoogleGMark(size = 18.dp)
-        Spacer(Modifier.size(10.dp))
+        GoogleGMark(size = 20.dp)
+        Spacer(Modifier.size(12.dp))
         Text(
             text = "Sign in with Google",
             color = Color(0xFF3C4043),
