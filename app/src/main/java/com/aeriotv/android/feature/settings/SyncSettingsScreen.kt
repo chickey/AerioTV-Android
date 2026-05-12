@@ -459,64 +459,53 @@ private fun SignOutButton(enabled: Boolean, onClick: () -> Unit) {
  */
 @Composable
 private fun SignInWithGoogleButton(enabled: Boolean, onClick: () -> Unit) {
-    // Full-width, fixed-height pill so the Google-branded CTA reads as a
-    // primary action below the account card instead of the cramped right-
-    // aligned chip the earlier revision squeezed onto the AccountRow.
+    // Google ships two officially-permitted button styles: light (white BG /
+    // dark text) and dark (#131314 BG / white text). Both must use the
+    // full four-color G mark — the only freedom callers have is which
+    // background variant they pick. The dark variant lands much better
+    // against AerioTV's navy app surface than the white pill the previous
+    // cut used, while staying compliant with Google's brand guidelines.
+    // Tokens:
+    //  - background #131314 (Google's "Dark" button surface)
+    //  - 1dp outline #8E918F (Google's "Dark" 1dp stroke)
+    //  - text #E3E3E3 (Google's "Dark" foreground)
+    val bg = if (enabled) Color(0xFF131314) else Color(0xFF131314).copy(alpha = 0.55f)
+    val stroke = Color(0xFF8E918F).copy(alpha = if (enabled) 1f else 0.55f)
+    val fg = if (enabled) Color(0xFFE3E3E3) else Color(0xFFE3E3E3).copy(alpha = 0.55f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
             .clip(RoundedCornerShape(50))
-            .background(Color.White.copy(alpha = if (enabled) 1f else 0.55f))
-            .border(1.dp, Color(0xFFDADCE0), RoundedCornerShape(50))
+            .background(bg)
+            .border(1.dp, stroke, RoundedCornerShape(50))
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        GoogleGMark(size = 20.dp)
+        Icon(
+            painter = androidx.compose.ui.res.painterResource(
+                id = com.aeriotv.android.R.drawable.ic_google_g,
+            ),
+            contentDescription = null,
+            // Tint.Unspecified preserves the four-color brand mark; tinting
+            // would flatten it to a single colour which Google disallows.
+            tint = Color.Unspecified,
+            modifier = Modifier.size(20.dp),
+        )
         Spacer(Modifier.size(12.dp))
         Text(
             text = "Sign in with Google",
-            color = Color(0xFF3C4043),
+            color = fg,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium,
         )
     }
 }
 
-/**
- * Four-quadrant "G" mark approximating Google's brand glyph in Compose.
- * The actual SVG is delivered via Material Icons Extended as
- * vector drawables, but the closest neutral analog rendered here keeps
- * everything self-contained and theme-stable.
- */
-@Composable
-private fun GoogleGMark(size: androidx.compose.ui.unit.Dp) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(androidx.compose.foundation.shape.CircleShape)
-            .background(Color.White),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(size)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .border(
-                    width = (size.value * 0.18f).dp,
-                    color = Color(0xFF4285F4),
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                ),
-        )
-        Text(
-            text = "G",
-            color = Color(0xFF4285F4),
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-        )
-    }
-}
+// Phase 61b: removed the inline GoogleGMark approximation — the button now
+// renders the official four-color brand mark from res/drawable/ic_google_g.xml.
 
 @Composable
 private fun Section(
