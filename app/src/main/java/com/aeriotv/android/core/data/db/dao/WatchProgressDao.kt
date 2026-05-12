@@ -23,4 +23,10 @@ interface WatchProgressDao {
 
     @Query("DELETE FROM watch_progress WHERE videoId = :videoId")
     suspend fun delete(videoId: String)
+
+    @Query("SELECT * FROM watch_progress ORDER BY updatedAt DESC")
+    suspend fun allOnce(): List<WatchProgressEntity>
+
+    @Query("DELETE FROM watch_progress")
+    suspend fun clear()
 }

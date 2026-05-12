@@ -21,6 +21,9 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE id = :id")
     suspend fun byId(id: String): PlaylistEntity?
 
+    @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
+    suspend fun allOnce(): List<PlaylistEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(playlist: PlaylistEntity)
 

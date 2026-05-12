@@ -9,9 +9,11 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.preferences.core.longPreferencesKey
 import com.aeriotv.android.core.category.CategoryPaletteState
 import com.aeriotv.android.core.category.CustomCategoryEntry
 import com.aeriotv.android.core.category.ProgramCategory
+import com.aeriotv.android.core.sync.SyncCategory
 import com.aeriotv.android.ui.theme.AppTheme
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -239,6 +241,85 @@ class AppPreferences @Inject constructor(
         }
     }
 
+    // ── Drive Sync ──────────────────────────────────────────────────────
+    //
+    // Mirrors iOS Settings > iCloud Sync. Per-category toggles control which
+    // snapshots get pushed/pulled on each manual sync. Last push/pull
+    // timestamps drive the UI's "Last synced 5 min ago" caption.
+
+    val syncMasterEnabled: Flow<Boolean> = store.data.map { it[KEY_SYNC_MASTER] ?: false }
+    suspend fun setSyncMasterEnabled(value: Boolean) {
+        store.edit { it[KEY_SYNC_MASTER] = value }
+    }
+
+    fun syncCategoryEnabled(category: SyncCategory): Flow<Boolean> = store.data.map { prefs ->
+        prefs[booleanPreferencesKey(category.enabledStorageKey())] ?: true
+    }
+    suspend fun setSyncCategoryEnabled(category: SyncCategory, value: Boolean) {
+        store.edit { it[booleanPreferencesKey(category.enabledStorageKey())] = value }
+    }
+
+    val syncAccountEmail: Flow<String> = store.data.map { it[KEY_SYNC_ACCOUNT_EMAIL] ?: "" }
+    suspend fun setSyncAccountEmail(value: String) {
+        store.edit { prefs ->
+            if (value.isBlank()) prefs.remove(KEY_SYNC_ACCOUNT_EMAIL)
+            else prefs[KEY_SYNC_ACCOUNT_EMAIL] = value
+        }
+    }
+
+    val syncLastPushAt: Flow<Long> = store.data.map { it[KEY_SYNC_LAST_PUSH] ?: 0L }
+    suspend fun setSyncLastPushAt(value: Long) {
+        store.edit { it[KEY_SYNC_LAST_PUSH] = value }
+    }
+
+    val syncLastPullAt: Flow<Long> = store.data.map { it[KEY_SYNC_LAST_PULL] ?: 0L }
+    suspend fun setSyncLastPullAt(value: Long) {
+        store.edit { it[KEY_SYNC_LAST_PULL] = value }
+    }
+
+    /**
+     * Snapshot the keys we sync via Drive — the user-facing UI bits, not
+     * device-local network/buffer settings. Returns a string-encoded map so
+     * the wire format stays type-agnostic for cross-platform compatibility.
+     */
+    suspend fun snapshotSyncablePreferences(): Map<String, String> {
+        val data = store.data.first()
+        val out = mutableMapOf<String, String>()
+        data[KEY_SELECTED_THEME]?.let { out["selectedTheme"] = it }
+        data[KEY_DEFAULT_TAB]?.let { out["defaultTab"] = it }
+        data[KEY_DEFAULT_LIVE_TV_VIEW]?.let { out["defaultLiveTVView"] = it }
+        data[KEY_SKIP_LOADING_SCREEN]?.let { out["skipLoadingScreen"] = it.toString() }
+        data[KEY_APPLE_TV_CHANNEL_FLIP]?.let { out["appleTVChannelFlip"] = it.toString() }
+        data[KEY_AUTO_RESUME_LAST_CHANNEL]?.let { out["autoResumeLastChannel"] = it.toString() }
+        data[KEY_CATEGORY_MASTER_ENABLE]?.let { out["enableCategoryColors"] = it.toString() }
+        data[KEY_CATEGORY_CUSTOM_JSON]?.let { out["customCategoryColors.v1"] = it }
+        ProgramCategory.entries.forEach { bucket ->
+            data[stringPreferencesKey(bucket.hexStorageKey)]?.let { out[bucket.hexStorageKey] = it }
+            data[booleanPreferencesKey(bucket.enabledStorageKey)]?.let { out[bucket.enabledStorageKey] = it.toString() }
+        }
+        return out
+    }
+
+    /** Reverse of [snapshotSyncablePreferences]. Best-effort decode. */
+    suspend fun applySyncedPreferences(keys: Map<String, String>) {
+        store.edit { prefs ->
+            keys["selectedTheme"]?.let { prefs[KEY_SELECTED_THEME] = it }
+            keys["defaultTab"]?.let { prefs[KEY_DEFAULT_TAB] = it }
+            keys["defaultLiveTVView"]?.let { prefs[KEY_DEFAULT_LIVE_TV_VIEW] = it }
+            keys["skipLoadingScreen"]?.toBooleanStrictOrNull()?.let { prefs[KEY_SKIP_LOADING_SCREEN] = it }
+            keys["appleTVChannelFlip"]?.toBooleanStrictOrNull()?.let { prefs[KEY_APPLE_TV_CHANNEL_FLIP] = it }
+            keys["autoResumeLastChannel"]?.toBooleanStrictOrNull()?.let { prefs[KEY_AUTO_RESUME_LAST_CHANNEL] = it }
+            keys["enableCategoryColors"]?.toBooleanStrictOrNull()?.let { prefs[KEY_CATEGORY_MASTER_ENABLE] = it }
+            keys["customCategoryColors.v1"]?.let { prefs[KEY_CATEGORY_CUSTOM_JSON] = it }
+            ProgramCategory.entries.forEach { bucket ->
+                keys[bucket.hexStorageKey]?.let { prefs[stringPreferencesKey(bucket.hexStorageKey)] = it }
+                keys[bucket.enabledStorageKey]?.toBooleanStrictOrNull()?.let {
+                    prefs[booleanPreferencesKey(bucket.enabledStorageKey)] = it
+                }
+            }
+        }
+    }
+
     // ── DVR ──────────────────────────────────────────────────────────────
 
     /** iOS `dvrMaxLocalStorageMB` parity. Default 10 GB. */
@@ -297,5 +378,9 @@ class AppPreferences @Inject constructor(
         val KEY_DVR_CUSTOM_FOLDER_URI = stringPreferencesKey("dvr_custom_folder_uri")
         val KEY_CATEGORY_MASTER_ENABLE = booleanPreferencesKey(CategoryPaletteState.MASTER_ENABLED_KEY)
         val KEY_CATEGORY_CUSTOM_JSON = stringPreferencesKey(CategoryPaletteState.CUSTOM_KEY)
+        val KEY_SYNC_MASTER = booleanPreferencesKey("sync_master_enabled")
+        val KEY_SYNC_ACCOUNT_EMAIL = stringPreferencesKey("sync_account_email")
+        val KEY_SYNC_LAST_PUSH = longPreferencesKey("sync_last_push_at")
+        val KEY_SYNC_LAST_PULL = longPreferencesKey("sync_last_pull_at")
     }
 }

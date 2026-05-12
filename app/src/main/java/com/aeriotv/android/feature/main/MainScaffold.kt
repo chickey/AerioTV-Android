@@ -162,9 +162,7 @@ private fun SettingsTabContent() {
         section == SettingsSection.AppBehaviors -> AppBehaviorsSettingsScreen(onBack = { section = null })
         section == SettingsSection.Multiview -> MultiviewSettingsScreen(onBack = { section = null })
         section == SettingsSection.Network -> NetworkSettingsScreen(onBack = { section = null })
-        section == SettingsSection.Sync -> SettingsSubScreenPlaceholder(
-            title = "Sync",
-            body = "Google Drive AppData + Block Store credential sync. Lands with Phase 12 Sync.",
+        section == SettingsSection.Sync -> com.aeriotv.android.feature.settings.SyncSettingsScreen(
             onBack = { section = null },
         )
         section == SettingsSection.DvrSettings -> DvrSettingsScreen(onBack = { section = null })

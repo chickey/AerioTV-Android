@@ -23,4 +23,10 @@ interface ReminderDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM reminder WHERE reminderKey = :reminderKey)")
     fun observeIsSet(reminderKey: String): Flow<Boolean>
+
+    @Query("SELECT * FROM reminder ORDER BY startMillis ASC")
+    suspend fun allOnce(): List<ReminderEntity>
+
+    @Query("DELETE FROM reminder")
+    suspend fun clear()
 }
