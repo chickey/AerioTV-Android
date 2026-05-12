@@ -26,8 +26,12 @@ import com.aeriotv.android.feature.dvr.DvrTabContent
 import com.aeriotv.android.feature.favorites.FavoritesTabContent
 import com.aeriotv.android.feature.favorites.FavoritesViewModel
 import com.aeriotv.android.feature.livetv.LiveTVTabContent
+import com.aeriotv.android.feature.miniplayer.MiniPlayerRow
+import com.aeriotv.android.feature.miniplayer.MiniPlayerSession
+import com.aeriotv.android.feature.miniplayer.MiniPlayerViewModel
 import com.aeriotv.android.feature.ondemand.OnDemandTabContent
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
+import com.aeriotv.android.feature.playlist.nowPlaying
 import com.aeriotv.android.feature.settings.AppBehaviorsSettingsScreen
 import com.aeriotv.android.feature.settings.AddMoreCategoriesScreen
 import com.aeriotv.android.feature.settings.AppearanceSettingsScreen
@@ -56,6 +60,8 @@ fun MainScaffold(
     val favoritesVm: FavoritesViewModel = hiltViewModel()
     val favoritesCount by favoritesVm.count.collectAsStateWithLifecycle(initialValue = 0)
     val tabs = visibleTabs(state, hasFavorites = favoritesCount > 0)
+    val miniPlayerVm: MiniPlayerViewModel = hiltViewModel()
+    val miniPlayerState by miniPlayerVm.state.collectAsStateWithLifecycle()
 
     val settingsVm: SettingsViewModel = hiltViewModel()
     val defaultTabPref by settingsVm.defaultTab.collectAsStateWithLifecycle(initialValue = "")
@@ -94,30 +100,46 @@ fun MainScaffold(
         // sits correctly above the system gesture area.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ) {
-                tabs.forEach { tab ->
-                    val selected = tab == selectedTab
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = { selectedTab = tab },
-                        icon = {
-                            Icon(
-                                imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
-                                contentDescription = tab.label,
-                            )
+            androidx.compose.foundation.layout.Column {
+                val miniState = miniPlayerState
+                if (miniState is MiniPlayerSession.State.Active) {
+                    val channel = miniState.channel
+                    val nowProgramme = state.epgByChannel[channel.tvgID]?.nowPlaying()
+                    MiniPlayerRow(
+                        channel = channel,
+                        nowProgramme = nowProgramme,
+                        onResume = {
+                            val resumed = miniPlayerVm.resumeChannel()
+                            if (resumed != null) onChannelClick(resumed)
                         },
-                        label = { Text(tab.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
+                        onDismiss = { miniPlayerVm.dismiss() },
                     )
+                }
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ) {
+                    tabs.forEach { tab ->
+                        val selected = tab == selectedTab
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = { selectedTab = tab },
+                            icon = {
+                                Icon(
+                                    imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
+                                    contentDescription = tab.label,
+                                )
+                            },
+                            label = { Text(tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
                 }
             }
         },

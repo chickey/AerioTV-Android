@@ -29,6 +29,7 @@ import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.feature.livetv.RecordProgramSheet
+import com.aeriotv.android.feature.miniplayer.MiniPlayerViewModel
 import com.aeriotv.android.feature.multiview.AddToMultiviewSheet
 import com.aeriotv.android.feature.playlist.nowPlaying
 import com.aeriotv.android.feature.settings.SettingsViewModel
@@ -62,6 +63,7 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val settingsVm: SettingsViewModel = hiltViewModel()
+    val miniPlayerVm: MiniPlayerViewModel = hiltViewModel()
     val appleTVChannelFlip by settingsVm.appleTVChannelFlip.collectAsStateWithLifecycle(initialValue = true)
     val streamBufferSize by settingsVm.streamBufferSize.collectAsStateWithLifecycle(initialValue = "default")
 
@@ -79,11 +81,22 @@ fun PlayerScreen(
     // Persist last-watched channel for the App Behaviors > Resume Last Channel
     // toggle. Writes whenever the user flips to a new channel; AerioTVNavHost
     // reads this once on cold boot to decide whether to auto-launch into the
-    // player.
+    // player. Also seeds the mini-player session so a system back can promote
+    // it without losing channel context.
     LaunchedEffect(currentChannel?.id) {
-        currentChannel?.id?.takeIf { it.isNotBlank() }?.let { id ->
-            settingsVm.setLastWatchedChannelId(id)
+        currentChannel?.let { ch ->
+            if (ch.id.isNotBlank()) settingsVm.setLastWatchedChannelId(ch.id)
+            miniPlayerVm.setCurrentChannel(ch)
         }
+    }
+
+    // System back intercept: instead of fully popping back to MainScaffold and
+    // tearing down the channel context, promote the active channel into the
+    // mini-player row anchored above the bottom nav and call onClose() to
+    // unwind the player nav entry. Tap the row to resume.
+    androidx.activity.compose.BackHandler {
+        miniPlayerVm.showMiniPlayer()
+        onClose()
     }
 
     // Chrome + ad-hoc sub-modal state.
@@ -217,7 +230,13 @@ fun PlayerScreen(
             channel = currentChannel,
             nowProgramme = nowProgramme,
             chromeVisible = chromeVisible,
-            onClose = onClose,
+            // Explicit X tap = user is done with this channel; clear the mini-player
+            // session so MainScaffold doesn't surface a stale resume affordance.
+            // System back keeps the session and promotes it (handled by BackHandler).
+            onClose = {
+                miniPlayerVm.dismiss()
+                onClose()
+            },
             onAddToMultiview = { multiviewPickerOpen = true },
             onShowRecord = { target -> recordTarget = target },
             onShowStreamInfo = {
