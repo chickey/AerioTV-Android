@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.ViewList
@@ -586,9 +587,24 @@ internal fun ChannelRow(
                         },
                     )
                 }
-                if (channel.url.isNotBlank()) {
+                // Record row only surfaces for Dispatcharr-sourced channels
+                // (the only path that has server-side scheduling today).
+                // Showing-then-toasting on M3U / Xtream rows was bad UX --
+                // the user tapped, got a "DVR requires Dispatcharr" toast,
+                // then had no way to actually start a recording. Mirrors
+                // iOS canon: the channel long-press menu hides irrelevant
+                // actions instead of greying them out for context-free
+                // sources.
+                if (channel.url.isNotBlank() && channel.dispatcharrChannelId != null) {
                     val recordLabel = if (nowProgramme != null) "Record from Now" else "Record"
                     DropdownMenuItem(
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.FiberManualRecord,
+                                contentDescription = null,
+                                tint = Color(0xFFFF4757),
+                            )
+                        },
                         text = { Text(recordLabel) },
                         onClick = {
                             menuOpen = false
