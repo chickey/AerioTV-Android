@@ -111,6 +111,26 @@ fun ManageGroupsSheet(
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            if (allGroups.isEmpty()) {
+                // Mirrors iOS ManageGroupsSheet.swift line 50-53 empty
+                // state. Hit when the active playlist has no #EXTINF
+                // group-title field set on any channel -- the Manage
+                // button still appears but tapping it would otherwise
+                // show a blank list with no explanation.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No groups available",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                return@Column
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(vertical = 6.dp),

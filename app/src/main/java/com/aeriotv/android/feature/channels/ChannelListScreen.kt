@@ -233,10 +233,29 @@ fun ChannelListScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Tune,
-                            contentDescription = "Manage groups",
+                            contentDescription = if (hiddenGroups.isEmpty())
+                                "Manage groups"
+                            else
+                                "Manage groups (${hiddenGroups.size} hidden)",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),
                         )
+                        // iOS parity: warning dot in the top-right indicates
+                        // the user has at least one group hidden. Without
+                        // this, a user who hid groups months ago has no
+                        // visual cue to remember why the chip list looks
+                        // short. ManageGroupsButton in Aerio/Design/Components
+                        // /ManageGroupsSheet.swift uses the same pattern.
+                        if (hiddenGroups.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 6.dp, end = 6.dp)
+                                    .size(8.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Color(0xFFFFA502)),
+                            )
+                        }
                     }
                 }
                 items(groups, key = { it }) { group ->
@@ -260,7 +279,14 @@ fun ChannelListScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            // 104dp bottom clears the MainScaffold NavigationBar so the
+            // final channel row stays fully visible above the tab bar.
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = 8.dp,
+                bottom = 104.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(items = filtered, key = { it.id }) { channel ->
