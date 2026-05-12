@@ -162,6 +162,7 @@ fun AerioTVNavHost(
                 }
                 val vm: PlaylistViewModel = hiltViewModel(parent)
                 val state by vm.state.collectAsStateWithLifecycle()
+                val context = androidx.compose.ui.platform.LocalContext.current
 
                 LaunchedEffect(state.phase) {
                     if (state.phase == PlaylistViewModel.Phase.NeedsUrl) {
@@ -177,6 +178,13 @@ fun AerioTVNavHost(
                     },
                     onMovieClick = { movieUuid ->
                         navController.navigate(Routes.vodPlayer(movieUuid))
+                    },
+                    onSeriesClick = {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Series detail + episode picker land with Phase 10c-2.",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
                     },
                 )
             }

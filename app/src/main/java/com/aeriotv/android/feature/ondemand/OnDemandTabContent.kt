@@ -48,6 +48,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.aeriotv.android.core.network.DispatcharrVODMovie
+import com.aeriotv.android.core.network.DispatcharrVODSeries
 
 /**
  * On Demand tab shell. Mirrors iOS OnDemandView (Aerio/Features/VOD/OnDemandView.swift):
@@ -62,6 +63,7 @@ import com.aeriotv.android.core.network.DispatcharrVODMovie
 fun OnDemandTabContent(
     modifier: Modifier = Modifier,
     onMovieClick: (DispatcharrVODMovie) -> Unit = {},
+    onSeriesClick: (DispatcharrVODSeries) -> Unit = {},
     viewModel: OnDemandViewModel = hiltViewModel(),
 ) {
     var section by rememberSaveable { mutableStateOf(OnDemandSection.Movies) }
@@ -85,7 +87,10 @@ fun OnDemandTabContent(
                 viewModel = viewModel,
                 onMovieClick = onMovieClick,
             )
-            OnDemandSection.Series -> SeriesSubScreen()
+            OnDemandSection.Series -> SeriesSubScreen(
+                viewModel = viewModel,
+                onSeriesClick = onSeriesClick,
+            )
         }
     }
 }
@@ -236,11 +241,148 @@ private fun MoviesSubScreen(
 }
 
 @Composable
-private fun SeriesSubScreen() {
-    EmptyState(
-        title = "Series",
-        body = "Episode picker, season grid, and WatchProgress land with Phase 10c.",
-    )
+private fun SeriesSubScreen(
+    viewModel: OnDemandViewModel,
+    onSeriesClick: (DispatcharrVODSeries) -> Unit,
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    if (state.unsupportedSource) {
+        EmptyState(
+            title = "Series needs Dispatcharr",
+            body = "Switch to a Dispatcharr playlist in Settings to browse series.",
+        )
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = state.seriesSearchQuery,
+            onValueChange = viewModel::setSeriesSearchQuery,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            singleLine = true,
+            placeholder = { Text("Search series") },
+            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            shape = RoundedCornerShape(14.dp),
+        )
+
+        val countLabel = state.seriesTotalCount.takeIf { it > 0 }?.let { total ->
+            "${state.series.size} / $total"
+        }
+        if (countLabel != null) {
+            Text(
+                text = countLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
+
+        if (state.isLoadingSeries && state.series.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+            return@Column
+        }
+        state.seriesError?.let { err ->
+            if (state.series.isEmpty()) {
+                Text(
+                    text = "Couldn't load series: $err",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(24.dp),
+                )
+                return@Column
+            }
+        }
+        if (state.visibleSeries.isEmpty()) {
+            EmptyState(
+                title = if (state.seriesSearchQuery.isNotBlank()) "No matches" else "No series",
+                body = if (state.seriesSearchQuery.isNotBlank())
+                    "Try a different search term."
+                else
+                    "Dispatcharr returned an empty Series library. Confirm VOD is enabled on the server.",
+            )
+            return@Column
+        }
+
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 120.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items = state.visibleSeries, key = { it.id }) { series ->
+                SeriesPoster(
+                    series = series,
+                    onClick = { onSeriesClick(series) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesPoster(
+    series: DispatcharrVODSeries,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val poster = series.posterUrl
+            if (!poster.isNullOrBlank()) {
+                AsyncImage(
+                    model = poster,
+                    contentDescription = series.displayName,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.Tv,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(40.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = series.displayName.ifBlank { "Untitled" },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+        if (series.year != null || !series.rating.isNullOrBlank()) {
+            val meta = listOfNotNull(
+                series.year?.toString(),
+                series.rating?.takeIf { it.isNotBlank() },
+            ).joinToString("  ·  ")
+            Text(
+                text = meta,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
+    }
 }
 
 @Composable

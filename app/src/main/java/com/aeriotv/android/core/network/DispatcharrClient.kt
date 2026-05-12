@@ -292,6 +292,37 @@ class DispatcharrClient @Inject constructor() {
     }
 
     /**
+     * GET /api/vod/series/?page_size=100 — first page of VOD series. Mirrors
+     * iOS DispatcharrAPI.getVODSeries (StreamingAPIs.swift:1727), pagination
+     * support deferred until the user hits the bottom of the grid.
+     */
+    suspend fun getVODSeriesFirstPage(baseUrl: String, apiKey: String): VODSeriesPage {
+        val response: HttpResponse = client.get("${baseUrl.trimEnd('/')}/api/vod/series/?page_size=100") {
+            applyAuth(apiKey)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("VOD series fetch failed: HTTP ${response.status.value}")
+        }
+        val raw: JsonElement = response.body()
+        return when {
+            raw is JsonArray -> VODSeriesPage(
+                count = raw.size,
+                next = null,
+                results = raw.map { json.decodeFromJsonElement(serializer<DispatcharrVODSeries>(), it) },
+            )
+            raw is JsonObject -> {
+                val results = (raw["results"] as? JsonArray)?.map {
+                    json.decodeFromJsonElement(serializer<DispatcharrVODSeries>(), it)
+                } ?: emptyList()
+                val count = (raw["count"]?.toString()?.toIntOrNull()) ?: results.size
+                val next = raw["next"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                VODSeriesPage(count = count, next = next, results = results)
+            }
+            else -> throw IllegalStateException("Unexpected /api/vod/series/ shape: ${raw::class.simpleName}")
+        }
+    }
+
+    /**
      * Returns the unresolved Dispatcharr VOD entry URL for a movie. Mirrors
      * iOS DispatcharrAPI.proxyMovieURL (StreamingAPIs.swift:2105).
      *
@@ -428,6 +459,33 @@ data class VODMoviesPage(
     val next: String?,
     val results: List<DispatcharrVODMovie>,
 )
+
+@Serializable
+data class VODSeriesPage(
+    val count: Int,
+    val next: String?,
+    val results: List<DispatcharrVODSeries>,
+)
+
+@Serializable
+data class DispatcharrVODSeries(
+    val id: Int,
+    val uuid: String = "",
+    val name: String = "",
+    val title: String? = null,
+    val plot: String? = null,
+    val genre: String? = null,
+    val rating: String? = null,
+    val year: Int? = null,
+    @SerialName("tmdb_id")
+    val tmdbId: String? = null,
+    @SerialName("imdb_id")
+    val imdbId: String? = null,
+    val logo: DispatcharrVODLogo? = null,
+) {
+    val displayName: String get() = name.ifBlank { title.orEmpty() }
+    val posterUrl: String? get() = logo?.url
+}
 
 @Serializable
 data class DispatcharrVODMovie(

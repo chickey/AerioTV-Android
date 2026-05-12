@@ -7,6 +7,7 @@ import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.data.repository.PlaylistRepository
 import com.aeriotv.android.core.network.DispatcharrClient
 import com.aeriotv.android.core.network.DispatcharrVODMovie
+import com.aeriotv.android.core.network.DispatcharrVODSeries
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,11 +38,23 @@ class OnDemandViewModel @Inject constructor(
         val totalCount: Int = 0,
         val searchQuery: String = "",
         val unsupportedSource: Boolean = false,
+        // Series state — separate from movies so each sub-tab's search /
+        // loading flow is independent. Both share the same playlist context.
+        val isLoadingSeries: Boolean = false,
+        val seriesError: String? = null,
+        val series: List<DispatcharrVODSeries> = emptyList(),
+        val seriesTotalCount: Int = 0,
+        val seriesSearchQuery: String = "",
     ) {
         val visible: List<DispatcharrVODMovie> get() {
             val q = searchQuery.trim()
             if (q.isEmpty()) return movies
             return movies.filter { it.displayName.contains(q, ignoreCase = true) }
+        }
+        val visibleSeries: List<DispatcharrVODSeries> get() {
+            val q = seriesSearchQuery.trim()
+            if (q.isEmpty()) return series
+            return series.filter { it.displayName.contains(q, ignoreCase = true) }
         }
     }
 
@@ -50,10 +63,15 @@ class OnDemandViewModel @Inject constructor(
 
     init {
         refresh()
+        refreshSeries()
     }
 
     fun setSearchQuery(value: String) {
         _state.update { it.copy(searchQuery = value) }
+    }
+
+    fun setSeriesSearchQuery(value: String) {
+        _state.update { it.copy(seriesSearchQuery = value) }
     }
 
     fun refresh() {
@@ -83,6 +101,38 @@ class OnDemandViewModel @Inject constructor(
                 onFailure = { t ->
                     Log.w(TAG, "getVODMovies failed", t)
                     _state.update { it.copy(isLoading = false, error = t.message ?: t::class.simpleName) }
+                },
+            )
+        }
+    }
+
+    fun refreshSeries() {
+        viewModelScope.launch {
+            val playlist = playlistRepository.activePlaylist()
+            val sourceType = playlist?.sourceType?.let { SourceType.entries.firstOrNull { st -> st.name == it } }
+            val isDispatcharr = sourceType == SourceType.DispatcharrApiKey ||
+                    sourceType == SourceType.DispatcharrUserPass
+            if (playlist == null || !isDispatcharr || playlist.apiKey.isNullOrBlank()) {
+                _state.update { it.copy(unsupportedSource = true, series = emptyList(), isLoadingSeries = false, seriesError = null) }
+                return@launch
+            }
+            _state.update { it.copy(isLoadingSeries = true, seriesError = null) }
+            runCatching {
+                dispatcharrClient.getVODSeriesFirstPage(playlist.urlString, playlist.apiKey!!)
+            }.fold(
+                onSuccess = { page ->
+                    _state.update {
+                        it.copy(
+                            isLoadingSeries = false,
+                            series = page.results,
+                            seriesTotalCount = page.count,
+                            seriesError = null,
+                        )
+                    }
+                },
+                onFailure = { t ->
+                    Log.w(TAG, "getVODSeries failed", t)
+                    _state.update { it.copy(isLoadingSeries = false, seriesError = t.message ?: t::class.simpleName) }
                 },
             )
         }
