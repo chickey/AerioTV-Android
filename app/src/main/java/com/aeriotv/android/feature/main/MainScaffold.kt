@@ -23,10 +23,12 @@ import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.feature.livetv.LiveTVTabContent
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
+import com.aeriotv.android.feature.settings.AppBehaviorsSettingsScreen
 import com.aeriotv.android.feature.settings.AppearanceSettingsScreen
 import com.aeriotv.android.feature.settings.SettingsScreen
 import com.aeriotv.android.feature.settings.SettingsSection
 import com.aeriotv.android.feature.settings.SettingsSubScreenPlaceholder
+import com.aeriotv.android.feature.settings.SettingsViewModel
 
 /**
  * Top-level scaffold once a playlist is loaded. Mirrors iOS MainTabView with the
@@ -41,7 +43,25 @@ fun MainScaffold(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val tabs = visibleTabs(state)
 
+    val settingsVm: SettingsViewModel = hiltViewModel()
+    val defaultTabPref by settingsVm.defaultTab.collectAsStateWithLifecycle(initialValue = "")
+
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.LiveTV) }
+    var initialTabApplied by rememberSaveable { mutableStateOf(false) }
+
+    // First composition: honour the saved defaultTab if it's in the visible set.
+    // After that, user taps on the bottom nav win.
+    LaunchedEffect(defaultTabPref, tabs) {
+        if (!initialTabApplied && defaultTabPref.isNotEmpty()) {
+            val target = AppTab.entries.firstOrNull { it.name == defaultTabPref }
+            if (target != null && target in tabs) {
+                selectedTab = target
+            }
+            initialTabApplied = true
+        } else if (defaultTabPref.isEmpty()) {
+            initialTabApplied = true
+        }
+    }
 
     // If the currently-selected tab disappears (e.g. user clears playlist, sourceType
     // changes), fall back to Live TV.
@@ -110,11 +130,7 @@ private fun SettingsTabContent() {
     when (section) {
         null -> SettingsScreen(onSectionClick = { section = it })
         SettingsSection.Appearance -> AppearanceSettingsScreen(onBack = { section = null })
-        SettingsSection.AppBehaviors -> SettingsSubScreenPlaceholder(
-            title = "App Behaviors",
-            body = "Splash, default tab, channel-flip, auto-resume. Lands in Phase 8b.",
-            onBack = { section = null },
-        )
+        SettingsSection.AppBehaviors -> AppBehaviorsSettingsScreen(onBack = { section = null })
         SettingsSection.Multiview -> SettingsSubScreenPlaceholder(
             title = "Multiview",
             body = "Audio-focus indicator, tile padding, tile corners. Lands with Phase 11 Multiview.",

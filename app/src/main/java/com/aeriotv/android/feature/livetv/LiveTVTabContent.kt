@@ -2,26 +2,42 @@ package com.aeriotv.android.feature.livetv
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.feature.channels.ChannelListScreen
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
+import com.aeriotv.android.feature.settings.SettingsViewModel
 
 /**
  * Entry point for the Live TV tab. Picks the appropriate sub-screen
  * (List vs Guide) based on form factor + the user's runtime toggle.
  * Mirrors iOS ChannelListView dispatcher logic (`ChannelListView.swift:348`).
+ *
+ * Phase 8b: view-mode preference moved from `rememberSaveable` to DataStore
+ * via [SettingsViewModel] so the user's List/Guide choice survives cold start.
+ * An empty stored value falls back to the form-factor default.
  */
 @Composable
 fun LiveTVTabContent(
     onChannelClick: (M3UChannel) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlaylistViewModel = hiltViewModel(),
+    settingsVm: SettingsViewModel = hiltViewModel(),
 ) {
     val formFactor = rememberLiveTvFormFactor()
-    var mode by rememberLiveTvViewModeState(formFactor)
+    val stored by settingsVm.defaultLiveTVView.collectAsStateWithLifecycle(initialValue = "")
+
+    val mode = when (stored.lowercase()) {
+        "list" -> LiveTVViewMode.List
+        "guide" -> LiveTVViewMode.Guide
+        else -> formFactor.defaultMode
+    }
+    val toggleMode: () -> Unit = {
+        val next = if (mode == LiveTVViewMode.List) LiveTVViewMode.Guide else LiveTVViewMode.List
+        settingsVm.setDefaultLiveTVView(next.storageKey())
+    }
 
     when (mode) {
         LiveTVViewMode.List -> ChannelListScreen(
@@ -30,7 +46,7 @@ fun LiveTVTabContent(
             modifierWrap = modifier,
             viewMode = mode,
             canToggleViewMode = formFactor.supportsToggle,
-            onToggleViewMode = { mode = if (mode == LiveTVViewMode.List) LiveTVViewMode.Guide else LiveTVViewMode.List },
+            onToggleViewMode = toggleMode,
         )
         LiveTVViewMode.Guide -> GuideScreen(
             onChannelClick = onChannelClick,
@@ -38,7 +54,12 @@ fun LiveTVTabContent(
             modifier = modifier,
             viewMode = mode,
             canToggleViewMode = formFactor.supportsToggle,
-            onToggleViewMode = { mode = if (mode == LiveTVViewMode.List) LiveTVViewMode.Guide else LiveTVViewMode.List },
+            onToggleViewMode = toggleMode,
         )
     }
+}
+
+private fun LiveTVViewMode.storageKey(): String = when (this) {
+    LiveTVViewMode.List -> "list"
+    LiveTVViewMode.Guide -> "guide"
 }

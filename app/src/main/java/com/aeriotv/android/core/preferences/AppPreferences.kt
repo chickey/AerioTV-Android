@@ -3,6 +3,7 @@ package com.aeriotv.android.core.preferences
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -40,9 +41,10 @@ class AppPreferences @Inject constructor(
     }
 
     /**
-     * Either "list" or "guide". Mirrors iOS `@AppStorage("defaultLiveTVView")`.
-     * Phase 5 used `rememberSaveable`; with this in place LiveTVTabContent can
-     * persist the user's view-mode choice across cold starts.
+     * Either "list" or "guide", or empty for "follow form-factor default".
+     * Mirrors iOS `@AppStorage("defaultLiveTVView")`. Phase 5 used
+     * `rememberSaveable` for view-mode state; Phase 8b moves it to DataStore
+     * so the user's choice survives cold start.
      */
     val defaultLiveTVView: Flow<String> = store.data.map { prefs ->
         prefs[KEY_DEFAULT_LIVE_TV_VIEW] ?: ""
@@ -52,8 +54,53 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_DEFAULT_LIVE_TV_VIEW] = value }
     }
 
+    // ── App Behaviors ────────────────────────────────────────────────────
+
+    /**
+     * iOS `appBehaviorsSkipLoadingScreen` parity. When true, Bootstrap navigates
+     * to MainScaffold immediately and lets data hydrate in the background.
+     */
+    val skipLoadingScreen: Flow<Boolean> = store.data.map { it[KEY_SKIP_LOADING_SCREEN] ?: false }
+    suspend fun setSkipLoadingScreen(value: Boolean) {
+        store.edit { it[KEY_SKIP_LOADING_SCREEN] = value }
+    }
+
+    /**
+     * iOS `appBehaviorsAppleTVChannelFlip` parity. Gates the Player vertical
+     * swipe-flip (PlayerScreen.kt) and the future Apple TV-style D-pad nav.
+     * Defaults to true so the v1.0 ship matches iOS's default.
+     */
+    val appleTVChannelFlip: Flow<Boolean> = store.data.map { it[KEY_APPLE_TV_CHANNEL_FLIP] ?: true }
+    suspend fun setAppleTVChannelFlip(value: Boolean) {
+        store.edit { it[KEY_APPLE_TV_CHANNEL_FLIP] = value }
+    }
+
+    /**
+     * iOS `appBehaviorsAutoResumeLastChannel` parity. Stub for now (Android
+     * has no mini-player surface yet). Stored anyway so a future port can
+     * flip it on without losing the user's prior choice.
+     */
+    val autoResumeLastChannel: Flow<Boolean> = store.data.map { it[KEY_AUTO_RESUME_LAST_CHANNEL] ?: false }
+    suspend fun setAutoResumeLastChannel(value: Boolean) {
+        store.edit { it[KEY_AUTO_RESUME_LAST_CHANNEL] = value }
+    }
+
+    /**
+     * iOS `defaultTab` parity. Stores the AppTab enum name. Empty string means
+     * "follow iOS default" (Live TV). MainScaffold reads this once on the
+     * first composition after bootstrap completes.
+     */
+    val defaultTab: Flow<String> = store.data.map { it[KEY_DEFAULT_TAB] ?: "" }
+    suspend fun setDefaultTab(value: String) {
+        store.edit { it[KEY_DEFAULT_TAB] = value }
+    }
+
     private companion object {
         val KEY_SELECTED_THEME = stringPreferencesKey("selected_theme")
         val KEY_DEFAULT_LIVE_TV_VIEW = stringPreferencesKey("default_live_tv_view")
+        val KEY_SKIP_LOADING_SCREEN = booleanPreferencesKey("app_behaviors_skip_loading_screen")
+        val KEY_APPLE_TV_CHANNEL_FLIP = booleanPreferencesKey("app_behaviors_apple_tv_channel_flip")
+        val KEY_AUTO_RESUME_LAST_CHANNEL = booleanPreferencesKey("app_behaviors_auto_resume_last_channel")
+        val KEY_DEFAULT_TAB = stringPreferencesKey("default_tab")
     }
 }

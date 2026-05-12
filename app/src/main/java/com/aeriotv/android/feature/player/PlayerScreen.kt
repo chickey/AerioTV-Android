@@ -23,11 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.feature.livetv.RecordProgramSheet
 import com.aeriotv.android.feature.playlist.nowPlaying
+import com.aeriotv.android.feature.settings.SettingsViewModel
 import `is`.xyz.mpv.MPV
 import `is`.xyz.mpv.MPVNode
 import `is`.xyz.mpv.Utils
@@ -56,6 +59,8 @@ fun PlayerScreen(
     onClose: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val settingsVm: SettingsViewModel = hiltViewModel()
+    val appleTVChannelFlip by settingsVm.appleTVChannelFlip.collectAsStateWithLifecycle(initialValue = true)
 
     // Channel-flip state. The MPV view stays alive across flips; only the
     // current channel index changes and we call playFile again with the new URL.
@@ -170,8 +175,8 @@ fun PlayerScreen(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                 ) { chromeVisible = !chromeVisible }
-                .pointerInput(channels.size, chromeVisible) {
-                    if (!chromeVisible || channels.size < 2) return@pointerInput
+                .pointerInput(channels.size, chromeVisible, appleTVChannelFlip) {
+                    if (!chromeVisible || !appleTVChannelFlip || channels.size < 2) return@pointerInput
                     var totalDy = 0f
                     detectVerticalDragGestures(
                         onDragStart = { totalDy = 0f },
