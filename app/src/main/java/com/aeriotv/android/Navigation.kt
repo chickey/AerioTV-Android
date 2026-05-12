@@ -58,6 +58,7 @@ object Routes {
     const val MAIN = "main"
     const val PLAYER = "player/{channelId}"
     const val VOD_PLAYER = "vod_player/{movieUuid}"
+    const val MOVIE_DETAIL = "movie_detail/{movieUuid}"
     const val SERIES_DETAIL = "series_detail/{seriesId}"
     const val VOD_EPISODE_PLAYER = "vod_episode_player/{episodeUuid}"
     const val MULTIVIEW = "multiview"
@@ -65,6 +66,7 @@ object Routes {
     fun configure(type: SourceType) = "configure/${type.name}"
     fun player(channelId: String) = "player/${Uri.encode(channelId)}"
     fun vodPlayer(movieUuid: String) = "vod_player/${Uri.encode(movieUuid)}"
+    fun movieDetail(movieUuid: String) = "movie_detail/${Uri.encode(movieUuid)}"
     fun seriesDetail(seriesId: Int) = "series_detail/$seriesId"
     fun vodEpisodePlayer(episodeUuid: String) = "vod_episode_player/${Uri.encode(episodeUuid)}"
 }
@@ -222,7 +224,7 @@ fun AerioTVNavHost(
                         navController.navigate(Routes.player(channel.id))
                     },
                     onMovieClick = { movieUuid ->
-                        navController.navigate(Routes.vodPlayer(movieUuid))
+                        navController.navigate(Routes.movieDetail(movieUuid))
                     },
                     onSeriesClick = { seriesId ->
                         navController.navigate(Routes.seriesDetail(seriesId))
@@ -277,6 +279,18 @@ fun AerioTVNavHost(
                     onEpisodeClick = { episode ->
                         navController.navigate(Routes.vodEpisodePlayer(episode.uuid))
                     },
+                )
+            }
+
+            composable(
+                route = Routes.MOVIE_DETAIL,
+                arguments = listOf(navArgument("movieUuid") { type = NavType.StringType }),
+            ) { entry ->
+                val movieUuid = Uri.decode(entry.arguments?.getString("movieUuid").orEmpty())
+                com.aeriotv.android.feature.ondemand.MovieDetailScreen(
+                    movieUuid = movieUuid,
+                    onBack = { navController.popBackStack() },
+                    onPlay = { navController.navigate(Routes.vodPlayer(movieUuid)) },
                 )
             }
 

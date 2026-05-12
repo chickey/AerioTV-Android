@@ -125,7 +125,7 @@ fun PlaylistsScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(playlists, key = { it.id }) { pl ->
-                PlaylistRow(
+                SwipeablePlaylistRow(
                     playlist = pl,
                     isActive = pl.id == activeId,
                     onTap = {
@@ -136,6 +136,7 @@ fun PlaylistsScreen(
                         }
                     },
                     onLongPress = { pendingDelete = pl },
+                    onSwipedToDelete = { pendingDelete = pl },
                 )
             }
         }
@@ -218,6 +219,66 @@ private fun PlaylistRow(
             text = "▸",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Wraps a [PlaylistRow] in Material 3's SwipeToDismissBox so the user can
+ * swipe either direction to delete (mirrors iOS SettingsView swipe action).
+ * The dismiss action surfaces the same confirmation dialog as long-press, so
+ * a wayward swipe never silently destroys a playlist row + its credentials.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun SwipeablePlaylistRow(
+    playlist: com.aeriotv.android.core.data.db.entity.PlaylistEntity,
+    isActive: Boolean,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
+    onSwipedToDelete: () -> Unit,
+) {
+    val dismissState = androidx.compose.material3.rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd ||
+                value == androidx.compose.material3.SwipeToDismissBoxValue.EndToStart
+            ) {
+                onSwipedToDelete()
+                // Don't actually dismiss the row here — the confirmation dialog
+                // owns the delete. Returning false snaps the row back to settled.
+                false
+            } else {
+                true
+            }
+        },
+    )
+    androidx.compose.material3.SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.85f))
+                    .padding(horizontal = 20.dp),
+                contentAlignment = if (dismissState.dismissDirection ==
+                    androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd
+                ) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Text(
+                    text = "Delete",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onError,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+    ) {
+        PlaylistRow(
+            playlist = playlist,
+            isActive = isActive,
+            onTap = onTap,
+            onLongPress = onLongPress,
         )
     }
 }

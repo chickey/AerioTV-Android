@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -255,6 +256,37 @@ private fun HeroBlock(series: com.aeriotv.android.core.network.DispatcharrVODSer
                     maxLines = 5,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            if (!series.tmdbId.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                val context = androidx.compose.ui.platform.LocalContext.current
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            val url = "https://www.themoviedb.org/tv/${series.tmdbId}"
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(url),
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            runCatching { context.startActivity(intent) }
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.OpenInNew,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "View on TMDB",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
         }
     }
