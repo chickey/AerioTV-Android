@@ -168,15 +168,23 @@ fun MainScaffold(
 private fun SettingsTabContent() {
     var section by remember { mutableStateOf<SettingsSection?>(null) }
     var addMoreOpen by remember { mutableStateOf(false) }
-    androidx.activity.compose.BackHandler(enabled = section != null || addMoreOpen) {
+    var playlistDetailOpen by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = section != null || addMoreOpen || playlistDetailOpen) {
         when {
+            playlistDetailOpen -> playlistDetailOpen = false
             addMoreOpen -> addMoreOpen = false
             else -> section = null
         }
     }
     when {
+        playlistDetailOpen -> com.aeriotv.android.feature.settings.PlaylistDetailScreen(
+            onBack = { playlistDetailOpen = false },
+        )
         addMoreOpen -> AddMoreCategoriesScreen(onBack = { addMoreOpen = false })
-        section == null -> SettingsScreen(onSectionClick = { section = it })
+        section == null -> SettingsScreen(
+            onSectionClick = { section = it },
+            onOpenPlaylistDetail = { playlistDetailOpen = true },
+        )
         section == SettingsSection.Appearance -> AppearanceSettingsScreen(
             onBack = { section = null },
             onOpenAddMoreCategories = { addMoreOpen = true },

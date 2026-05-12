@@ -49,6 +49,22 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_SELECTED_THEME] = theme.name }
     }
 
+    /** iOS `displayScaleMovies` parity. 0.85 .. 1.25. Default 1.0. */
+    val displayScaleMovies: Flow<Float> = store.data.map {
+        (it[KEY_DISPLAY_SCALE_MOVIES] ?: 1.0).toFloat()
+    }
+    suspend fun setDisplayScaleMovies(value: Float) {
+        store.edit { it[KEY_DISPLAY_SCALE_MOVIES] = value.toDouble() }
+    }
+
+    /** iOS `displayScaleLiveTV` parity. 0.85 .. 1.25. Default 1.0. */
+    val displayScaleLiveTV: Flow<Float> = store.data.map {
+        (it[KEY_DISPLAY_SCALE_LIVE_TV] ?: 1.0).toFloat()
+    }
+    suspend fun setDisplayScaleLiveTV(value: Float) {
+        store.edit { it[KEY_DISPLAY_SCALE_LIVE_TV] = value.toDouble() }
+    }
+
     /**
      * Either "list" or "guide", or empty for "follow form-factor default".
      * Mirrors iOS `@AppStorage("defaultLiveTVView")`. Phase 5 used
@@ -104,6 +120,24 @@ class AppPreferences @Inject constructor(
         store.edit { prefs ->
             if (value.isBlank()) prefs.remove(KEY_LAST_WATCHED_CHANNEL_ID)
             else prefs[KEY_LAST_WATCHED_CHANNEL_ID] = value
+        }
+    }
+
+    /**
+     * Hidden group titles from Manage Groups. Newline-delimited list since
+     * group names can include any character except newline. Empty string =
+     * "no groups hidden", which is the default and matches iOS canon (all
+     * groups visible at first launch).
+     */
+    val hiddenGroups: Flow<Set<String>> = store.data.map { prefs ->
+        val raw = prefs[KEY_HIDDEN_GROUPS] ?: ""
+        if (raw.isBlank()) emptySet()
+        else raw.split('\n').mapNotNull { it.trim().takeIf(String::isNotBlank) }.toSet()
+    }
+    suspend fun setHiddenGroups(groups: Set<String>) {
+        store.edit { prefs ->
+            if (groups.isEmpty()) prefs.remove(KEY_HIDDEN_GROUPS)
+            else prefs[KEY_HIDDEN_GROUPS] = groups.joinToString("\n")
         }
     }
     suspend fun autoResumeLastChannelOnce(): Boolean =
@@ -365,6 +399,9 @@ class AppPreferences @Inject constructor(
         val KEY_APPLE_TV_CHANNEL_FLIP = booleanPreferencesKey("app_behaviors_apple_tv_channel_flip")
         val KEY_AUTO_RESUME_LAST_CHANNEL = booleanPreferencesKey("app_behaviors_auto_resume_last_channel")
         val KEY_LAST_WATCHED_CHANNEL_ID = stringPreferencesKey("last_watched_channel_id")
+        val KEY_HIDDEN_GROUPS = stringPreferencesKey("hidden_groups")
+        val KEY_DISPLAY_SCALE_MOVIES = doublePreferencesKey("display_scale_movies")
+        val KEY_DISPLAY_SCALE_LIVE_TV = doublePreferencesKey("display_scale_live_tv")
         val KEY_DEFAULT_TAB = stringPreferencesKey("default_tab")
         val KEY_NETWORK_TIMEOUT = doublePreferencesKey("network_timeout_secs")
         val KEY_MAX_RETRIES = intPreferencesKey("max_retries")

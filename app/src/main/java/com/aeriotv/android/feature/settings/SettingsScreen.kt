@@ -63,10 +63,23 @@ import java.util.Date
 @Composable
 fun SettingsScreen(
     onSectionClick: (SettingsSection) -> Unit,
+    onOpenPlaylistDetail: () -> Unit = {},
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
+    val packageInfo = remember {
+        runCatching {
+            val pm = context.packageManager
+            val pkg = context.packageName
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(pkg, 0)
+        }.getOrNull()
+    }
+    val installedAt = packageInfo?.firstInstallTime ?: 0L
+    val updatedAt = packageInfo?.lastUpdateTime ?: 0L
+    val versionName = packageInfo?.versionName ?: "0.1.0"
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -97,16 +110,31 @@ fun SettingsScreen(
                 Spacer(Modifier.size(8.dp))
                 val playlist = state.playlist
                 if (playlist != null) {
-                    LabeledValue("Name", playlist.name)
-                    LabeledValue("Source", playlist.urlString)
-                    if (!playlist.epgUrl.isNullOrBlank()) {
-                        LabeledValue("EPG", playlist.epgUrl)
-                    }
-                    LabeledValue("Channels", playlist.channelCount.toString())
-                    playlist.lastRefreshedAt?.let { ts ->
-                        LabeledValue(
-                            "Last refreshed",
-                            DateFormat.getDateTimeInstance().format(Date(ts)),
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.45f))
+                            .clickable(onClick = onOpenPlaylistDetail)
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = playlist.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground,
+                            )
+                            Text(
+                                text = "${playlist.channelCount} channels • ${playlist.sourceType}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            text = "▸",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 } else {
@@ -131,8 +159,41 @@ fun SettingsScreen(
                 Spacer(Modifier.size(12.dp))
                 SectionLabel("About")
                 Spacer(Modifier.size(8.dp))
-                LabeledValue("App", "AerioTV for Android")
-                LabeledValue("Version", "0.1.0")
+                LabeledValue("Device", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim())
+                LabeledValue("System", "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+                LabeledValue("App Version", "$versionName (${packageInfo?.longVersionCode ?: 0})")
+                LabeledValue("First Installed", formatInstallTime(installedAt))
+                LabeledValue(
+                    "Last Updated",
+                    if (updatedAt > 0 && updatedAt != installedAt) formatInstallTime(updatedAt) else "Never",
+                )
+                Spacer(Modifier.size(12.dp))
+                AboutLinkRow(
+                    label = "Copy to Clipboard",
+                    onClick = {
+                        val text = buildAboutClipboard(
+                            versionName,
+                            packageInfo?.longVersionCode ?: 0L,
+                            installedAt,
+                            updatedAt,
+                        )
+                        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                        cm?.setPrimaryClip(android.content.ClipData.newPlainText("AerioTV diagnostics", text))
+                        android.widget.Toast.makeText(context, "Copied diagnostics to clipboard.", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                )
+                AboutLinkRow(
+                    label = "Developer Website",
+                    onClick = {
+                        openUrl(context, "https://github.com/jonzey231/AerioTV-Android")
+                    },
+                )
+                AboutLinkRow(
+                    label = "Report an Issue",
+                    onClick = {
+                        openUrl(context, "https://github.com/jonzey231/AerioTV-Android/issues/new")
+                    },
+                )
             }
         }
     }
@@ -234,6 +295,61 @@ private fun LabeledValue(label: String, value: String) {
             color = MaterialTheme.colorScheme.onBackground,
         )
     }
+}
+
+@Composable
+private fun AboutLinkRow(label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "▸",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun formatInstallTime(ms: Long): String {
+    if (ms <= 0L) return "Unknown"
+    return DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ms))
+}
+
+private fun buildAboutClipboard(
+    versionName: String,
+    versionCode: Long,
+    installedAt: Long,
+    updatedAt: Long,
+): String = buildString {
+    appendLine("AerioTV diagnostics")
+    appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim())
+    appendLine("System: Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+    appendLine("App Version: $versionName ($versionCode)")
+    appendLine("First Installed: ${formatInstallTime(installedAt)}")
+    appendLine("Last Updated: ${if (updatedAt > 0 && updatedAt != installedAt) formatInstallTime(updatedAt) else "Never"}")
+}
+
+private fun openUrl(context: android.content.Context, url: String) {
+    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            android.widget.Toast.makeText(
+                context,
+                "No browser available to open $url",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
 }
 
 /**

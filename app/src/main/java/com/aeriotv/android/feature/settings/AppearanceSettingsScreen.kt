@@ -25,6 +25,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +65,8 @@ fun AppearanceSettingsScreen(
 ) {
     val currentTheme by viewModel.selectedTheme.collectAsStateWithLifecycle(initialValue = AppTheme.Aerio)
     val palette by viewModel.categoryPalette.collectAsStateWithLifecycle(initialValue = CategoryPaletteState.Default)
+    val scaleMovies by viewModel.displayScaleMovies.collectAsStateWithLifecycle(initialValue = 1.0f)
+    val scaleLiveTV by viewModel.displayScaleLiveTV.collectAsStateWithLifecycle(initialValue = 1.0f)
 
     var pickerTarget by remember { mutableStateOf<ProgramCategory?>(null) }
 
@@ -95,6 +99,28 @@ fun AppearanceSettingsScreen(
                     theme = theme,
                     selected = theme == currentTheme,
                     onClick = { viewModel.setSelectedTheme(theme) },
+                )
+            }
+
+            item { Spacer(Modifier.height(8.dp)) }
+            item {
+                SectionHeader(
+                    "Display Scale",
+                    "Independent scale for Movies & Series and Live TV List. 100% matches the default; 85–125% lets you trade density for readability.",
+                )
+            }
+            item {
+                ScaleSliderRow(
+                    label = "Movies & Series",
+                    value = scaleMovies,
+                    onValueChange = viewModel::setDisplayScaleMovies,
+                )
+            }
+            item {
+                ScaleSliderRow(
+                    label = "Live TV List",
+                    value = scaleLiveTV,
+                    onValueChange = viewModel::setDisplayScaleLiveTV,
                 )
             }
 
@@ -345,6 +371,47 @@ private fun ThemeRow(
                 tint = theme.accentPrimary,
             )
         }
+    }
+}
+
+@Composable
+private fun ScaleSliderRow(
+    label: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${(value * 100).toInt()}%",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 0.85f..1.25f,
+            steps = 7, // 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.25
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
     }
 }
 

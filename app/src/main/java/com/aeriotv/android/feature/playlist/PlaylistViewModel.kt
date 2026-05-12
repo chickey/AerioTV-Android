@@ -267,6 +267,62 @@ class PlaylistViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Re-fetch the active playlist (channels) and follow with EPG. Used by
+     * Playlist Detail's "Refresh Playlist" action.
+     */
+    fun refreshPlaylist() {
+        viewModelScope.launch {
+            val active = repository.activePlaylist() ?: return@launch
+            Log.i(TAG, "refreshPlaylist: re-loading ${active.name}")
+            _state.update { it.copy(isLoading = true, error = null) }
+            repository.refresh(active).fold(
+                onSuccess = { channels ->
+                    _state.update {
+                        it.copy(
+                            channels = channels,
+                            isLoading = false,
+                            error = if (channels.isEmpty()) "No channels found." else null,
+                        )
+                    }
+                    loadEpgIfConfigured(active)
+                },
+                onFailure = { t ->
+                    Log.w(TAG, "refreshPlaylist failed", t)
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Refresh failed: ${t.message ?: t::class.simpleName}",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    /** Re-fetch the EPG without re-fetching the channel list. */
+    fun refreshEpg() {
+        viewModelScope.launch {
+            val active = repository.activePlaylist() ?: return@launch
+            loadEpgIfConfigured(active)
+        }
+    }
+
+    /**
+     * Probe the playlist URL. v1 re-runs the channel fetch as a connectivity
+     * test — same code path the bootstrap uses, so success means the source
+     * still responds with parseable content.
+     */
+    fun testConnection() {
+        viewModelScope.launch {
+            val active = repository.activePlaylist() ?: return@launch
+            Log.i(TAG, "testConnection: probing ${active.urlString}")
+            repository.refresh(active)
+                .onSuccess { Log.i(TAG, "testConnection: ok (${it.size} channels)") }
+                .onFailure { Log.w(TAG, "testConnection failed", it) }
+        }
+    }
+
     fun clearPlaylist() {
         viewModelScope.launch {
             repository.clear()

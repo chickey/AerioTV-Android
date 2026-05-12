@@ -28,6 +28,21 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { prefs.setSelectedTheme(theme) }
     }
 
+    val displayScaleMovies: Flow<Float> = prefs.displayScaleMovies
+    fun setDisplayScaleMovies(value: Float) {
+        viewModelScope.launch { prefs.setDisplayScaleMovies(value) }
+    }
+
+    val displayScaleLiveTV: Flow<Float> = prefs.displayScaleLiveTV
+    fun setDisplayScaleLiveTV(value: Float) {
+        viewModelScope.launch { prefs.setDisplayScaleLiveTV(value) }
+    }
+
+    val hiddenGroups: Flow<Set<String>> = prefs.hiddenGroups
+    fun setHiddenGroups(groups: Set<String>) {
+        viewModelScope.launch { prefs.setHiddenGroups(groups) }
+    }
+
     // App Behaviors
     val skipLoadingScreen: Flow<Boolean> = prefs.skipLoadingScreen
     fun setSkipLoadingScreen(value: Boolean) {

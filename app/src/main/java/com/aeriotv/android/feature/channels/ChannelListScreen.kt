@@ -70,6 +70,7 @@ import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.core.data.toInfoTarget
 import com.aeriotv.android.feature.favorites.FavoritesViewModel
 import com.aeriotv.android.feature.livetv.LiveTVViewMode
+import com.aeriotv.android.feature.livetv.ManageGroupsSheet
 import com.aeriotv.android.feature.livetv.ProgramInfoSheet
 import com.aeriotv.android.feature.livetv.RecordProgramSheet
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
@@ -97,29 +98,44 @@ fun ChannelListScreen(
     val favoriteIds = remember(favoritesList) { favoritesList.map { it.channelId }.toSet() }
     val settingsVm: SettingsViewModel = hiltViewModel()
     val palette by settingsVm.categoryPalette.collectAsStateWithLifecycle(initialValue = CategoryPaletteState.Default)
+    val hiddenGroups by settingsVm.hiddenGroups.collectAsStateWithLifecycle(initialValue = emptySet())
 
     var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
     var recordTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
+    var manageGroupsOpen by remember { mutableStateOf(false) }
 
-    val groups by remember(state.channels) {
+    val allGroupsRaw by remember(state.channels) {
         derivedStateOf {
-            val unique = state.channels.asSequence()
+            state.channels.asSequence()
                 .map { it.groupTitle }
                 .filter { it.isNotBlank() }
                 .distinct()
                 .sortedBy { it.lowercase() }
                 .toList()
-            listOf(PlaylistViewModel.ALL_GROUPS) + unique
         }
     }
 
-    val filtered by remember(state.channels, state.searchQuery, state.selectedGroup, state.sortMode, favoriteIds) {
+    val groups by remember(allGroupsRaw, hiddenGroups) {
+        derivedStateOf {
+            val visible = allGroupsRaw.filterNot { it in hiddenGroups }
+            listOf(PlaylistViewModel.ALL_GROUPS) + visible
+        }
+    }
+
+    val filtered by remember(state.channels, state.searchQuery, state.selectedGroup, state.sortMode, favoriteIds, hiddenGroups) {
         derivedStateOf {
             val query = state.searchQuery.trim()
             val byGroupAndSearch = state.channels.asSequence()
                 .filter {
-                    state.selectedGroup == PlaylistViewModel.ALL_GROUPS ||
-                            it.groupTitle.equals(state.selectedGroup, ignoreCase = true)
+                    // "All" still respects hidden-group filters so toggling a group off
+                    // truly hides its channels from the default list. The user can find
+                    // them again via search (which ignores the hidden set).
+                    when {
+                        state.selectedGroup == PlaylistViewModel.ALL_GROUPS && query.isEmpty() ->
+                            it.groupTitle !in hiddenGroups
+                        state.selectedGroup == PlaylistViewModel.ALL_GROUPS -> true
+                        else -> it.groupTitle.equals(state.selectedGroup, ignoreCase = true)
+                    }
                 }
                 .filter { query.isEmpty() || it.name.contains(query, ignoreCase = true) }
                 .toList()
@@ -197,7 +213,7 @@ fun ChannelListScreen(
                             .size(36.dp)
                             .clip(RoundedCornerShape(50))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                            .clickable(enabled = false) { /* TODO Phase 8: open Manage Groups */ },
+                            .clickable { manageGroupsOpen = true },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -260,6 +276,14 @@ fun ChannelListScreen(
         RecordProgramSheet(
             target = target,
             onDismiss = { recordTarget = null },
+        )
+    }
+    if (manageGroupsOpen) {
+        ManageGroupsSheet(
+            allGroups = allGroupsRaw,
+            hiddenGroups = hiddenGroups,
+            onSave = { settingsVm.setHiddenGroups(it) },
+            onDismiss = { manageGroupsOpen = false },
         )
     }
 }
