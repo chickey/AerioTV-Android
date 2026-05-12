@@ -493,6 +493,45 @@ class DispatcharrClient @Inject constructor() {
     }
 
     /**
+     * GET /api/vod/movies/<id>/provider-info/ — rich-metadata fetch for a
+     * single movie. Mirrors iOS DispatcharrAPI.getMovieProviderInfo
+     * (StreamingAPIs.swift line 1702). Returns the cast / director / country /
+     * trailer URL / backdrop paths that the slim list endpoint doesn't carry.
+     *
+     * Latency caveat: Dispatcharr server-side throttles refresh to 24h per
+     * movie. The first call for a never-visited movie synchronously triggers
+     * `refresh_movie_advanced_data` upstream and can take several seconds;
+     * subsequent calls within 24h return immediately from cache. Render
+     * whatever's available immediately and upgrade fields when this resolves.
+     */
+    suspend fun getMovieProviderInfo(baseUrl: String, apiKey: String, movieId: Int): DispatcharrVODProviderInfo {
+        val url = "${baseUrl.trimEnd('/')}/api/vod/movies/$movieId/provider-info/"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) {
+            throw DispatcharrError.Transport("Movie provider-info failed: HTTP ${response.status.value}")
+        }
+        return response.body()
+    }
+
+    /**
+     * GET /api/vod/series/<id>/provider-info/ — same lazy-refresh contract as
+     * [getMovieProviderInfo] but for series. Dispatcharr internally calls
+     * this `series_info()`; same 24h server-side throttle, same first-call
+     * latency note. Mirrors iOS DispatcharrAPI.getSeriesProviderInfo
+     * (StreamingAPIs.swift line 1718).
+     */
+    suspend fun getSeriesProviderInfo(baseUrl: String, apiKey: String, seriesId: Int): DispatcharrVODProviderInfo {
+        val url = "${baseUrl.trimEnd('/')}/api/vod/series/$seriesId/provider-info/"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) {
+            throw DispatcharrError.Transport("Series provider-info failed: HTTP ${response.status.value}")
+        }
+        return response.body()
+    }
+
+    /**
      * GET /api/vod/series/<id>/episodes/?page=N&page_size=100. Mirrors iOS
      * DispatcharrAPI.fetchEpisodesPage (StreamingAPIs.swift:2086). Phase
      * 10c-2 fetches page 1 only; long-running shows (One Piece etc.) will
@@ -782,16 +821,157 @@ data class DispatcharrVODEpisode(
     val episodeNumber: Int? = null,
     val plot: String? = null,
     val overview: String? = null,
+    val description: String? = null,
     @SerialName("air_date")
     val airDate: String? = null,
     val rating: String? = null,
     @SerialName("duration_secs")
     val durationSecs: Int? = null,
+    @SerialName("tmdb_id")
+    val tmdbId: String? = null,
+    @SerialName("imdb_id")
+    val imdbId: String? = null,
+    @SerialName("custom_properties")
+    val customProperties: JsonObject? = null,
     val streams: List<DispatcharrVODStreamOption> = emptyList(),
 ) {
     val displayName: String get() = title.ifBlank { name.orEmpty() }
-    val effectivePlot: String? get() = plot ?: overview
+    /** Mirrors iOS DispatcharrVODEpisode plot resolution (StreamingAPIs line 3701):
+     *  prefer `description`, fall back to `plot`, then `overview`. */
+    val effectivePlot: String? get() = description ?: plot ?: overview
     val firstStreamId: Int? get() = streams.firstOrNull()?.streamId
+
+    /** Episode still / thumbnail from custom_properties. Dispatcharr stores
+     *  the upstream-provider thumbnail under `movie_image`; some forks use
+     *  `cover` or `image` instead. iOS VODService treats movie_image as the
+     *  preferred slot. Fallback chain matches that. */
+    val stillImageUrl: String?
+        get() = customProperties?.stringField("movie_image")
+            ?: customProperties?.stringField("cover")
+            ?: customProperties?.stringField("image")
+
+    /** Per-episode director from custom_properties.crew (TMDB-derived). */
+    val crew: String?
+        get() = customProperties?.stringField("crew")
+}
+
+/**
+ * Response shape for `/api/vod/movies/<id>/provider-info/` and
+ * `/api/vod/series/<id>/provider-info/`. Dispatcharr emits a slightly
+ * different flatten for movies vs. series (movie endpoint hoists everything
+ * onto the root, series endpoint keeps the rich blob nested under
+ * `custom_properties`), so we accept BOTH shapes here and let the getter
+ * helpers resolve to the right field regardless of which endpoint produced
+ * the payload. Mirrors iOS DispatcharrVODMovieProviderInfo +
+ * DispatcharrVODSeriesProviderInfo (StreamingAPIs.swift 3504-3637).
+ *
+ * Every field is optional + tolerant — an older or forked Dispatcharr build
+ * that omits any of them still decodes the rest.
+ */
+@Serializable
+data class DispatcharrVODProviderInfo(
+    val description: String? = null,
+    val plot: String? = null,
+    val overview: String? = null,
+    val name: String? = null,
+    val year: Int? = null,
+    @SerialName("release_date")
+    val releaseDate: String? = null,
+    val genre: String? = null,
+    val director: String? = null,
+    val actors: String? = null,
+    val cast: String? = null,
+    val country: String? = null,
+    val rating: String? = null,
+    @SerialName("tmdb_id")
+    val tmdbId: String? = null,
+    @SerialName("imdb_id")
+    val imdbId: String? = null,
+    @SerialName("youtube_trailer")
+    val youtubeTrailer: String? = null,
+    @SerialName("duration_secs")
+    val durationSecs: Int? = null,
+    val age: String? = null,
+    @SerialName("backdrop_path")
+    val backdropPath: JsonElement? = null,
+    val cover: JsonElement? = null,
+    @SerialName("cover_big")
+    val coverBig: String? = null,
+    @SerialName("movie_image")
+    val movieImage: String? = null,
+    @SerialName("custom_properties")
+    val customProperties: JsonObject? = null,
+) {
+    /** Plot copy. Movies set `plot` at root, series nest it as `description`.
+     *  Episodes occasionally use `overview`. */
+    val effectivePlot: String?
+        get() = plot?.takeIf { it.isNotBlank() }
+            ?: description?.takeIf { it.isNotBlank() }
+            ?: customProperties?.stringField("plot")
+            ?: customProperties?.stringField("description")
+            ?: overview?.takeIf { it.isNotBlank() }
+
+    val effectiveCast: String?
+        get() = (cast ?: actors)?.takeIf { it.isNotBlank() }
+            ?: customProperties?.stringField("cast")
+            ?: customProperties?.stringField("actors")
+
+    val effectiveDirector: String?
+        get() = director?.takeIf { it.isNotBlank() }
+            ?: customProperties?.stringField("director")
+
+    val effectiveCountry: String?
+        get() = country?.takeIf { it.isNotBlank() }
+            ?: customProperties?.stringField("country")
+
+    val effectiveGenre: String?
+        get() = genre?.takeIf { it.isNotBlank() }
+            ?: customProperties?.stringField("genre")
+
+    val effectiveTrailer: String?
+        get() = youtubeTrailer?.takeIf { it.isNotBlank() }
+            ?: customProperties?.stringField("youtube_trailer")
+
+    /** Backdrop URL. Dispatcharr stores backdrops as an array of strings;
+     *  forked builds sometimes send a scalar string. We accept both and
+     *  return the first non-blank entry. iOS VODService uses the same
+     *  preference order. */
+    val backdropUrl: String?
+        get() {
+            val direct = pickBackdrop(backdropPath)
+            if (direct != null) return direct
+            return pickBackdrop(customProperties?.get("backdrop_path"))
+        }
+
+    /** Poster fallback chain — movieImage > coverBig > cover (string-shaped).
+     *  When `cover` is a JsonObject (the series endpoint shape) we read its
+     *  `url` field instead. */
+    val posterUrl: String?
+        get() {
+            movieImage?.takeIf { it.isNotBlank() }?.let { return it }
+            coverBig?.takeIf { it.isNotBlank() }?.let { return it }
+            cover?.let { c ->
+                if (c is JsonPrimitive && c.isString) return c.content
+                if (c is JsonObject) c.stringField("url")?.let { return it }
+            }
+            return null
+        }
+
+    private fun pickBackdrop(element: JsonElement?): String? {
+        if (element == null) return null
+        if (element is JsonPrimitive && element.isString) {
+            return element.content.takeIf { it.isNotBlank() }
+        }
+        if (element is JsonArray) {
+            for (item in element) {
+                if (item is JsonPrimitive && item.isString) {
+                    val s = item.content
+                    if (s.isNotBlank()) return s
+                }
+            }
+        }
+        return null
+    }
 }
 
 @Serializable

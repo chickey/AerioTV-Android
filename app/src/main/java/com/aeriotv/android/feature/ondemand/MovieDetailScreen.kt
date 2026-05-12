@@ -19,26 +19,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.OpenInNew
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,18 +48,26 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.aeriotv.android.core.network.DispatcharrVODMovie
+import com.aeriotv.android.core.network.DispatcharrVODProviderInfo
 import com.aeriotv.android.feature.watchprogress.WatchProgressViewModel
 
 /**
  * Movie detail screen. Mirrors iOS VODDetailView (Aerio/Features/VOD/VODDetailView.swift)
- * movie shape from canon line 228-238: back arrow, large hero image, title + year +
- * star rating, big cyan Play button, plot description, "View on TMDB" cyan link,
- * Genre row, plus a Continue Watching CTA when there's a saved position.
+ * line 268-362 hero pattern + 365-418 info section:
  *
- * Phase 38: Cast / Director / Country (canon line 236-238) wait for TMDB
- * enrichment in OnDemandViewModel — Dispatcharr's VOD endpoint exposes
- * genre + tmdbId today but not those richer fields, and the iOS app hydrates
- * them lazily via custom_properties.
+ *  - Hero ZStack: 16:9 backdrop image + bottom-gradient overlay so the title
+ *    block stays readable over busy artwork. Small movie poster anchored to
+ *    the bottom-leading corner with the title / meta strip / Play CTA next
+ *    to it. Backdrop image comes from provider-info; falls back to the
+ *    poster if provider-info hasn't finished loading.
+ *  - Plot copy directly below.
+ *  - Trailer + View on TMDB pill chip row.
+ *  - Genre / Cast / Director / Country labeled rows.
+ *
+ * Provider-info (cast / director / country / trailer / backdrop) loads lazily
+ * on first paint via [OnDemandViewModel.loadMovieProviderInfo]; the screen
+ * renders whatever's available immediately so the user never sees an empty
+ * shell while the upstream Xtream fetch (Dispatcharr line 1693-1701) runs.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,39 +79,20 @@ fun MovieDetailScreen(
     watchVm: WatchProgressViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val movie = state.movies.firstOrNull { it.uuid == movieUuid }
+    val movie = viewModel.movieByUuid(movieUuid)
     val context = LocalContext.current
     val recent by watchVm.observeRecent(50).collectAsStateWithLifecycle(initialValue = emptyList())
     val progress = recent.firstOrNull { it.videoId == movieUuid }
     val hasResume = progress != null && progress.positionMs > 0L &&
         (progress.durationMs <= 0L || progress.positionMs < progress.durationMs - 5 * 60_000L)
+    val info = movie?.id?.let { state.movieProviderInfo[it] }
 
+    LaunchedEffect(movie?.id) {
+        movie?.id?.let { viewModel.loadMovieProviderInfo(it) }
+    }
     BackHandler(enabled = true) { onBack() }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = {
-                Text(
-                    text = movie?.displayName ?: "Movie",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                titleContentColor = MaterialTheme.colorScheme.onBackground,
-            ),
-        )
-
+    Box(modifier = Modifier.fillMaxSize()) {
         if (movie == null) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -114,171 +104,362 @@ fun MovieDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            return@Column
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                item {
+                    HeroSection(
+                        movie = movie,
+                        info = info,
+                        hasResume = hasResume,
+                        onPlay = { onPlay(movie) },
+                    )
+                }
+                item {
+                    InfoSection(
+                        movie = movie,
+                        info = info,
+                        onOpenUrl = { url ->
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            runCatching { context.startActivity(intent) }
+                        },
+                    )
+                }
+            }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { HeroBlock(movie = movie) }
-            item {
-                Button(
-                    onClick = { onPlay(movie) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
+        // Floating back button overlaid on the hero. Mirrors iOS's small
+        // chevron pill drawn on top of the backdrop (the regular nav bar
+        // is hidden so the artwork bleeds to the top safe area).
+        FloatingBackButton(onClick = onBack)
+    }
+}
+
+@Composable
+private fun HeroSection(
+    movie: DispatcharrVODMovie,
+    info: DispatcharrVODProviderInfo?,
+    hasResume: Boolean,
+    onPlay: () -> Unit,
+) {
+    val heroUrl = info?.backdropUrl ?: movie.logo?.url
+    val posterUrl = movie.logo?.url ?: info?.posterUrl
+    val displayYear = info?.year?.toString() ?: movie.year?.toString()
+    val displayRating = (info?.rating?.takeIf { it.isNotBlank() } ?: movie.rating)
+        ?.let { runCatching { String.format("%.1f", it.toDouble()) }.getOrDefault(it) }
+        ?.takeIf { it.isNotBlank() && it != "0.0" }
+    val durationSecs = info?.durationSecs?.takeIf { it > 0 } ?: movie.durationSecs?.takeIf { it > 0 }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 11f),
+    ) {
+        if (!heroUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = heroUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface))
+        }
+        // Gradient overlay so the title block reads against any artwork.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.5f),
+                            MaterialTheme.colorScheme.background,
+                        ),
+                        startY = 0f,
                     ),
-                ) {
-                    Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        text = if (hasResume) "Resume" else "Play",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                ),
+        )
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // Small poster anchored to bottom-leading like iOS VODDetailView
+            // line 304-309.
+            Box(
+                modifier = Modifier
+                    .width(80.dp)
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)),
+            ) {
+                if (!posterUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = movie.displayName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     )
                 }
             }
-            if (!movie.plot.isNullOrBlank()) {
-                item {
-                    Text(
-                        text = movie.plot!!,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
-                }
-            }
-            if (!movie.tmdbId.isNullOrBlank()) {
-                item {
-                    TmdbLinkRow(tmdbId = movie.tmdbId!!) { url ->
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        runCatching { context.startActivity(intent) }
-                    }
-                }
-            }
-            if (!movie.genre.isNullOrBlank()) {
-                item { MetadataRow(label = "Genre", value = movie.genre!!) }
-            }
-            if (movie.year != null) {
-                item { MetadataRow(label = "Year", value = movie.year.toString()) }
-            }
-            if (!movie.rating.isNullOrBlank()) {
-                item { MetadataRow(label = "Rating", value = movie.rating!!) }
-            }
-            movie.durationSecs?.let { secs ->
-                if (secs > 0) {
-                    item { MetadataRow(label = "Duration", value = formatDuration(secs)) }
-                }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = buildString {
+                        append(movie.displayName)
+                        if (!displayYear.isNullOrBlank()) append(" ($displayYear)")
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(6.dp))
+                MetaStrip(
+                    year = displayYear,
+                    rating = displayRating,
+                    durationSecs = durationSecs,
+                    typeLabel = "MOVIE",
+                )
+                Spacer(Modifier.height(10.dp))
+                PlayCta(hasResume = hasResume, onClick = onPlay)
             }
         }
     }
 }
 
+/**
+ * Year · ★ rating · 1h 19m · MOVIE pill. Each piece independently optional —
+ * a sparse movie row (e.g. only year known) shouldn't show a dangling " · ".
+ * Mirrors iOS VODDetailView lines 317-353.
+ */
 @Composable
-private fun HeroBlock(movie: DispatcharrVODMovie) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surface),
-            contentAlignment = Alignment.Center,
-        ) {
-            val poster = movie.logo?.url
-            if (!poster.isNullOrBlank()) {
-                AsyncImage(
-                    model = poster,
-                    contentDescription = movie.displayName,
-                    modifier = Modifier.fillMaxSize(),
+private fun MetaStrip(
+    year: String?,
+    rating: String?,
+    durationSecs: Int?,
+    typeLabel: String?,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (!year.isNullOrBlank()) {
+            Text(
+                text = year,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (!rating.isNullOrBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = null,
+                    tint = Color(0xFFFFA502),
+                    modifier = Modifier.size(12.dp),
                 )
-            } else {
                 Text(
-                    text = movie.displayName.take(2).uppercase(),
-                    style = MaterialTheme.typography.displayMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
+                    text = rating,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
+        if (durationSecs != null && durationSecs > 0) {
+            Text(
+                text = formatDuration(durationSecs),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (!typeLabel.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = typeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
+
+/** Big rounded cyan Play / Resume button. */
+@Composable
+private fun PlayCta(hasResume: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.PlayArrow,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimary,
+        )
         Text(
-            text = movie.displayName,
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+            text = if (hasResume) "Resume" else "Play",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onPrimary,
             fontWeight = FontWeight.Bold,
         )
-        val subParts = listOfNotNull(
-            movie.year?.toString(),
-            movie.rating?.takeIf { it.isNotBlank() },
-        )
-        if (subParts.isNotEmpty()) {
+    }
+}
+
+@Composable
+private fun InfoSection(
+    movie: DispatcharrVODMovie,
+    info: DispatcharrVODProviderInfo?,
+    onOpenUrl: (String) -> Unit,
+) {
+    val plot = info?.effectivePlot?.takeIf { it.isNotBlank() } ?: movie.plot?.takeIf { it.isNotBlank() }
+    val genre = info?.effectiveGenre?.takeIf { it.isNotBlank() } ?: movie.genre?.takeIf { it.isNotBlank() }
+    val cast = info?.effectiveCast?.takeIf { it.isNotBlank() }
+    val director = info?.effectiveDirector?.takeIf { it.isNotBlank() }
+    val country = info?.effectiveCountry?.takeIf { it.isNotBlank() }
+    val trailerUrl = info?.effectiveTrailer?.let { youtubeUrl(it) }
+    val tmdbUrl = (info?.tmdbId ?: movie.tmdbId)?.takeIf { it.isNotBlank() }?.let {
+        "https://www.themoviedb.org/movie/$it"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (!plot.isNullOrBlank()) {
             Text(
-                text = subParts.joinToString("  ·  "),
+                text = plot,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (trailerUrl != null || tmdbUrl != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (trailerUrl != null) {
+                    PillButton(
+                        icon = Icons.Outlined.PlayCircle,
+                        text = "Trailer",
+                        onClick = { onOpenUrl(trailerUrl) },
+                    )
+                }
+                if (tmdbUrl != null) {
+                    PillButton(
+                        icon = Icons.Outlined.Info,
+                        text = "View on TMDB",
+                        onClick = { onOpenUrl(tmdbUrl) },
+                    )
+                }
+            }
+        }
+        if (!genre.isNullOrBlank()) MetaRow("Genre", genre)
+        if (!cast.isNullOrBlank()) MetaRow("Cast", cast)
+        if (!director.isNullOrBlank()) MetaRow("Director", director)
+        if (!country.isNullOrBlank()) MetaRow("Country", country)
+    }
+}
+
+@Composable
+private fun PillButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(13.dp),
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun MetaRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Text(
+            text = "$label:",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.width(80.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun FloatingBackButton(onClick: () -> Unit) {
+    Box(modifier = Modifier.padding(top = 8.dp, start = 8.dp)) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     }
 }
 
-@Composable
-private fun TmdbLinkRow(tmdbId: String, onOpen: (String) -> Unit) {
-    val url = "https://www.themoviedb.org/movie/$tmdbId"
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-            .clickable { onOpen(url) }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.OpenInNew,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.size(10.dp))
-        Text(
-            text = "View on TMDB",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "▸",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun MetadataRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(96.dp),
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-    }
+/**
+ * Build a YouTube watch URL from whatever shape Dispatcharr stores
+ * `youtube_trailer` in. Most providers send just the 11-char video key
+ * (`dQw4w9WgXcQ`); a stray full URL or `youtu.be/<key>` shows up
+ * occasionally. Mirrors iOS VODDetailView.trailerURL (line 488-498).
+ */
+internal fun youtubeUrl(raw: String): String? {
+    val key = raw.trim()
+    if (key.isEmpty()) return null
+    if (key.startsWith("http://") || key.startsWith("https://")) return key
+    if (key.startsWith("youtu.be/")) return "https://$key"
+    return "https://www.youtube.com/watch?v=$key"
 }
 
 private fun formatDuration(totalSecs: Int): String {

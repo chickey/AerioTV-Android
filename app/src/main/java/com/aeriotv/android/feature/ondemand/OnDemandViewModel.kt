@@ -9,6 +9,7 @@ import com.aeriotv.android.core.network.DispatcharrAuthBroker
 import com.aeriotv.android.core.network.DispatcharrClient
 import com.aeriotv.android.core.network.DispatcharrVODEpisode
 import com.aeriotv.android.core.network.DispatcharrVODMovie
+import com.aeriotv.android.core.network.DispatcharrVODProviderInfo
 import com.aeriotv.android.core.network.DispatcharrVODSeries
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -54,6 +55,14 @@ class OnDemandViewModel @Inject constructor(
         val episodesBySeries: Map<Int, List<DispatcharrVODEpisode>> = emptyMap(),
         val episodesLoadingFor: Set<Int> = emptySet(),
         val episodesErrorFor: Map<Int, String> = emptyMap(),
+        // Provider-info cache. Movie + series detail pages call into this for
+        // backdrop / cast / director / country / trailer enrichment. Keyed by
+        // Dispatcharr's int `id` (NOT uuid) — matches the URL shape of
+        // `/api/vod/{movies,series}/<id>/provider-info/`.
+        val movieProviderInfo: Map<Int, DispatcharrVODProviderInfo> = emptyMap(),
+        val seriesProviderInfo: Map<Int, DispatcharrVODProviderInfo> = emptyMap(),
+        val movieProviderInfoLoading: Set<Int> = emptySet(),
+        val seriesProviderInfoLoading: Set<Int> = emptySet(),
     ) {
         val visible: List<DispatcharrVODMovie> get() {
             val q = searchQuery.trim()
@@ -153,6 +162,79 @@ class OnDemandViewModel @Inject constructor(
 
     fun seriesById(id: Int): DispatcharrVODSeries? =
         _state.value.series.firstOrNull { it.id == id }
+
+    fun movieById(id: Int): DispatcharrVODMovie? =
+        _state.value.movies.firstOrNull { it.id == id }
+
+    fun movieByUuid(uuid: String): DispatcharrVODMovie? =
+        _state.value.movies.firstOrNull { it.uuid == uuid }
+
+    /**
+     * Lazy-fetch provider-info for a movie — backdrop, cast, director,
+     * country, trailer URL. Idempotent within session: a second call for the
+     * same id no-ops if either the data is already cached or a fetch is
+     * already in flight. Mirrors iOS VODService.enrichMovie which runs this
+     * the first time the detail page opens.
+     */
+    fun loadMovieProviderInfo(movieId: Int) {
+        val current = _state.value
+        if (current.movieProviderInfo.containsKey(movieId) ||
+            current.movieProviderInfoLoading.contains(movieId)) return
+        viewModelScope.launch {
+            val playlist = playlistRepository.activePlaylist() ?: return@launch
+            if (playlist.apiKey.isNullOrBlank()) return@launch
+            _state.update { it.copy(movieProviderInfoLoading = it.movieProviderInfoLoading + movieId) }
+            runCatching {
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    dispatcharrClient.getMovieProviderInfo(playlist.urlString, key, movieId)
+                }
+            }.fold(
+                onSuccess = { info ->
+                    _state.update { st ->
+                        st.copy(
+                            movieProviderInfo = st.movieProviderInfo + (movieId to info),
+                            movieProviderInfoLoading = st.movieProviderInfoLoading - movieId,
+                        )
+                    }
+                },
+                onFailure = { t ->
+                    Log.w(TAG, "getMovieProviderInfo($movieId) failed", t)
+                    _state.update { it.copy(movieProviderInfoLoading = it.movieProviderInfoLoading - movieId) }
+                },
+            )
+        }
+    }
+
+    /** Series equivalent of [loadMovieProviderInfo]. Same throttling +
+     *  idempotency rules. */
+    fun loadSeriesProviderInfo(seriesId: Int) {
+        val current = _state.value
+        if (current.seriesProviderInfo.containsKey(seriesId) ||
+            current.seriesProviderInfoLoading.contains(seriesId)) return
+        viewModelScope.launch {
+            val playlist = playlistRepository.activePlaylist() ?: return@launch
+            if (playlist.apiKey.isNullOrBlank()) return@launch
+            _state.update { it.copy(seriesProviderInfoLoading = it.seriesProviderInfoLoading + seriesId) }
+            runCatching {
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    dispatcharrClient.getSeriesProviderInfo(playlist.urlString, key, seriesId)
+                }
+            }.fold(
+                onSuccess = { info ->
+                    _state.update { st ->
+                        st.copy(
+                            seriesProviderInfo = st.seriesProviderInfo + (seriesId to info),
+                            seriesProviderInfoLoading = st.seriesProviderInfoLoading - seriesId,
+                        )
+                    }
+                },
+                onFailure = { t ->
+                    Log.w(TAG, "getSeriesProviderInfo($seriesId) failed", t)
+                    _state.update { it.copy(seriesProviderInfoLoading = it.seriesProviderInfoLoading - seriesId) }
+                },
+            )
+        }
+    }
 
     /** Lazy-load (idempotent within session) episodes for a series. */
     fun loadEpisodes(seriesId: Int) {
