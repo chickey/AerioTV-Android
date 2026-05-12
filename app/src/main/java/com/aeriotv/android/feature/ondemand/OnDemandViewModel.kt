@@ -88,6 +88,29 @@ class OnDemandViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Resolves the redirect-bound proxy URL to the session-bound playback URL
+     * for a movie. Returns a Result so the caller can surface failures via
+     * Toast / inline error rather than landing on a half-loaded player.
+     */
+    suspend fun resolveMovieUrl(movieUuid: String): Result<String> {
+        val playlist = playlistRepository.activePlaylist()
+            ?: return Result.failure(IllegalStateException("No playlist loaded."))
+        val key = playlist.apiKey
+        if (key.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
+        }
+        val movie = _state.value.movies.firstOrNull { it.uuid == movieUuid }
+        return runCatching {
+            dispatcharrClient.resolveVODStreamUrl(
+                baseUrl = playlist.urlString,
+                apiKey = key,
+                movieUuid = movieUuid,
+                streamId = movie?.firstStreamId,
+            )
+        }
+    }
+
     private companion object {
         const val TAG = "OnDemandViewModel"
     }

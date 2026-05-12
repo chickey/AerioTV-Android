@@ -57,6 +57,7 @@ import com.aeriotv.android.core.network.DispatcharrVODMovie
 @Composable
 fun OnDemandTabContent(
     modifier: Modifier = Modifier,
+    onMovieClick: (DispatcharrVODMovie) -> Unit = {},
     viewModel: OnDemandViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -136,13 +137,7 @@ fun OnDemandTabContent(
             items(items = state.visible, key = { it.id }) { movie ->
                 MoviePoster(
                     movie = movie,
-                    onClick = {
-                        Toast.makeText(
-                            context,
-                            "VOD playback lands with Phase 10b: ${movie.displayName}",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    },
+                    onClick = { onMovieClick(movie) },
                 )
             }
         }

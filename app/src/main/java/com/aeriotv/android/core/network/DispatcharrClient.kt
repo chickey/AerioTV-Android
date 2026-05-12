@@ -5,6 +5,11 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 import io.ktor.client.request.accept
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -65,6 +70,20 @@ class DispatcharrClient @Inject constructor() {
             json(json)
         }
     }
+
+    /**
+     * Bare OkHttp client used only by [resolveVODStreamUrl]. Disables both
+     * HTTP and HTTPS redirect-following at the engine level so the `Location`
+     * header on Dispatcharr's 301 is readable to us. Ktor's wrapper currently
+     * hangs when both `followRedirects = false` and the HttpRedirect plugin
+     * are configured, so we drop down to OkHttp directly for this one call.
+     */
+    private val noRedirectOkHttp: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     /**
      * POST /api/accounts/token/ - exchanges admin username + password for a JWT pair.
@@ -273,14 +292,59 @@ class DispatcharrClient @Inject constructor() {
     }
 
     /**
-     * Returns the canonical VOD playback URL for a Dispatcharr movie. Mirrors
-     * iOS DispatcharrAPI.proxyMovieURL (StreamingAPIs.swift:2105). Optional
-     * `streamId` picks one of the movie's stream providers; omit to let the
-     * server choose.
+     * Returns the unresolved Dispatcharr VOD entry URL for a movie. Mirrors
+     * iOS DispatcharrAPI.proxyMovieURL (StreamingAPIs.swift:2105).
+     *
+     * The server emits a 301 from this URL to a session-bound path
+     * (`/proxy/vod/movie/<uuid>/vod_<session>`). Callers that intend to hand
+     * the URL to libmpv must first resolve the redirect via
+     * [resolveVODStreamUrl] - libmpv on Android does not re-attach custom
+     * HTTP headers on a 301 hop, so playback fails before the session URL
+     * is reached.
      */
     fun vodMovieUrl(baseUrl: String, movieUuid: String, streamId: Int? = null): String {
         val base = "${baseUrl.trimEnd('/')}/proxy/vod/movie/$movieUuid"
         return if (streamId != null) "$base?stream_id=$streamId" else base
+    }
+
+    /**
+     * Hits Dispatcharr's VOD entry URL with redirects disabled and returns the
+     * resolved session URL from the `Location` header. The session URL doesn't
+     * require any further auth headers - it's a one-time playback handle the
+     * server emits per request. Passing it to mpv works on the first try.
+     *
+     * Falls back to the entry URL if the response is unexpectedly non-3xx
+     * (e.g. older Dispatcharr builds that serve direct content from the entry
+     * path); mpv can still try that URL itself.
+     */
+    suspend fun resolveVODStreamUrl(
+        baseUrl: String,
+        apiKey: String,
+        movieUuid: String,
+        streamId: Int? = null,
+    ): String = withContext(Dispatchers.IO) {
+        val entry = vodMovieUrl(baseUrl, movieUuid, streamId)
+        val request = Request.Builder()
+            .url(entry)
+            .header("X-API-Key", apiKey)
+            .header("Authorization", "ApiKey $apiKey")
+            .header("Accept", "*/*")
+            .build()
+        noRedirectOkHttp.newCall(request).execute().use { response ->
+            val code = response.code
+            if (code in 300..399) {
+                val location = response.header("Location") ?: return@use entry
+                if (location.startsWith("http://") || location.startsWith("https://")) {
+                    location
+                } else {
+                    val originRoot = Regex("(https?://[^/]+)").find(baseUrl)?.value
+                        ?: baseUrl.trimEnd('/')
+                    originRoot + location
+                }
+            } else {
+                entry
+            }
+        }
     }
 
     /** DELETE /api/channels/recordings/{id}/ — cancels a scheduled recording or removes a completed file. */

@@ -43,6 +43,7 @@ import com.aeriotv.android.feature.settings.SettingsViewModel
 @Composable
 fun MainScaffold(
     onChannelClick: (M3UChannel) -> Unit,
+    onMovieClick: (String) -> Unit = {},
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -123,7 +124,10 @@ fun MainScaffold(
                 hint = "Pin channels for quick access. Coming with the Favorites phase.",
             )
             AppTab.DVR -> DvrTabContent(modifier = Modifier.padding(padding))
-            AppTab.OnDemand -> OnDemandTabContent(modifier = Modifier.padding(padding))
+            AppTab.OnDemand -> OnDemandTabContent(
+                modifier = Modifier.padding(padding),
+                onMovieClick = { movie -> onMovieClick(movie.uuid) },
+            )
             AppTab.Settings -> SettingsTabContent()
         }
     }

@@ -8,7 +8,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -24,7 +26,9 @@ import com.aeriotv.android.feature.main.MainScaffold
 import com.aeriotv.android.feature.onboarding.ChooseSourceTypeScreen
 import com.aeriotv.android.feature.onboarding.ConfigureSourceScreen
 import com.aeriotv.android.feature.onboarding.WelcomeScreen
+import com.aeriotv.android.feature.ondemand.OnDemandViewModel
 import com.aeriotv.android.feature.player.PlayerScreen
+import com.aeriotv.android.feature.player.VODPlayerScreen
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 
 object Routes {
@@ -35,9 +39,11 @@ object Routes {
     const val CONFIGURE = "configure/{type}"
     const val MAIN = "main"
     const val PLAYER = "player/{channelId}"
+    const val VOD_PLAYER = "vod_player/{movieUuid}"
 
     fun configure(type: SourceType) = "configure/${type.name}"
     fun player(channelId: String) = "player/${Uri.encode(channelId)}"
+    fun vodPlayer(movieUuid: String) = "vod_player/${Uri.encode(movieUuid)}"
 }
 
 @Composable
@@ -169,6 +175,9 @@ fun AerioTVNavHost(
                     onChannelClick = { channel ->
                         navController.navigate(Routes.player(channel.id))
                     },
+                    onMovieClick = { movieUuid ->
+                        navController.navigate(Routes.vodPlayer(movieUuid))
+                    },
                 )
             }
 
@@ -202,6 +211,54 @@ fun AerioTVNavHost(
                     httpHeaders = headers,
                     epgByChannel = state.epgByChannel,
                     onClose = { navController.popBackStack() },
+                )
+            }
+
+            composable(
+                route = Routes.VOD_PLAYER,
+                arguments = listOf(navArgument("movieUuid") { type = NavType.StringType }),
+            ) { entry ->
+                val parent = remember(entry) {
+                    navController.getBackStackEntry(Routes.PLAYLIST_GRAPH)
+                }
+                val playlistVm: PlaylistViewModel = hiltViewModel(parent)
+                val playlistState by playlistVm.state.collectAsStateWithLifecycle()
+                val onDemandVm: OnDemandViewModel = hiltViewModel()
+                val onDemandState by onDemandVm.state.collectAsStateWithLifecycle()
+
+                val movieUuid = Uri.decode(entry.arguments?.getString("movieUuid").orEmpty())
+                val movie = onDemandState.movies.firstOrNull { it.uuid == movieUuid }
+
+                val baseUrl = playlistState.playlist?.urlString.orEmpty()
+                val apiKey = playlistState.playlist?.apiKey
+                val headers = remember(apiKey, playlistState.playlist?.sourceType) {
+                    val pl = playlistState.playlist
+                    val key = pl?.apiKey?.takeIf { it.isNotBlank() }
+                    val isDispatcharr = pl?.sourceType == SourceType.DispatcharrApiKey.name ||
+                            pl?.sourceType == SourceType.DispatcharrUserPass.name
+                    if (isDispatcharr && key != null) {
+                        mapOf(
+                            "X-API-Key" to key,
+                            "Authorization" to "ApiKey $key",
+                        )
+                    } else emptyMap()
+                }
+
+                var resolvedUrl by remember(movieUuid) { mutableStateOf<String?>(null) }
+                var resolveError by remember(movieUuid) { mutableStateOf<String?>(null) }
+                LaunchedEffect(movieUuid) {
+                    onDemandVm.resolveMovieUrl(movieUuid).fold(
+                        onSuccess = { resolvedUrl = it },
+                        onFailure = { resolveError = it.message ?: it::class.simpleName },
+                    )
+                }
+
+                VODPlayerScreen(
+                    streamUrl = resolvedUrl.orEmpty(),
+                    title = movie?.displayName ?: "On Demand",
+                    httpHeaders = headers,
+                    onClose = { navController.popBackStack() },
+                    loadingMessage = resolveError ?: if (resolvedUrl == null) "Loading…" else null,
                 )
             }
         }
