@@ -353,12 +353,13 @@ private fun InfoSection(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         if (!plot.isNullOrBlank()) {
+            // No maxLines cap -- iOS VODDetailView.swift:369 lets the plot
+            // wrap freely. Capping at 6 silently truncated the back half of
+            // longer synopses (Dispatcharr's plots can run 400-800 chars).
             Text(
                 text = plot,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 6,
-                overflow = TextOverflow.Ellipsis,
             )
         }
         if (trailerUrl != null || tmdbUrl != null) {

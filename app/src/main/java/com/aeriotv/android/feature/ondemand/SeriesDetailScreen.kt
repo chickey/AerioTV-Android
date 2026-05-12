@@ -370,12 +370,13 @@ private fun SeriesInfoSection(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         if (!plot.isNullOrBlank()) {
+            // Series plots can run long with episode summaries layered into
+            // the main synopsis; iOS doesn't truncate them and Android
+            // shouldn't either. Matches MovieDetailScreen.
             Text(
                 text = plot,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 6,
-                overflow = TextOverflow.Ellipsis,
             )
         }
         if (trailerUrl != null || tmdbUrl != null) {
