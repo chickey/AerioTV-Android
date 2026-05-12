@@ -30,7 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -80,14 +80,21 @@ fun PlaylistsScreen(
     var pendingDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Playlists", style = MaterialTheme.typography.titleMedium) },
+        CenterAlignedTopAppBar(
+            title = {
+                Text(
+                    text = "Playlists",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                    )
+                        tint = MaterialTheme.colorScheme.primary,
+                        )
                 }
             },
             actions = {
@@ -99,7 +106,7 @@ fun PlaylistsScreen(
                     )
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),

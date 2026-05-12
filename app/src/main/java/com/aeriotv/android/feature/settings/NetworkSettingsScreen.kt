@@ -4,6 +4,8 @@ import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,7 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,17 +60,24 @@ fun NetworkSettingsScreen(
     val homeSsids by viewModel.homeSsids.collectAsStateWithLifecycle(initialValue = emptySet<String>())
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Network", style = MaterialTheme.typography.titleMedium) },
+        CenterAlignedTopAppBar(
+            title = {
+                Text(
+                    text = "Network",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                    )
+                        tint = MaterialTheme.colorScheme.primary,
+                        )
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),
@@ -78,10 +87,14 @@ fun NetworkSettingsScreen(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter,
         ) {
+        // Outer Column is `verticalScroll` so the page actually scrolls past
+        // the first viewport — earlier revisions used `fillMaxSize()` here,
+        // which let the layout exceed the viewport but blocked drag-scroll.
         Column(
             modifier = Modifier
                 .adaptiveFormWidth()
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {

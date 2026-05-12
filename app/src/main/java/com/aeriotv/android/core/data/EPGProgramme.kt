@@ -14,4 +14,11 @@ data class EPGProgramme(
     val startMillis: Long,
     val endMillis: Long,
     val category: String,
+    /**
+     * Dispatcharr's int program id, when the source is the
+     * `/api/epg/grid/` endpoint. Drives lazy category enrichment via
+     * `getProgramDetail`. Null for XMLTV-parsed programmes (no integer id)
+     * and for Dispatcharr's "Dummy EPG" string-id entries.
+     */
+    val dispatcharrProgramId: Int? = null,
 )

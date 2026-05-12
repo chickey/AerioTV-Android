@@ -32,6 +32,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -269,6 +270,23 @@ class DispatcharrClient @Inject constructor() {
      * categories are lazy-loaded per programme via /api/epg/programs/<id>/ when the
      * user opens ProgramInfoView (Phase 6+ in the Android port).
      */
+    /**
+     * GET /api/epg/programs/<id>/ — rich detail (categories, rating, etc.)
+     * for one program. Mirrors iOS DispatcharrAPI.getProgramDetail
+     * (StreamingAPIs.swift line 1456). `/api/epg/grid/` deliberately strips
+     * the `<category>` payload for perf, so AerioTV calls this endpoint
+     * lazily when the user opens the Program Info sheet.
+     */
+    suspend fun getProgramDetail(baseUrl: String, apiKey: String, programId: Int): DispatcharrProgramDetail {
+        val url = "${baseUrl.trimEnd('/')}/api/epg/programs/$programId/"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) {
+            throw DispatcharrError.Transport("Program detail failed: HTTP ${response.status.value}")
+        }
+        return response.body()
+    }
+
     suspend fun getEpgGrid(baseUrl: String, apiKey: String): List<DispatcharrEpgEntry> {
         val url = "${baseUrl.trimEnd('/')}/api/epg/grid/"
         val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
@@ -1121,12 +1139,14 @@ private fun JsonObject.objectField(name: String): JsonObject? =
 
 @Serializable
 data class DispatcharrEpgEntry(
-    // NB: `id` is intentionally omitted. Real EPG entries carry a numeric `id`,
-    // but Dispatcharr's "Dummy EPG" channels emit string ids like
-    // `"dummy-custom-16444-21"`, which kotlinx-serialization can't coerce into
-    // a single Kotlin numeric type. We don't need the id until per-programme
-    // category lazy-load (Phase 6+), at which point we can switch to JsonElement
-    // or split the model into typed/untyped variants.
+    // `id` accepted as a JsonElement so the parser tolerates both shapes
+    // Dispatcharr emits: real EPG entries carry an Int (e.g. 17284) and the
+    // synthetic "Dummy EPG" channels emit a string (e.g.
+    // `"dummy-custom-16444-21"`). The Int-only path feeds the
+    // /api/epg/programs/<id>/ lazy-category lookup; the string path stays
+    // unsupported by detail fetch (no integer to address) and the EPG row
+    // just renders without categories until the user picks a real EPG.
+    val id: JsonElement? = null,
     @SerialName("start_time")
     val startTime: String,
     @SerialName("end_time")
@@ -1147,4 +1167,27 @@ data class DispatcharrEpgEntry(
     val isPremiere: Boolean = false,
     @SerialName("is_finale")
     val isFinale: Boolean = false,
+    // Newer Dispatcharr builds occasionally emit a top-level `categories`
+    // array on the bulk grid — accept it as a free upgrade. Falls back to
+    // the per-program lazy fetch when null.
+    val categories: List<String>? = null,
+) {
+    /** Best-effort coercion of the heterogeneous `id` field to Int. */
+    val programIdInt: Int?
+        get() = (id as? JsonPrimitive)?.intOrNull
+}
+
+/**
+ * Response shape for `/api/epg/programs/<id>/` — Dispatcharr's rich-detail
+ * fetch that carries the category list the bulk grid intentionally strips.
+ * Mirrors iOS DispatcharrProgramDetail (StreamingAPIs.swift `getProgramDetail`,
+ * line 1456). Categories are joined with comma to match the EPGProgramme
+ * .category contract.
+ */
+@Serializable
+data class DispatcharrProgramDetail(
+    val id: Int? = null,
+    val title: String? = null,
+    val description: String? = null,
+    val categories: List<String> = emptyList(),
 )

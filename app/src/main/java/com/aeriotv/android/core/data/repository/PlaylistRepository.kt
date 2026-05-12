@@ -318,7 +318,11 @@ private fun List<DispatcharrEpgEntry>.toProgrammes(): List<EPGProgramme> =
             description = entry.description,
             startMillis = start,
             endMillis = end,
-            category = "",
+            // Dispatcharr's bulk grid usually strips <category>; pick up
+            // the array when newer builds emit it as a free upgrade, fall
+            // back to per-program lazy fetch in ProgramInfoSheet otherwise.
+            category = entry.categories?.filter { it.isNotBlank() }?.joinToString(",").orEmpty(),
+            dispatcharrProgramId = entry.programIdInt,
         )
     }
 

@@ -20,7 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import com.aeriotv.android.ui.textfield.aerioTextFieldKeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -82,8 +82,14 @@ fun EditPlaylistScreen(
     val canSave = url.trim().isNotEmpty() && name.trim().isNotEmpty() && !state.isLoading
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Edit Playlist", style = MaterialTheme.typography.titleMedium) },
+        CenterAlignedTopAppBar(
+            title = {
+                Text(
+                    text = "Edit Playlist",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
             navigationIcon = {
                 TextButton(onClick = onBack) {
                     Text("Cancel", color = MaterialTheme.colorScheme.primary)
@@ -123,7 +129,7 @@ fun EditPlaylistScreen(
                     )
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),

@@ -21,6 +21,14 @@ data class ProgramInfoTarget(
      * (whose Record action toasts a "DVR requires Dispatcharr" message).
      */
     val channelDispatcharrId: Int? = null,
+    /**
+     * Dispatcharr's int program id. Drives the lazy `/api/epg/programs/<id>/`
+     * category-enrichment fetch in ProgramInfoSheet — when set, the sheet
+     * upgrades [category] from the bulk-grid blank string to the real list
+     * the moment the user opens the detail. Null for XMLTV-parsed programs
+     * and for Dispatcharr's "Dummy EPG" rows.
+     */
+    val dispatcharrProgramId: Int? = null,
 ) {
     val id: String get() = "$title-$startMillis-$endMillis"
 }
@@ -37,4 +45,5 @@ fun EPGProgramme.toInfoTarget(
         description = description,
         category = category,
         channelDispatcharrId = channelDispatcharrId,
+        dispatcharrProgramId = dispatcharrProgramId,
     )

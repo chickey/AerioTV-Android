@@ -35,7 +35,7 @@ import com.aeriotv.android.ui.textfield.aerioTextFieldKeyboardOptions
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -81,17 +81,24 @@ fun AddMoreCategoriesScreen(
     var editingCustom by remember { mutableStateOf<CustomCategoryEntry?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Add More Categories", style = MaterialTheme.typography.titleMedium) },
+        CenterAlignedTopAppBar(
+            title = {
+                Text(
+                    text = "Add More Categories",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                    )
+                        tint = MaterialTheme.colorScheme.primary,
+                        )
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),

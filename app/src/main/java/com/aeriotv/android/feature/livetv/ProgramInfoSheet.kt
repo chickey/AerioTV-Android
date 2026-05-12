@@ -23,36 +23,86 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.aeriotv.android.core.data.ProgramInfoTarget
+import com.aeriotv.android.core.data.SourceType
+import com.aeriotv.android.core.network.DispatcharrAuthBroker
+import com.aeriotv.android.core.network.DispatcharrClient
+import com.aeriotv.android.feature.playlist.PlaylistViewModel
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
  * Read-only ModalBottomSheet showing programme detail. Mirrors iOS
- * `ProgramInfoView` (ProgramInfoView.swift:78). Opened from Guide cell tap,
- * channel long-press "Program Info", and chevron-expand upcoming-programme row.
- *
- * Lazy category fetch (iOS `/api/epg/programs/<id>/`) is deferred until the
- * Android Dispatcharr API client gains a programDetail endpoint and EPGProgramme
- * gains a programID. Until then, the sheet renders only categories already in
- * the EPG payload.
+ * `ProgramInfoView` (ProgramInfoView.swift:78) plus iOS's lazy category
+ * enrichment from `getProgramDetail` (StreamingAPIs.swift line 1456): when
+ * the target carries a Dispatcharr program id and the bulk-grid category
+ * field came back empty, we fetch `/api/epg/programs/<id>/` the moment the
+ * sheet opens and upgrade the visible category pill row in place.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProgramInfoSheet(
     target: ProgramInfoTarget,
     onDismiss: () -> Unit,
+    playlistVm: PlaylistViewModel = hiltViewModel(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val playlistState by playlistVm.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Effective category string the rest of the sheet renders. Starts at
+    // whatever target carries; flips when the lazy detail fetch resolves
+    // with a richer list.
+    var effectiveCategory by remember(target.id) { mutableStateOf(target.category) }
+
+    LaunchedEffect(target.id) {
+        if (effectiveCategory.isNotBlank()) return@LaunchedEffect
+        val programId = target.dispatcharrProgramId ?: return@LaunchedEffect
+        val playlist = playlistState.playlist ?: return@LaunchedEffect
+        val isDispatcharr = playlist.sourceType == SourceType.DispatcharrApiKey.name ||
+            playlist.sourceType == SourceType.DispatcharrUserPass.name
+        if (!isDispatcharr) return@LaunchedEffect
+        val baseUrl = playlist.urlString
+        val playlistId = playlist.id
+        val entry = EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            ProgramInfoEntryPoint::class.java,
+        )
+        val broker = entry.dispatcharrAuth()
+        val client = entry.dispatcharrClient()
+        runCatching {
+            withContext(Dispatchers.IO) {
+                broker.withApiKeyRetry(playlistId) { key ->
+                    client.getProgramDetail(baseUrl, key, programId)
+                }
+            }
+        }.onSuccess { detail ->
+            val joined = detail.categories.filter { it.isNotBlank() }.joinToString(",")
+            if (joined.isNotBlank()) effectiveCategory = joined
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -110,7 +160,7 @@ fun ProgramInfoSheet(
                 )
             }
 
-            val tokens = target.categoryTokens()
+            val tokens = effectiveCategory.categoryTokens()
             if (tokens.isNotEmpty()) {
                 val (metadata, genres) = tokens.partition { it.lowercase(Locale.getDefault()) in METADATA_TOKENS }
                 if (metadata.isNotEmpty()) {
@@ -236,10 +286,24 @@ private fun ProgramInfoTarget.isLiveNow(): Boolean {
     return startMillis <= now && endMillis > now
 }
 
-private fun ProgramInfoTarget.categoryTokens(): List<String> =
-    category.split(',', '/', ';')
+/** Same tokenizer the iOS sheet uses: split on comma / forward-slash /
+ *  semicolon, trim, drop empties. Lifted off ProgramInfoTarget so the lazy
+ *  category fetch can tokenize the upgraded string directly. */
+private fun String.categoryTokens(): List<String> =
+    split(',', '/', ';')
         .map { it.trim() }
         .filter { it.isNotEmpty() }
+
+/** Hilt EntryPoint so the sheet can reach the singleton Dispatcharr client +
+ *  AuthBroker without injecting them through every call site. The sheet is a
+ *  plain composable (no ViewModel), so the standard `@Inject` route isn't
+ *  available — this is the Compose-idiomatic shortcut. */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface ProgramInfoEntryPoint {
+    fun dispatcharrClient(): DispatcharrClient
+    fun dispatcharrAuth(): DispatcharrAuthBroker
+}
 
 private fun formatDuration(millis: Long): String {
     if (millis <= 0L) return "—"
