@@ -52,4 +52,20 @@ class SettingsViewModel @Inject constructor(
     fun setDefaultLiveTVView(value: String) {
         viewModelScope.launch { prefs.setDefaultLiveTVView(value) }
     }
+
+    // Network (Phase 8c)
+    val networkTimeoutSecs: Flow<Double> = prefs.networkTimeoutSecs
+    fun setNetworkTimeoutSecs(value: Double) {
+        viewModelScope.launch { prefs.setNetworkTimeoutSecs(value) }
+    }
+
+    val maxRetries: Flow<Int> = prefs.maxRetries
+    fun setMaxRetries(value: Int) {
+        viewModelScope.launch { prefs.setMaxRetries(value) }
+    }
+
+    val streamBufferSize: Flow<String> = prefs.streamBufferSize
+    fun setStreamBufferSize(value: String) {
+        viewModelScope.launch { prefs.setStreamBufferSize(value) }
+    }
 }

@@ -40,6 +40,14 @@ class MPVPlayerView @JvmOverloads constructor(
     var httpHeaders: Map<String, String> = emptyMap()
 
     /**
+     * User-chosen stream buffer in milliseconds, from Settings -> Network -> Buffer Size.
+     * Mirrors iOS MPVPlayerView.swift line 3681 -> 3705. Applied at postInitOptions as
+     * `cache-secs` + `demuxer-readahead-secs`. Live streams enforce a 5s minimum
+     * regardless of user choice to absorb audio-decoder underruns.
+     */
+    var cachingMs: Int = 1_000
+
+    /**
      * Pre-init options (iOS lines 3055-3527, before mpv_initialize).
      * Order matters for some options (hwdec must be set before init).
      */
@@ -135,10 +143,14 @@ class MPVPlayerView @JvmOverloads constructor(
         // Upgrade frame-drop now that init is complete. iOS 3771.
         m.setPropertyString("framedrop", "decoder+vo")
 
-        // Cache window. iOS 3708/3716. Default 30s matches iOS default cachingSecs.
-        // TODO Phase 2: read from DataStore preferences (mirror iOS @AppStorage cachingSecs).
-        m.setPropertyString("demuxer-readahead-secs", "30")
-        m.setPropertyString("cache-secs", "30")
+        // Cache window. Mirrors iOS MPVPlayerView.swift:3679+ — user-chosen buffer
+        // size (set via [cachingMs] before initialize()) is the floor, with a 5s
+        // live-minimum enforcement so audio-output underruns don't freeze video.
+        val effectiveMs = if (isLive) maxOf(cachingMs, 5_000) else cachingMs
+        val effectiveSecs = effectiveMs / 1000.0
+        m.setPropertyString("cache", "yes")
+        m.setPropertyString("demuxer-readahead-secs", String.format(java.util.Locale.US, "%.1f", effectiveSecs))
+        m.setPropertyString("cache-secs", String.format(java.util.Locale.US, "%.1f", effectiveSecs))
 
         Log.i(tag, "postInitOptions complete")
     }

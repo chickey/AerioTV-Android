@@ -61,6 +61,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val settingsVm: SettingsViewModel = hiltViewModel()
     val appleTVChannelFlip by settingsVm.appleTVChannelFlip.collectAsStateWithLifecycle(initialValue = true)
+    val streamBufferSize by settingsVm.streamBufferSize.collectAsStateWithLifecycle(initialValue = "default")
 
     // Channel-flip state. The MPV view stays alive across flips; only the
     // current channel index changes and we call playFile again with the new URL.
@@ -108,6 +109,7 @@ fun PlayerScreen(
                     this.isLive = isLive
                     this.caFilePath = "$configDir/cacert.pem"
                     this.httpHeaders = httpHeaders
+                    this.cachingMs = com.aeriotv.android.feature.settings.bufferMillisFor(streamBufferSize)
                 }
 
                 Log.i(TAG, "Initializing MPV (configDir=$configDir cacheDir=$cacheDir)")

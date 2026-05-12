@@ -25,6 +25,8 @@ import com.aeriotv.android.feature.livetv.LiveTVTabContent
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import com.aeriotv.android.feature.settings.AppBehaviorsSettingsScreen
 import com.aeriotv.android.feature.settings.AppearanceSettingsScreen
+import com.aeriotv.android.feature.settings.DeveloperSettingsScreen
+import com.aeriotv.android.feature.settings.NetworkSettingsScreen
 import com.aeriotv.android.feature.settings.SettingsScreen
 import com.aeriotv.android.feature.settings.SettingsSection
 import com.aeriotv.android.feature.settings.SettingsSubScreenPlaceholder
@@ -127,6 +129,7 @@ fun MainScaffold(
 @Composable
 private fun SettingsTabContent() {
     var section by remember { mutableStateOf<SettingsSection?>(null) }
+    androidx.activity.compose.BackHandler(enabled = section != null) { section = null }
     when (section) {
         null -> SettingsScreen(onSectionClick = { section = it })
         SettingsSection.Appearance -> AppearanceSettingsScreen(onBack = { section = null })
@@ -136,11 +139,7 @@ private fun SettingsTabContent() {
             body = "Audio-focus indicator, tile padding, tile corners. Lands with Phase 11 Multiview.",
             onBack = { section = null },
         )
-        SettingsSection.Network -> SettingsSubScreenPlaceholder(
-            title = "Network",
-            body = "Stream buffer size, network timeout, retry count, background EPG refresh. Lands in Phase 8b.",
-            onBack = { section = null },
-        )
+        SettingsSection.Network -> NetworkSettingsScreen(onBack = { section = null })
         SettingsSection.Sync -> SettingsSubScreenPlaceholder(
             title = "Sync",
             body = "Google Drive AppData + Block Store credential sync. Lands with Phase 12 Sync.",
@@ -151,11 +150,7 @@ private fun SettingsTabContent() {
             body = "Local-recording storage cap, pre/post-roll defaults, custom folder. Lands with Phase 9 DVR.",
             onBack = { section = null },
         )
-        SettingsSection.Developer -> SettingsSubScreenPlaceholder(
-            title = "Developer",
-            body = "Diagnostic toggles and debug overlays. Lands in Phase 8b.",
-            onBack = { section = null },
-        )
+        SettingsSection.Developer -> DeveloperSettingsScreen(onBack = { section = null })
     }
 }
 

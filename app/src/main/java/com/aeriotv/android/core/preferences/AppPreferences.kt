@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.aeriotv.android.ui.theme.AppTheme
@@ -95,6 +97,30 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_DEFAULT_TAB] = value }
     }
 
+    // ── Network ──────────────────────────────────────────────────────────
+
+    /** iOS `networkTimeout` parity. Seconds. 5-60 step 5. Default 15 (iOS). */
+    val networkTimeoutSecs: Flow<Double> = store.data.map { it[KEY_NETWORK_TIMEOUT] ?: 15.0 }
+    suspend fun setNetworkTimeoutSecs(value: Double) {
+        store.edit { it[KEY_NETWORK_TIMEOUT] = value }
+    }
+
+    /** iOS `maxRetries` parity. 0-10. Default 3 (iOS). */
+    val maxRetries: Flow<Int> = store.data.map { it[KEY_MAX_RETRIES] ?: 3 }
+    suspend fun setMaxRetries(value: Int) {
+        store.edit { it[KEY_MAX_RETRIES] = value }
+    }
+
+    /**
+     * iOS `streamBufferSize` parity. One of "small" / "default" / "large" /
+     * "xlarge" matching the cache-time tiers in MPVPlayerView. PlayerScreen
+     * passes the resolved milliseconds into MPV at init time.
+     */
+    val streamBufferSize: Flow<String> = store.data.map { it[KEY_STREAM_BUFFER_SIZE] ?: "default" }
+    suspend fun setStreamBufferSize(value: String) {
+        store.edit { it[KEY_STREAM_BUFFER_SIZE] = value }
+    }
+
     private companion object {
         val KEY_SELECTED_THEME = stringPreferencesKey("selected_theme")
         val KEY_DEFAULT_LIVE_TV_VIEW = stringPreferencesKey("default_live_tv_view")
@@ -102,5 +128,8 @@ class AppPreferences @Inject constructor(
         val KEY_APPLE_TV_CHANNEL_FLIP = booleanPreferencesKey("app_behaviors_apple_tv_channel_flip")
         val KEY_AUTO_RESUME_LAST_CHANNEL = booleanPreferencesKey("app_behaviors_auto_resume_last_channel")
         val KEY_DEFAULT_TAB = stringPreferencesKey("default_tab")
+        val KEY_NETWORK_TIMEOUT = doublePreferencesKey("network_timeout_secs")
+        val KEY_MAX_RETRIES = intPreferencesKey("max_retries")
+        val KEY_STREAM_BUFFER_SIZE = stringPreferencesKey("stream_buffer_size")
     }
 }
