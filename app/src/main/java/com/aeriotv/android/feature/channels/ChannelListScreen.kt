@@ -45,7 +45,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -162,13 +162,12 @@ fun ChannelListScreen(
     }
 
     Column(modifier = modifierWrap.fillMaxSize()) {
-        TopAppBar(
+        // CenterAlignedTopAppBar (not the standard TopAppBar) centers the
+        // title within the bar regardless of action button width on the
+        // trailing edge, matching iOS `.navigationBarTitleDisplayMode(.inline)`
+        // which iOS UIKit centers automatically (ChannelListView.swift:191).
+        CenterAlignedTopAppBar(
             title = {
-                // iOS ChannelListView line 190 sets `.navigationTitle("Live TV")`
-                // regardless of which server / playlist is active. Server name
-                // and channel count belong on the Settings -> Playlists detail
-                // surface (and the count surfaces back into Live TV via the
-                // visible row count in the LazyColumn).
                 Text(
                     text = "Live TV",
                     style = MaterialTheme.typography.titleLarge,
@@ -192,7 +191,7 @@ fun ChannelListScreen(
                     onSelect = viewModel::onSortModeChange,
                 )
             },
-            colors = TopAppBarDefaults.topAppBarColors(
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),

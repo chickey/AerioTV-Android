@@ -91,23 +91,15 @@ class DispatcharrClient @Inject constructor() {
     /**
      * POST /api/accounts/token/ - exchanges admin username + password for a JWT pair.
      * Mirrors iOS DispatcharrAPI.login (DispatcharrDirectConnect.swift lines 319-378).
-     * The returned access token has ~30 min TTL; refresh token ~24 h. We don't
-     * cache the refresh token here (single-source per session), but the access
-     * token feeds the immediate /users/me/ call to extract a usable api_key.
+     * The returned access token has ~30 min TTL; refresh token ~24 h.
      *
-     * Error mapping matches iOS DispatcharrDirectConnectError so the same
-     * Dashboard-vs-XC password copy lands in the UI:
-     *  - 401/403 -> "Invalid username or password. AerioTV uses your Dispatcharr
-     *    Dashboard password (System -> Users -> Account tab), not your
-     *    Dispatcharr XC password." Field reports show users typing the XC
-     *    password here (it's the more familiar one) and assuming AerioTV is
-     *    broken when it 401s; calling out the exact admin path turns the
-     *    error into a self-resolving signal.
-     *  - 200 OK but decode fails -> "Server returned an unexpected response
-     *    shape during login. Verify the URL points at a Dispatcharr 0.23.0
-     *    or newer instance." Catches the SPA-shell case (the URL points at a
-     *    non-Dispatcharr host that 200s with HTML).
-     *  - Other status / network failure -> "Login transport error: <detail>"
+     * Throws [DispatcharrError.InvalidCredentials] on 401/403 (the user typed the
+     * wrong password — message carries the Dashboard-vs-XC distinction so the
+     * UX shows the actionable copy iOS line 296 spells out),
+     * [DispatcharrError.UnexpectedResponse] on a 200 OK whose body isn't JWT
+     * shaped (catches the SPA-shell case where the URL points at a non-Dispatcharr
+     * host that 200s with HTML), and [DispatcharrError.Transport] on every other
+     * network or HTTP failure.
      */
     suspend fun login(baseUrl: String, username: String, password: String): JwtPair {
         val response: HttpResponse = try {
@@ -118,29 +110,72 @@ class DispatcharrClient @Inject constructor() {
                 setBody(LoginRequest(username = username, password = password))
             }
         } catch (t: Throwable) {
-            throw IllegalStateException(
+            throw DispatcharrError.Transport(
                 "Login transport error: ${t.message ?: t::class.simpleName}",
             )
         }
         val code = response.status.value
         if (code == 401 || code == 403) {
-            throw IllegalStateException(
+            throw DispatcharrError.InvalidCredentials(
                 "Invalid username or password. AerioTV uses your Dispatcharr " +
                     "Dashboard password (System -> Users -> Account tab), " +
                     "not your Dispatcharr XC password.",
             )
         }
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("Login transport error: HTTP $code")
+            throw DispatcharrError.Transport("Login transport error: HTTP $code")
         }
         return try {
             response.body()
         } catch (e: SerializationException) {
-            throw IllegalStateException(
+            throw DispatcharrError.UnexpectedResponse(
                 "Server returned an unexpected response shape during login. " +
                     "Verify the URL points at a Dispatcharr 0.23.0 or newer instance.",
             )
         }
+    }
+
+    /**
+     * POST /api/accounts/token/refresh/ - exchange a refresh token for a fresh
+     * access token. Mirrors iOS DispatcharrAPI.refreshAccessToken
+     * (DispatcharrDirectConnect.swift lines 384-414). The refresh token is NOT
+     * rotated by the server; only a new access token is emitted, so the caller
+     * keeps reusing the existing refresh until it itself expires (24h+ idle).
+     *
+     * Throws [DispatcharrError.RefreshExpired] on 401/403 (refresh token stale —
+     * caller should fall back to a fresh login from saved credentials),
+     * [DispatcharrError.Transport] on any other failure.
+     */
+    suspend fun refreshAccessToken(baseUrl: String, refresh: String): String {
+        val response: HttpResponse = try {
+            client.post("${baseUrl.trimEnd('/')}/api/accounts/token/refresh/") {
+                contentType(ContentType.Application.Json)
+                accept(ContentType.Application.Json)
+                header("User-Agent", dispatcharrUserAgent)
+                setBody(RefreshRequest(refresh = refresh))
+            }
+        } catch (t: Throwable) {
+            throw DispatcharrError.Transport(
+                "Refresh transport error: ${t.message ?: t::class.simpleName}",
+            )
+        }
+        val code = response.status.value
+        if (code == 401 || code == 403) {
+            throw DispatcharrError.RefreshExpired(
+                "Refresh token expired. AerioTV will re-authenticate from saved credentials.",
+            )
+        }
+        if (!response.status.isSuccess()) {
+            throw DispatcharrError.Transport("Refresh transport error: HTTP $code")
+        }
+        val body: RefreshResponse = try {
+            response.body()
+        } catch (e: SerializationException) {
+            throw DispatcharrError.UnexpectedResponse(
+                "Refresh returned an unexpected response shape.",
+            )
+        }
+        return body.access
     }
 
     /**
@@ -157,23 +192,23 @@ class DispatcharrClient @Inject constructor() {
                 header("User-Agent", dispatcharrUserAgent)
             }
         } catch (t: Throwable) {
-            throw IllegalStateException(
+            throw DispatcharrError.Transport(
                 "Couldn't read user profile: ${t.message ?: t::class.simpleName}",
             )
         }
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("Couldn't read user profile: HTTP ${response.status.value}")
+            throw DispatcharrError.Transport("Couldn't read user profile: HTTP ${response.status.value}")
         }
         val me: MeResponse = try {
             response.body()
         } catch (e: SerializationException) {
-            throw IllegalStateException(
+            throw DispatcharrError.UnexpectedResponse(
                 "Server returned an unexpected user profile shape. Verify the URL " +
                     "points at a Dispatcharr 0.23.0 or newer instance.",
             )
         }
         return me.apiKey.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("Server did not return an api_key for this user")
+            ?: throw DispatcharrError.UnexpectedResponse("Server did not return an api_key for this user")
     }
 
     /**
@@ -197,11 +232,11 @@ class DispatcharrClient @Inject constructor() {
      * message on failure so the UI can show a useful diagnostic.
      */
     suspend fun verifyConnection(baseUrl: String, apiKey: String): VersionResponse {
-        val response: HttpResponse = client.get("${baseUrl.trimEnd('/')}/api/core/version/") {
-            applyAuth(apiKey)
-        }
+        val url = "${baseUrl.trimEnd('/')}/api/core/version/"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("Connection check failed: HTTP ${response.status.value} ${response.status.description}")
+            throw DispatcharrError.Transport("Connection check failed: HTTP ${response.status.value} ${response.status.description}")
         }
         return response.body()
     }
@@ -233,11 +268,11 @@ class DispatcharrClient @Inject constructor() {
      * user opens ProgramInfoView (Phase 6+ in the Android port).
      */
     suspend fun getEpgGrid(baseUrl: String, apiKey: String): List<DispatcharrEpgEntry> {
-        val response: HttpResponse = client.get("${baseUrl.trimEnd('/')}/api/epg/grid/") {
-            applyAuth(apiKey)
-        }
+        val url = "${baseUrl.trimEnd('/')}/api/epg/grid/"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("EPG grid failed: HTTP ${response.status.value} ${response.status.description}")
+            throw DispatcharrError.Transport("EPG grid failed: HTTP ${response.status.value} ${response.status.description}")
         }
         val wrapper: EpgGridResponse = response.body()
         return wrapper.data
@@ -248,16 +283,33 @@ class DispatcharrClient @Inject constructor() {
         apiKey: String,
     ): List<T> {
         val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("HTTP ${response.status.value} ${response.status.description} from $url")
+            throw DispatcharrError.Transport("HTTP ${response.status.value} ${response.status.description} from $url")
         }
         val raw: JsonElement = response.body()
         val array: JsonArray = when {
             raw is JsonArray -> raw
             raw is JsonObject && raw["results"] is JsonArray -> raw["results"]!!.jsonArray
-            else -> throw IllegalStateException("Unexpected response shape from $url: ${raw::class.simpleName}")
+            else -> throw DispatcharrError.UnexpectedResponse("Unexpected response shape from $url: ${raw::class.simpleName}")
         }
         return array.map { json.decodeFromJsonElement(serializer<T>(), it) }
+    }
+
+    /**
+     * Promote any 401/403 from an api_key-authenticated call to
+     * [DispatcharrError.Unauthorized] so the AuthBroker's retry helper can
+     * recognise the case where an admin rotated the user's api_key and
+     * trigger silent rebootstrap. Used by every applyAuth() call site.
+     */
+    private fun unauthorizedCheck(response: HttpResponse, url: String) {
+        val code = response.status.value
+        if (code == 401 || code == 403) {
+            throw DispatcharrError.Unauthorized(
+                "Dispatcharr rejected the api_key for $url (HTTP $code). " +
+                    "Admin probably rotated it.",
+            )
+        }
     }
 
     private inline fun <reified T> serializer(): kotlinx.serialization.KSerializer<T> =
@@ -309,13 +361,15 @@ class DispatcharrClient @Inject constructor() {
             put("end_time", JsonPrimitive(endIso))
             put("custom_properties", customProps)
         }
-        val response: HttpResponse = client.post("${baseUrl.trimEnd('/')}/api/channels/recordings/") {
+        val url = "${baseUrl.trimEnd('/')}/api/channels/recordings/"
+        val response: HttpResponse = client.post(url) {
             applyAuth(apiKey)
             contentType(ContentType.Application.Json)
             setBody(body)
         }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException(
+            throw DispatcharrError.Transport(
                 "Recording create failed: HTTP ${response.status.value} ${response.status.description}",
             )
         }
@@ -359,15 +413,15 @@ class DispatcharrClient @Inject constructor() {
             put("end_time", JsonPrimitive(endIso))
             put("custom_properties", customProps)
         }
-        val response: HttpResponse = client.patch(
-            "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/",
-        ) {
+        val url = "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/"
+        val response: HttpResponse = client.patch(url) {
             applyAuth(apiKey)
             contentType(ContentType.Application.Json)
             setBody(body)
         }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException(
+            throw DispatcharrError.Transport(
                 "Recording update failed: HTTP ${response.status.value} ${response.status.description}",
             )
         }
@@ -380,11 +434,11 @@ class DispatcharrClient @Inject constructor() {
      * and a "Load more" affordance lands when the user request comes.
      */
     suspend fun getVODMoviesFirstPage(baseUrl: String, apiKey: String): VODMoviesPage {
-        val response: HttpResponse = client.get("${baseUrl.trimEnd('/')}/api/vod/movies/?page_size=100") {
-            applyAuth(apiKey)
-        }
+        val url = "${baseUrl.trimEnd('/')}/api/vod/movies/?page_size=100"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("VOD movies fetch failed: HTTP ${response.status.value}")
+            throw DispatcharrError.Transport("VOD movies fetch failed: HTTP ${response.status.value}")
         }
         val raw: JsonElement = response.body()
         return when {
@@ -411,11 +465,11 @@ class DispatcharrClient @Inject constructor() {
      * support deferred until the user hits the bottom of the grid.
      */
     suspend fun getVODSeriesFirstPage(baseUrl: String, apiKey: String): VODSeriesPage {
-        val response: HttpResponse = client.get("${baseUrl.trimEnd('/')}/api/vod/series/?page_size=100") {
-            applyAuth(apiKey)
-        }
+        val url = "${baseUrl.trimEnd('/')}/api/vod/series/?page_size=100"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("VOD series fetch failed: HTTP ${response.status.value}")
+            throw DispatcharrError.Transport("VOD series fetch failed: HTTP ${response.status.value}")
         }
         val raw: JsonElement = response.body()
         return when {
@@ -449,8 +503,9 @@ class DispatcharrClient @Inject constructor() {
     ): VODEpisodesPage {
         val url = "${baseUrl.trimEnd('/')}/api/vod/series/$seriesId/episodes/?page=1&page_size=100"
         val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("Series episodes fetch failed: HTTP ${response.status.value}")
+            throw DispatcharrError.Transport("Series episodes fetch failed: HTTP ${response.status.value}")
         }
         val raw: JsonElement = response.body()
         return when {
@@ -566,11 +621,11 @@ class DispatcharrClient @Inject constructor() {
 
     /** DELETE /api/channels/recordings/{id}/ — cancels a scheduled recording or removes a completed file. */
     suspend fun deleteRecording(baseUrl: String, apiKey: String, recordingId: Int) {
-        val response: HttpResponse = client.delete("${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/") {
-            applyAuth(apiKey)
-        }
+        val url = "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/"
+        val response: HttpResponse = client.delete(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
         if (!response.status.isSuccess()) {
-            throw IllegalStateException(
+            throw DispatcharrError.Transport(
                 "Recording delete failed: HTTP ${response.status.value} ${response.status.description}",
             )
         }
@@ -601,6 +656,16 @@ data class LoginRequest(
 data class JwtPair(
     val access: String,
     val refresh: String,
+)
+
+@Serializable
+data class RefreshRequest(
+    val refresh: String,
+)
+
+@Serializable
+data class RefreshResponse(
+    val access: String,
 )
 
 @Serializable

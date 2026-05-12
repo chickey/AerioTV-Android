@@ -7,6 +7,7 @@ import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.data.db.dao.LocalRecordingDao
 import com.aeriotv.android.core.data.db.entity.LocalRecordingEntity
 import com.aeriotv.android.core.data.repository.PlaylistRepository
+import com.aeriotv.android.core.network.DispatcharrAuthBroker
 import com.aeriotv.android.core.network.DispatcharrClient
 import com.aeriotv.android.core.network.DispatcharrRecording
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,6 +35,7 @@ import kotlinx.coroutines.launch
 class DvrViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val dispatcharrClient: DispatcharrClient,
+    private val dispatcharrAuth: DispatcharrAuthBroker,
     private val localRecordingDao: LocalRecordingDao,
 ) : ViewModel() {
 
@@ -112,7 +114,9 @@ class DvrViewModel @Inject constructor(
             }
             _state.update { it.copy(isLoading = true, error = null, unsupportedSource = false) }
             runCatching {
-                dispatcharrClient.listRecordings(playlist.urlString, playlist.apiKey!!)
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    dispatcharrClient.listRecordings(playlist.urlString, key)
+                }
             }.fold(
                 onSuccess = { remote ->
                     _state.update { st ->
@@ -145,11 +149,14 @@ class DvrViewModel @Inject constructor(
                 Source.Server -> {
                     val playlist = playlistRepository.activePlaylist()
                         ?: throw IllegalStateException("No playlist loaded.")
-                    val key = playlist.apiKey
-                        ?: throw IllegalStateException("Active source is not Dispatcharr-backed.")
+                    if (playlist.apiKey.isNullOrBlank()) {
+                        throw IllegalStateException("Active source is not Dispatcharr-backed.")
+                    }
                     val intId = recording.id.removePrefix("server-").toIntOrNull()
                         ?: throw IllegalStateException("Invalid server recording id: ${recording.id}")
-                    dispatcharrClient.deleteRecording(playlist.urlString, key, intId)
+                    dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                        dispatcharrClient.deleteRecording(playlist.urlString, key, intId)
+                    }
                     refresh()
                 }
                 Source.Local -> {
@@ -181,21 +188,22 @@ class DvrViewModel @Inject constructor(
     ): Result<DispatcharrRecording> {
         val playlist = playlistRepository.activePlaylist()
             ?: return Result.failure(IllegalStateException("No playlist loaded."))
-        val key = playlist.apiKey
-        if (key.isNullOrBlank()) {
+        if (playlist.apiKey.isNullOrBlank()) {
             return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
         }
         return runCatching {
-            val result = dispatcharrClient.createRecording(
-                baseUrl = playlist.urlString,
-                apiKey = key,
-                channelId = channelDispatcharrId,
-                startIso = startMillis.toIsoUtc(),
-                endIso = endMillis.toIsoUtc(),
-                title = title,
-                description = description,
-                comskip = comskip,
-            )
+            val result = dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.createRecording(
+                    baseUrl = playlist.urlString,
+                    apiKey = key,
+                    channelId = channelDispatcharrId,
+                    startIso = startMillis.toIsoUtc(),
+                    endIso = endMillis.toIsoUtc(),
+                    title = title,
+                    description = description,
+                    comskip = comskip,
+                )
+            }
             refresh()
             result
         }
@@ -217,20 +225,21 @@ class DvrViewModel @Inject constructor(
     ): Result<DispatcharrRecording> {
         val playlist = playlistRepository.activePlaylist()
             ?: return Result.failure(IllegalStateException("No playlist loaded."))
-        val key = playlist.apiKey
-        if (key.isNullOrBlank()) {
+        if (playlist.apiKey.isNullOrBlank()) {
             return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
         }
         return runCatching {
-            val result = dispatcharrClient.updateRecording(
-                baseUrl = playlist.urlString,
-                apiKey = key,
-                recordingId = recordingId,
-                startIso = startMillis.toIsoUtc(),
-                endIso = endMillis.toIsoUtc(),
-                title = title,
-                description = description,
-            )
+            val result = dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.updateRecording(
+                    baseUrl = playlist.urlString,
+                    apiKey = key,
+                    recordingId = recordingId,
+                    startIso = startMillis.toIsoUtc(),
+                    endIso = endMillis.toIsoUtc(),
+                    title = title,
+                    description = description,
+                )
+            }
             refresh()
             result
         }

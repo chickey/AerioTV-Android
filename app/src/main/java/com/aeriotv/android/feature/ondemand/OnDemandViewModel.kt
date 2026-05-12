@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.data.repository.PlaylistRepository
+import com.aeriotv.android.core.network.DispatcharrAuthBroker
 import com.aeriotv.android.core.network.DispatcharrClient
 import com.aeriotv.android.core.network.DispatcharrVODEpisode
 import com.aeriotv.android.core.network.DispatcharrVODMovie
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 class OnDemandViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val dispatcharrClient: DispatcharrClient,
+    private val dispatcharrAuth: DispatcharrAuthBroker,
 ) : ViewModel() {
 
     data class UiState(
@@ -93,7 +95,9 @@ class OnDemandViewModel @Inject constructor(
             }
             _state.update { it.copy(isLoading = true, error = null, unsupportedSource = false) }
             runCatching {
-                dispatcharrClient.getVODMoviesFirstPage(playlist.urlString, playlist.apiKey!!)
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    dispatcharrClient.getVODMoviesFirstPage(playlist.urlString, key)
+                }
             }.fold(
                 onSuccess = { page ->
                     _state.update {
@@ -125,7 +129,9 @@ class OnDemandViewModel @Inject constructor(
             }
             _state.update { it.copy(isLoadingSeries = true, seriesError = null) }
             runCatching {
-                dispatcharrClient.getVODSeriesFirstPage(playlist.urlString, playlist.apiKey!!)
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    dispatcharrClient.getVODSeriesFirstPage(playlist.urlString, key)
+                }
             }.fold(
                 onSuccess = { page ->
                     _state.update {
@@ -158,11 +164,12 @@ class OnDemandViewModel @Inject constructor(
         viewModelScope.launch {
             val playlist = playlistRepository.activePlaylist()
                 ?: return@launch
-            val key = playlist.apiKey
-            if (key.isNullOrBlank()) return@launch
+            if (playlist.apiKey.isNullOrBlank()) return@launch
             _state.update { it.copy(episodesLoadingFor = it.episodesLoadingFor + seriesId) }
             runCatching {
-                dispatcharrClient.getSeriesEpisodesFirstPage(playlist.urlString, key, seriesId)
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    dispatcharrClient.getSeriesEpisodesFirstPage(playlist.urlString, key, seriesId)
+                }
             }.fold(
                 onSuccess = { page ->
                     _state.update { st ->
@@ -191,17 +198,18 @@ class OnDemandViewModel @Inject constructor(
     suspend fun resolveEpisodeUrl(episodeUuid: String, streamId: Int?): Result<String> {
         val playlist = playlistRepository.activePlaylist()
             ?: return Result.failure(IllegalStateException("No playlist loaded."))
-        val key = playlist.apiKey
-        if (key.isNullOrBlank()) {
+        if (playlist.apiKey.isNullOrBlank()) {
             return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
         }
         return runCatching {
-            dispatcharrClient.resolveVODEpisodeStreamUrl(
-                baseUrl = playlist.urlString,
-                apiKey = key,
-                episodeUuid = episodeUuid,
-                streamId = streamId,
-            )
+            dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.resolveVODEpisodeStreamUrl(
+                    baseUrl = playlist.urlString,
+                    apiKey = key,
+                    episodeUuid = episodeUuid,
+                    streamId = streamId,
+                )
+            }
         }
     }
 
@@ -213,18 +221,19 @@ class OnDemandViewModel @Inject constructor(
     suspend fun resolveMovieUrl(movieUuid: String): Result<String> {
         val playlist = playlistRepository.activePlaylist()
             ?: return Result.failure(IllegalStateException("No playlist loaded."))
-        val key = playlist.apiKey
-        if (key.isNullOrBlank()) {
+        if (playlist.apiKey.isNullOrBlank()) {
             return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
         }
         val movie = _state.value.movies.firstOrNull { it.uuid == movieUuid }
         return runCatching {
-            dispatcharrClient.resolveVODStreamUrl(
-                baseUrl = playlist.urlString,
-                apiKey = key,
-                movieUuid = movieUuid,
-                streamId = movie?.firstStreamId,
-            )
+            dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.resolveVODStreamUrl(
+                    baseUrl = playlist.urlString,
+                    apiKey = key,
+                    movieUuid = movieUuid,
+                    streamId = movie?.firstStreamId,
+                )
+            }
         }
     }
 

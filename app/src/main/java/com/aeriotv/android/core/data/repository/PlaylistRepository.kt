@@ -6,8 +6,10 @@ import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.data.db.dao.PlaylistDao
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
 import android.content.Context
+import com.aeriotv.android.core.network.DispatcharrAuthBroker
 import com.aeriotv.android.core.network.DispatcharrClient
 import com.aeriotv.android.core.network.DispatcharrEpgEntry
+import com.aeriotv.android.core.network.DispatcharrTokenStore
 import com.aeriotv.android.core.network.PlaylistFetcher
 import com.aeriotv.android.core.parser.M3UParser
 import com.aeriotv.android.core.parser.XMLTVParser
@@ -41,6 +43,8 @@ class PlaylistRepository @Inject constructor(
     private val dao: PlaylistDao,
     private val fetcher: PlaylistFetcher,
     private val dispatcharrClient: DispatcharrClient,
+    private val dispatcharrAuth: DispatcharrAuthBroker,
+    private val dispatcharrTokenStore: DispatcharrTokenStore,
     private val appPreferences: AppPreferences,
 ) {
 
@@ -85,6 +89,11 @@ class PlaylistRepository @Inject constructor(
             )
         }
 
+        // Generate the playlist id up front so the JWT pair from a UserPass login
+        // can land in DispatcharrTokenStore under the same key the rest of the
+        // flow uses (refresh, warmup, silent rebootstrap on subsequent 401s).
+        val playlistId = existingId ?: UUID.randomUUID().toString()
+
         // For Dispatcharr User/Pass, do the JWT exchange up front and resolve to an api_key
         // so the rest of the flow looks identical to API-key mode. iOS does this too
         // (silent rebootstrap pattern, DispatcharrDirectConnect.swift line 534-588).
@@ -95,6 +104,10 @@ class PlaylistRepository @Inject constructor(
                 val p = request.password?.takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException("Password is required")
                 val jwt = dispatcharrClient.login(normalisedBase, u, p)
+                // Stash the JWT pair so the warmup coordinator picks up the
+                // refresh token on the next app foreground and the bearer-mode
+                // calls don't need to re-login from scratch every session.
+                dispatcharrTokenStore.store(playlistId, jwt.access, jwt.refresh)
                 dispatcharrClient.fetchCurrentUserApiKey(normalisedBase, jwt.access)
             }
             else -> request.apiKey
@@ -108,7 +121,7 @@ class PlaylistRepository @Inject constructor(
         )
 
         val entity = PlaylistEntity(
-            id = existingId ?: UUID.randomUUID().toString(),
+            id = playlistId,
             name = request.name?.takeIf { it.isNotBlank() } ?: deriveName(normalisedBase),
             urlString = normalisedBase,
             lanUrlString = request.lanUrl?.trimEnd('/')?.takeIf { it.isNotBlank() },
@@ -140,12 +153,17 @@ class PlaylistRepository @Inject constructor(
      */
     suspend fun refresh(playlist: PlaylistEntity): Result<List<M3UChannel>> = runCatching {
         val sourceType = playlist.resolvedSourceType()
-        val channels = fetchChannelsFor(
-            sourceType = sourceType,
-            base = effectiveBaseUrl(playlist),
-            userEpgUrl = playlist.epgUrl,
-            apiKey = playlist.apiKey,
-        )
+        val base = effectiveBaseUrl(playlist)
+        // Dispatcharr branches go through the AuthBroker so a rotated api_key
+        // gets silently rebootstrapped instead of surfacing a 401. M3U / Xtream
+        // fall straight through to fetchChannelsFor.
+        val channels = when (sourceType) {
+            SourceType.DispatcharrApiKey, SourceType.DispatcharrUserPass ->
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    fetchChannelsFor(sourceType, base, playlist.epgUrl, key)
+                }
+            else -> fetchChannelsFor(sourceType, base, playlist.epgUrl, playlist.apiKey)
+        }
         dao.update(
             playlist.copy(
                 channelCount = channels.size,
@@ -165,10 +183,10 @@ class PlaylistRepository @Inject constructor(
                 XMLTVParser.parseBytes(bytes)
             }
             SourceType.DispatcharrApiKey, SourceType.DispatcharrUserPass -> {
-                val key = playlist.apiKey?.takeIf { it.isNotBlank() }
-                    ?: return@runCatching emptyList()
-                dispatcharrClient.getEpgGrid(base, key)
-                    .toProgrammes()
+                if (playlist.apiKey.isNullOrBlank()) return@runCatching emptyList()
+                dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                    dispatcharrClient.getEpgGrid(base, key).toProgrammes()
+                }
             }
             SourceType.XtreamCodes -> return@runCatching emptyList()
         }
@@ -176,7 +194,10 @@ class PlaylistRepository @Inject constructor(
         programmes
     }
 
-    suspend fun clear() = dao.clear()
+    suspend fun clear() {
+        dispatcharrTokenStore.clearAll()
+        dao.clear()
+    }
 
     /** All stored playlists, observed for the multi-playlist switcher. */
     fun observeAll(): kotlinx.coroutines.flow.Flow<List<PlaylistEntity>> = dao.observeAll()
@@ -191,17 +212,24 @@ class PlaylistRepository @Inject constructor(
         dao.switchActive(playlistId)
         val entity = dao.byId(playlistId)
             ?: throw IllegalStateException("Playlist $playlistId vanished after switch")
-        val channels = fetchChannelsFor(
-            sourceType = entity.resolvedSourceType(),
-            base = effectiveBaseUrl(entity),
-            userEpgUrl = entity.epgUrl,
-            apiKey = entity.apiKey,
-        )
+        val base = effectiveBaseUrl(entity)
+        val sourceType = entity.resolvedSourceType()
+        val channels = when (sourceType) {
+            SourceType.DispatcharrApiKey, SourceType.DispatcharrUserPass ->
+                dispatcharrAuth.withApiKeyRetry(entity.id) { key ->
+                    fetchChannelsFor(sourceType, base, entity.epgUrl, key)
+                }
+            else -> fetchChannelsFor(sourceType, base, entity.epgUrl, entity.apiKey)
+        }
         dao.update(entity.copy(channelCount = channels.size, lastRefreshedAt = System.currentTimeMillis()))
         entity to channels
     }
 
     suspend fun deletePlaylist(playlistId: String): Result<Unit> = runCatching {
+        // Drop any in-memory JWT pair for the row we're removing so the
+        // warmup coordinator stops trying to refresh a dead playlist on
+        // the next foreground.
+        dispatcharrTokenStore.clear(playlistId)
         dao.deleteById(playlistId)
     }
 
