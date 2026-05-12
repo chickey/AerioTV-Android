@@ -53,11 +53,20 @@ object M3UParser {
                 }
 
                 if (url.isNotEmpty()) {
+                    val tvgId = attrs["tvg-id"]?.takeIf { it.isNotBlank() }
+                    // Stable ID — prefer tvg-id (the broadcaster's canonical
+                    // channel key), fall back to the stream URL which is also
+                    // stable across refreshes of the same source. iOS uses the
+                    // raw UUID per fetch and stores its own per-channel id in
+                    // ChannelDisplayItem; Android keeps the favorites store
+                    // keyed off this stable string so the user's saved rows
+                    // survive a playlist reload.
                     channels += M3UChannel(
+                        id = "m3u:${tvgId ?: url}",
                         name = attrs["name"]?.ifBlank { null } ?: "Unknown Channel",
                         url = url,
                         groupTitle = attrs["group-title"].orEmpty(),
-                        tvgID = attrs["tvg-id"].orEmpty(),
+                        tvgID = tvgId.orEmpty(),
                         tvgName = attrs["tvg-name"].orEmpty(),
                         tvgLogo = attrs["tvg-logo"].orEmpty(),
                         channelNumber = attrs["tvg-chno"]?.trim()?.takeIf { it.isNotBlank() },

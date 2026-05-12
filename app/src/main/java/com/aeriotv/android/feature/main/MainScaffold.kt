@@ -62,8 +62,19 @@ fun MainScaffold(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val favoritesVm: FavoritesViewModel = hiltViewModel()
-    val favoritesCount by favoritesVm.count.collectAsStateWithLifecycle(initialValue = 0)
-    val tabs = visibleTabs(state, hasFavorites = favoritesCount > 0)
+    val favorites by favoritesVm.all.collectAsStateWithLifecycle(initialValue = emptyList())
+    // Show the Favorites tab only when the user has at least one favorite
+    // that ALSO exists in the active playlist. The raw DB count would keep
+    // the tab pinned to the bottom bar after a playlist switch left stale
+    // orphan rows pointing at channel ids that no longer exist — the user
+    // would see the tab, tap it, and find an empty "No Favorites" body
+    // even though the DB count was non-zero.
+    val hasRenderableFavorites = remember(favorites, state.channels) {
+        if (favorites.isEmpty() || state.channels.isEmpty()) return@remember false
+        val visibleIds = state.channels.asSequence().map { it.id }.toHashSet()
+        favorites.any { it.channelId in visibleIds }
+    }
+    val tabs = visibleTabs(state, hasFavorites = hasRenderableFavorites)
     val miniPlayerVm: MiniPlayerViewModel = hiltViewModel()
     val miniPlayerState by miniPlayerVm.state.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current

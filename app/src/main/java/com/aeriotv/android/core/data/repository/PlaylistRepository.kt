@@ -270,7 +270,12 @@ class PlaylistRepository @Inject constructor(
                     { it.name.lowercase() },
                 ))
                 .map { ch ->
+                    // Stable ID derived from Dispatcharr's server UUID so the
+                    // favorites store key survives playlist refreshes. The
+                    // default `UUID.randomUUID()` in M3UChannel re-rolled on
+                    // every fetch and orphaned existing FavoriteChannel rows.
                     M3UChannel(
+                        id = "disp:${ch.uuid!!}",
                         name = ch.name,
                         url = dispatcharrClient.streamUrl(base, ch.uuid!!),
                         groupTitle = ch.channelGroupId?.let { groups[it] }.orEmpty(),
