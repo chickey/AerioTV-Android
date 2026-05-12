@@ -19,6 +19,13 @@ fun AerioTVTheme(
     // accent in Appearance, replace the preset's primary with their hex. Falls
     // back to the preset's own accent when [customAccent] is null.
     val effectivePrimary = customAccent ?: appTheme.accentPrimary
+    // Mirrors iOS Colors.swift textSecondary = accent.opacity(0.65). Every
+    // secondary copy (subtitles, card descriptions, info-banner body, hint
+    // text) renders cyan-tinted instead of plain white, which is what gives
+    // the iOS Welcome / Add Playlist / Configure screens their soft branded
+    // feel. Mapped through Material3 onSurfaceVariant so every call site
+    // (`MaterialTheme.colorScheme.onSurfaceVariant`) picks it up.
+    val textSecondary = effectivePrimary.copy(alpha = 0.65f)
     val colorScheme = darkColorScheme(
         primary = effectivePrimary,
         onPrimary = appTheme.appBackground,
@@ -29,7 +36,7 @@ fun AerioTVTheme(
         surface = appTheme.cardBackground,
         onSurface = TextPrimary,
         surfaceVariant = appTheme.cardBackground,
-        onSurfaceVariant = TextPrimary,
+        onSurfaceVariant = textSecondary,
         error = StatusLive,
         onError = TextPrimary,
     )
