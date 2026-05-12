@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SwapVert
@@ -208,6 +210,20 @@ fun ChannelListScreen(
             singleLine = true,
             placeholder = { Text("Search channels") },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            // Trailing X clears the query in one tap. iOS UISearchBar has
+            // this for free; Compose's OutlinedTextField doesn't, so we
+            // surface it conditionally on non-empty input.
+            trailingIcon = if (state.searchQuery.isNotEmpty()) {
+                {
+                    IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Clear search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else null,
             shape = RoundedCornerShape(14.dp),
             keyboardOptions = com.aeriotv.android.ui.textfield.aerioTextFieldKeyboardOptions(
                 imeAction = androidx.compose.ui.text.input.ImeAction.Search,
@@ -350,6 +366,20 @@ private fun SortMenu(
         ) {
             SortMode.entries.forEach { mode ->
                 DropdownMenuItem(
+                    // Leading checkmark on the active mode mirrors iOS
+                    // SwiftUI Menu's Label("...", systemImage: "checkmark")
+                    // pattern. Without this, the only signal for the active
+                    // mode was the primary-tint label, which was easy to
+                    // miss against the dark menu surface.
+                    leadingIcon = if (mode == currentMode) {
+                        {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    } else null,
                     text = {
                         Text(
                             text = mode.label,
