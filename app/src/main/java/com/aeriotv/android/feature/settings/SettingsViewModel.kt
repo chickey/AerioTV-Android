@@ -104,6 +104,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { prefs.setDvrDefaultPostRollMins(value) }
     }
 
+    val dvrCustomFolderUri: Flow<String> = prefs.dvrCustomFolderUri
+    fun setDvrCustomFolderUri(value: String) {
+        viewModelScope.launch { prefs.setDvrCustomFolderUri(value) }
+    }
+
     // Category Palette (Phase 15)
     val categoryPalette: Flow<CategoryPaletteState> = prefs.categoryPalette
     fun setCategoryColorsEnabled(value: Boolean) {

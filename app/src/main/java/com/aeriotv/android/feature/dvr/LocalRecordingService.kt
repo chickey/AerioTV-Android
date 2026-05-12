@@ -11,11 +11,14 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.net.Uri
 import androidx.core.app.NotificationCompat
+import androidx.documentfile.provider.DocumentFile
 import com.aeriotv.android.MainActivity
 import com.aeriotv.android.R
 import com.aeriotv.android.core.data.db.dao.LocalRecordingDao
 import com.aeriotv.android.core.data.db.entity.LocalRecordingEntity
+import com.aeriotv.android.core.preferences.AppPreferences
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 import java.text.SimpleDateFormat
@@ -58,6 +61,7 @@ import java.util.concurrent.TimeUnit
 class LocalRecordingService : Service() {
 
     @Inject lateinit var localRecordingDao: LocalRecordingDao
+    @Inject lateinit var appPreferences: AppPreferences
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var recordingJob: Job? = null
@@ -104,12 +108,23 @@ class LocalRecordingService : Service() {
         recordingJob = scope.launch {
             val ts = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             val safeTitle = title.replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
-            val outDir = File(getExternalFilesDir(null), "Recordings").apply { mkdirs() }
-            val outFile = File(outDir, "$ts-$safeTitle.ts")
+            val fileName = "$ts-$safeTitle.ts"
+
+            val customUri = runCatching { appPreferences.dvrCustomFolderUriOnce() }.getOrDefault("")
+            val sink: RecordingSink = openSink(customUri, fileName)
+                ?: run {
+                    Log.w(TAG, "Custom folder unwritable - falling back to app default")
+                    openSink("", fileName)
+                } ?: run {
+                    Log.w(TAG, "App default folder unwritable - aborting")
+                    stopSelf()
+                    return@launch
+                }
             val startedAt = System.currentTimeMillis()
             val deadline = startedAt + durationMs
-            Log.i(TAG, "Recording -> $outFile until ${Date(deadline)}")
+            Log.i(TAG, "Recording -> ${sink.displayPath} until ${Date(deadline)}")
             var status = "failed"
+            var bytesWritten = 0L
             runCatching {
                 val request = Request.Builder()
                     .url(streamUrl)
@@ -122,34 +137,36 @@ class LocalRecordingService : Service() {
                     }
                     val body = response.body ?: throw IllegalStateException("empty body")
                     body.byteStream().use { input ->
-                        outFile.outputStream().use { output ->
+                        sink.output.use { output ->
                             val buffer = ByteArray(64 * 1024)
                             while (isActive && System.currentTimeMillis() < deadline) {
                                 val read = input.read(buffer)
                                 if (read <= 0) break
                                 output.write(buffer, 0, read)
+                                bytesWritten += read
                             }
                             output.flush()
                         }
                     }
                 }
                 status = if (System.currentTimeMillis() >= deadline) "completed" else "stopped"
-                Log.i(TAG, "Recording $status: ${outFile.length()} bytes")
+                Log.i(TAG, "Recording $status: $bytesWritten bytes")
             }.onFailure { t ->
                 Log.w(TAG, "Recording aborted", t)
             }
             // Persist the row so the DVR tab can surface it. Skip persistence
             // if no bytes were written (file would mislead the user).
-            if (outFile.exists() && outFile.length() > 0L) {
+            val finalBytes = sink.resolveBytes() ?: bytesWritten
+            if (finalBytes > 0L) {
                 runCatching {
                     localRecordingDao.insert(
                         LocalRecordingEntity(
                             channelName = currentChannelName.ifBlank { title },
                             title = title,
-                            filePath = outFile.absolutePath,
+                            filePath = sink.displayPath,
                             startedAt = startedAt,
                             endedAt = System.currentTimeMillis(),
-                            byteSize = outFile.length(),
+                            byteSize = finalBytes,
                             status = status,
                         ),
                     )
@@ -173,6 +190,54 @@ class LocalRecordingService : Service() {
         recordingJob = null
         stopForegroundCompat()
         stopSelf()
+    }
+
+    /**
+     * Output sink + a way to query final byte size after close. SAF
+     * [DocumentFile] doesn't expose a `File.length()` equivalent without a
+     * fresh query, so we delegate the size fetch to the sink so the caller
+     * doesn't have to special-case the two storage backends.
+     */
+    private class RecordingSink(
+        val output: java.io.OutputStream,
+        val displayPath: String,
+        val resolveBytes: () -> Long?,
+    )
+
+    /**
+     * Resolve the output sink. Empty [customUri] picks the legacy
+     * external-files Recordings/ directory; a non-empty URI is treated as a
+     * SAF tree URI and we create a new file under it via [DocumentFile].
+     * Returns null when the target isn't writable so the caller can fall
+     * back to the default location or abort.
+     */
+    private fun openSink(customUri: String, fileName: String): RecordingSink? {
+        if (customUri.isBlank()) {
+            return runCatching {
+                val outDir = File(getExternalFilesDir(null), "Recordings").apply { mkdirs() }
+                val outFile = File(outDir, fileName)
+                RecordingSink(
+                    output = outFile.outputStream(),
+                    displayPath = outFile.absolutePath,
+                    resolveBytes = { if (outFile.exists()) outFile.length() else null },
+                )
+            }.getOrNull()
+        }
+        return runCatching {
+            val treeUri = Uri.parse(customUri)
+            val treeRoot = DocumentFile.fromTreeUri(this, treeUri)
+                ?: return@runCatching null
+            if (!treeRoot.canWrite()) return@runCatching null
+            val doc = treeRoot.createFile("video/mp2t", fileName)
+                ?: return@runCatching null
+            val out = contentResolver.openOutputStream(doc.uri)
+                ?: return@runCatching null
+            RecordingSink(
+                output = out,
+                displayPath = doc.uri.toString(),
+                resolveBytes = { runCatching { doc.length().takeIf { it > 0 } }.getOrNull() },
+            )
+        }.getOrNull()
     }
 
     override fun onDestroy() {

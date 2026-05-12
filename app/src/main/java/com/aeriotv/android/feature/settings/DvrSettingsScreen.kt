@@ -1,5 +1,9 @@
 package com.aeriotv.android.feature.settings
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,10 +32,12 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +62,20 @@ fun DvrSettingsScreen(
     val capMB by settingsVm.dvrMaxLocalStorageMB.collectAsStateWithLifecycle(initialValue = 10_240)
     val preRoll by settingsVm.dvrDefaultPreRollMins.collectAsStateWithLifecycle(initialValue = 0)
     val postRoll by settingsVm.dvrDefaultPostRollMins.collectAsStateWithLifecycle(initialValue = 0)
+    val customFolderUri by settingsVm.dvrCustomFolderUri.collectAsStateWithLifecycle(initialValue = "")
+    val context = LocalContext.current
+
+    val folderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        // Take persistable RW permission so LocalRecordingService can still
+        // write here after a reboot. Without this the URI's grant expires
+        // with the activity scope and recordings fail with SecurityException.
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+        settingsVm.setDvrCustomFolderUri(uri.toString())
+    }
     val dvrState by dvrVm.state.collectAsStateWithLifecycle()
     val usedBytes = dvrState.recordings
         .filter { it.source == DvrViewModel.Source.Local }
@@ -170,19 +190,51 @@ fun DvrSettingsScreen(
             }
 
             item {
-                Card(header = "Custom Folder", footer = null) {
+                Card(
+                    header = "Output Folder",
+                    footer = "Recordings are saved to the picked folder via Storage Access Framework. The app retains read+write access across reboots.",
+                ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text(
-                            text = "Currently recording to the app's external files directory.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Custom output folder via the Files app picker arrives in a follow-up.",
+                            text = "Currently saving to:",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = formatCustomFolderLabel(customFolderUri),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row {
+                            TextButton(onClick = { folderPicker.launch(null) }) {
+                                Text(
+                                    text = "Choose Folder",
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            if (customFolderUri.isNotBlank()) {
+                                Spacer(Modifier.size(8.dp))
+                                TextButton(onClick = {
+                                    val toRelease = customFolderUri
+                                    runCatching {
+                                        context.contentResolver.releasePersistableUriPermission(
+                                            Uri.parse(toRelease),
+                                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                                        )
+                                    }
+                                    settingsVm.setDvrCustomFolderUri("")
+                                }) {
+                                    Text(
+                                        text = "Reset to Default",
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -266,3 +318,21 @@ private fun formatStorage(mb: Int): String {
 }
 
 private val ROLL_OPTIONS: List<Int> = listOf(0, 5, 10, 15, 30, 60)
+
+/**
+ * Render a SAF tree URI as a human-readable label by extracting the
+ * tail of the document path, or fall back to the URI's authority. Blank
+ * input → "App default (Android/data/.../files/Recordings)". Skipping
+ * a full DocumentFile lookup here keeps the row cheap to render — names
+ * shift to canonical only after the picker callback resolves the URI.
+ */
+private fun formatCustomFolderLabel(uriString: String): String {
+    if (uriString.isBlank()) {
+        return "App default folder"
+    }
+    return runCatching {
+        val uri = Uri.parse(uriString)
+        val raw = uri.lastPathSegment?.substringAfterLast(':') ?: uri.path ?: uriString
+        raw.ifBlank { uriString }
+    }.getOrElse { uriString }
+}

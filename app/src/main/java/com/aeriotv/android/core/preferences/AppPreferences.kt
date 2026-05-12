@@ -17,6 +17,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 
@@ -241,6 +242,24 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_DVR_DEFAULT_POST_ROLL] = value }
     }
 
+    /**
+     * Custom DVR output folder. Empty string means "use default
+     * getExternalFilesDir(Recordings)". Otherwise this is a SAF tree URI the
+     * user picked via ACTION_OPEN_DOCUMENT_TREE; we hold persistable RW
+     * permission for it for the lifetime of the install.
+     */
+    val dvrCustomFolderUri: Flow<String> = store.data.map { it[KEY_DVR_CUSTOM_FOLDER_URI] ?: "" }
+    suspend fun setDvrCustomFolderUri(value: String) {
+        store.edit { prefs ->
+            if (value.isBlank()) prefs.remove(KEY_DVR_CUSTOM_FOLDER_URI)
+            else prefs[KEY_DVR_CUSTOM_FOLDER_URI] = value
+        }
+    }
+
+    /** Synchronous read used by LocalRecordingService at recording-start time. */
+    suspend fun dvrCustomFolderUriOnce(): String =
+        store.data.first()[KEY_DVR_CUSTOM_FOLDER_URI].orEmpty()
+
     private companion object {
         val KEY_SELECTED_THEME = stringPreferencesKey("selected_theme")
         val KEY_DEFAULT_LIVE_TV_VIEW = stringPreferencesKey("default_live_tv_view")
@@ -257,6 +276,7 @@ class AppPreferences @Inject constructor(
         val KEY_DVR_MAX_LOCAL_STORAGE_MB = intPreferencesKey("dvr_max_local_storage_mb")
         val KEY_DVR_DEFAULT_PRE_ROLL = intPreferencesKey("dvr_default_pre_roll_mins")
         val KEY_DVR_DEFAULT_POST_ROLL = intPreferencesKey("dvr_default_post_roll_mins")
+        val KEY_DVR_CUSTOM_FOLDER_URI = stringPreferencesKey("dvr_custom_folder_uri")
         val KEY_CATEGORY_MASTER_ENABLE = booleanPreferencesKey(CategoryPaletteState.MASTER_ENABLED_KEY)
         val KEY_CATEGORY_CUSTOM_JSON = stringPreferencesKey(CategoryPaletteState.CUSTOM_KEY)
     }

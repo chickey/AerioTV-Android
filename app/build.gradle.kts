@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
 
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.documentfile)
 
     debugImplementation(libs.androidx.ui.tooling)
 }
