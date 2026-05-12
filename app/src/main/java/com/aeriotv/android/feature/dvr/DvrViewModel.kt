@@ -18,6 +18,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -129,6 +130,39 @@ class DvrViewModel @Inject constructor(
                     _state.update { it.copy(isLoading = false, error = t.message ?: t::class.simpleName) }
                 },
             )
+        }
+    }
+
+    /**
+     * Deletes a recording. Server rows route through DispatcharrClient.deleteRecording
+     * (Dispatcharr removes the file from disk for completed rows and just unschedules
+     * scheduled rows). Local rows delete the .ts file from getExternalFilesDir
+     * AND drop the Room row so it disappears from the DVR tab immediately.
+     */
+    suspend fun deleteRecording(recording: Recording): Result<Unit> {
+        return runCatching {
+            when (recording.source) {
+                Source.Server -> {
+                    val playlist = playlistRepository.activePlaylist()
+                        ?: throw IllegalStateException("No playlist loaded.")
+                    val key = playlist.apiKey
+                        ?: throw IllegalStateException("Active source is not Dispatcharr-backed.")
+                    val intId = recording.id.removePrefix("server-").toIntOrNull()
+                        ?: throw IllegalStateException("Invalid server recording id: ${recording.id}")
+                    dispatcharrClient.deleteRecording(playlist.urlString, key, intId)
+                    refresh()
+                }
+                Source.Local -> {
+                    val rowId = recording.id.removePrefix("local-").toLongOrNull()
+                        ?: throw IllegalStateException("Invalid local recording id: ${recording.id}")
+                    val rows = localRecordingDao.observeAll().first()
+                    val match = rows.firstOrNull { it.id == rowId }
+                    if (match != null) {
+                        runCatching { java.io.File(match.filePath).delete() }
+                        localRecordingDao.delete(rowId)
+                    }
+                }
+            }
         }
     }
 

@@ -1,6 +1,8 @@
 package com.aeriotv.android.feature.dvr
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -26,10 +29,20 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,13 +64,27 @@ import java.util.Date
  * `/api/channels/recordings/`. Local recordings via foreground service land in
  * Phase 9b.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DvrTabContent(
     modifier: Modifier = Modifier,
     viewModel: DvrViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Auto-refresh server-side recordings every 30s while the tab is visible
+    // so a Scheduled -> Recording -> Completed transition lands without the
+    // user manually swiping the tab.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            viewModel.refresh()
+        }
+    }
+
+    var pendingDelete by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
 
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
@@ -132,7 +159,10 @@ fun DvrTabContent(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(items = state.visible, key = { it.id }) { rec ->
-                RecordingRow(rec)
+                RecordingRow(
+                    rec = rec,
+                    onLongPress = { pendingDelete = rec },
+                )
             }
             if (state.visible.isEmpty()) {
                 item {
@@ -143,6 +173,44 @@ fun DvrTabContent(
                 }
             }
         }
+    }
+
+    pendingDelete?.let { rec ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete recording?") },
+            text = {
+                Text(
+                    "This removes \"${rec.title}\" " +
+                            if (rec.source == DvrViewModel.Source.Local)
+                                "from this device permanently."
+                            else
+                                "from your Dispatcharr server. The file is gone after this."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    scope.launch {
+                        viewModel.deleteRecording(rec).fold(
+                            onSuccess = {
+                                Toast.makeText(context, "Recording deleted.", Toast.LENGTH_SHORT).show()
+                            },
+                            onFailure = { t ->
+                                Toast.makeText(
+                                    context,
+                                    "Delete failed: ${t.message ?: t::class.simpleName}",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                        )
+                    }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -192,8 +260,12 @@ private fun EmptyState(title: String, body: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecordingRow(rec: DvrViewModel.Recording) {
+private fun RecordingRow(
+    rec: DvrViewModel.Recording,
+    onLongPress: () -> Unit = {},
+) {
     val sourceTag = if (rec.source == DvrViewModel.Source.Local) "Local" else "Server"
     val statusColor = when (rec.status) {
         DvrViewModel.Recording.Status.Recording -> Color(0xFFFF4757)
@@ -221,6 +293,10 @@ private fun RecordingRow(rec: DvrViewModel.Recording) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+            .combinedClickable(
+                onClick = {},
+                onLongClick = onLongPress,
+            )
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
