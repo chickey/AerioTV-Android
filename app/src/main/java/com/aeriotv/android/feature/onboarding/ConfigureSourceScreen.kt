@@ -90,12 +90,16 @@ fun ConfigureSourceScreen(
         }
     }
 
-    // Dispatcharr has two flavours sharing the same Configure screen; track the toggle locally.
+    // Dispatcharr has two flavours sharing the same Configure screen; track
+    // the toggle locally. Key on the nav-passed `sourceType`, not
+    // `state.sourceType` — the viewmodel sync happens in the LaunchedEffect
+    // above which runs after first composition, so reading state.sourceType
+    // here would pick up the previous session's value on first paint.
     var dispatcharrAuthMode by remember(sourceType) {
         mutableStateOf(
-            when (state.sourceType) {
-                SourceType.DispatcharrUserPass -> DispatcharrAuthMode.UsernamePassword
-                else -> DispatcharrAuthMode.ApiKey
+            when (sourceType) {
+                SourceType.DispatcharrApiKey -> DispatcharrAuthMode.ApiKey
+                else -> DispatcharrAuthMode.UsernamePassword
             }
         )
     }

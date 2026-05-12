@@ -116,7 +116,7 @@ fun ChooseSourceTypeScreen(
                             subtitle = "Connect with your admin login or a personal API key.",
                             modifier = Modifier
                                 .weight(1f)
-                                .tappable { onChoose(SourceType.DispatcharrApiKey) },
+                                .tappable { onChoose(SourceType.DispatcharrUserPass) },
                         )
                         SourceTypeCard(
                             icon = Icons.Filled.Tv,
@@ -141,7 +141,7 @@ fun ChooseSourceTypeScreen(
                         title = "Dispatcharr Direct Connect",
                         subtitle = "Connect to Dispatcharr with your admin login or a personal API key " +
                                 "(*AerioTV is not officially affiliated with the Dispatcharr project)",
-                        modifier = Modifier.tappable { onChoose(SourceType.DispatcharrApiKey) },
+                        modifier = Modifier.tappable { onChoose(SourceType.DispatcharrUserPass) },
                     )
                     SourceTypeCard(
                         icon = Icons.Filled.Tv,
