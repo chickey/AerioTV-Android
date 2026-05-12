@@ -22,6 +22,15 @@ class WatchProgressViewModel @Inject constructor(
 
     fun observe(videoId: String): Flow<WatchProgressEntity?> = dao.observe(videoId)
 
+    /**
+     * Most-recently-updated rows. Caller filters by videoId-set to match
+     * the current Movies / Series cache. iOS calls this "Continue Watching"
+     * (project_aeriotv_ios_architecture.md section D); the "5 min from end =
+     * completed" heuristic that hides finished items is applied at the UI
+     * site, not in the DAO query.
+     */
+    fun observeRecent(limit: Int = 20): Flow<List<WatchProgressEntity>> = dao.observeRecent(limit)
+
     suspend fun get(videoId: String): WatchProgressEntity? = dao.getOnce(videoId)
 
     /** Upserts the current playback position. Called every ~5s from the player. */

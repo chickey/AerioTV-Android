@@ -14,9 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Movie
@@ -26,6 +29,7 @@ import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -47,8 +51,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.aeriotv.android.core.data.db.entity.WatchProgressEntity
 import com.aeriotv.android.core.network.DispatcharrVODMovie
 import com.aeriotv.android.core.network.DispatcharrVODSeries
+import com.aeriotv.android.feature.watchprogress.WatchProgressViewModel
 
 /**
  * On Demand tab shell. Mirrors iOS OnDemandView (Aerio/Features/VOD/OnDemandView.swift):
@@ -159,8 +165,10 @@ private fun SegmentPill(
 private fun MoviesSubScreen(
     viewModel: OnDemandViewModel,
     onMovieClick: (DispatcharrVODMovie) -> Unit,
+    watchVm: WatchProgressViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val recentProgress by watchVm.observeRecent(20).collectAsStateWithLifecycle(initialValue = emptyList())
 
     if (state.unsupportedSource) {
         EmptyState(
@@ -169,6 +177,19 @@ private fun MoviesSubScreen(
         )
         return
     }
+
+    // Continue Watching: filter the recent rows down to the ones whose videoId
+    // is in the loaded movies cache AND that aren't within 5 minutes of the end.
+    // iOS uses the same "5 min from end = completed" heuristic in VODDetailView.
+    val movieIds = remember(state.movies) { state.movies.asSequence().map { it.uuid }.toSet() }
+    val continueWatching = remember(recentProgress, movieIds) {
+        recentProgress.filter { row ->
+            row.videoId in movieIds &&
+                    row.positionMs > 0L &&
+                    (row.durationMs <= 0L || row.positionMs < row.durationMs - 5 * 60 * 1000L)
+        }.take(8)
+    }
+    val movieByUuid = remember(state.movies) { state.movies.associateBy { it.uuid } }
 
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -182,6 +203,15 @@ private fun MoviesSubScreen(
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
             shape = RoundedCornerShape(14.dp),
         )
+
+        if (continueWatching.isNotEmpty() && state.searchQuery.isBlank()) {
+            ContinueWatchingRail(
+                items = continueWatching,
+                onItemClick = { progress ->
+                    movieByUuid[progress.videoId]?.let(onMovieClick)
+                },
+            )
+        }
 
         val countLabel = state.totalCount.takeIf { it > 0 }?.let { total ->
             "${state.movies.size} / $total"
@@ -377,6 +407,101 @@ private fun SeriesPoster(
             ).joinToString("  ·  ")
             Text(
                 text = meta,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContinueWatchingRail(
+    items: List<WatchProgressEntity>,
+    onItemClick: (WatchProgressEntity) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Text(
+            text = "Continue Watching",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(items = items, key = { it.videoId }) { row ->
+                ContinueWatchingCard(row = row, onClick = { onItemClick(row) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    row: WatchProgressEntity,
+    onClick: () -> Unit,
+) {
+    val progress = if (row.durationMs > 0L) {
+        (row.positionMs.toFloat() / row.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+    Column(
+        modifier = Modifier
+            .width(140.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            if (!row.posterUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = row.posterUrl,
+                    contentDescription = row.title,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.PlayCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                drawStopIndicator = {},
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = row.title.ifBlank { "Untitled" },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+        val remainingMin = if (row.durationMs > row.positionMs) {
+            ((row.durationMs - row.positionMs) / 60_000L).toInt().coerceAtLeast(1)
+        } else 0
+        if (remainingMin > 0) {
+            Text(
+                text = "$remainingMin min left",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 2.dp),

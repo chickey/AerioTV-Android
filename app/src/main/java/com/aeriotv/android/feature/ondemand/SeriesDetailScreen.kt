@@ -22,11 +22,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -45,6 +49,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.aeriotv.android.core.network.DispatcharrVODEpisode
+import com.aeriotv.android.feature.watchprogress.WatchProgressViewModel
 
 /**
  * Series detail screen. Mirrors iOS VODDetailView (Aerio/Features/VOD/VODDetailView.swift)
@@ -61,9 +66,11 @@ fun SeriesDetailScreen(
     onBack: () -> Unit,
     onEpisodeClick: (DispatcharrVODEpisode) -> Unit,
     viewModel: OnDemandViewModel = hiltViewModel(),
+    watchVm: WatchProgressViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val series = viewModel.seriesById(seriesId)
+    val recent by watchVm.observeRecent(50).collectAsStateWithLifecycle(initialValue = emptyList())
 
     LaunchedEffect(seriesId) {
         viewModel.loadEpisodes(seriesId)
@@ -79,6 +86,19 @@ fun SeriesDetailScreen(
             .groupBy { it.seasonNumber ?: 0 }
             .toSortedMap()
             .mapValues { (_, eps) -> eps.sortedBy { it.episodeNumber ?: Int.MAX_VALUE } }
+    }
+
+    // Continue Watching pick: most-recently-updated episode that (a) belongs
+    // to this series and (b) isn't within 5 min of the end. Uses the same
+    // heuristic iOS VODDetailView applies (architecture spec section D).
+    val continueWatchingEpisode = remember(recent, episodes) {
+        val episodeIds = episodes.asSequence().map { it.uuid }.toSet()
+        val pick = recent.firstOrNull { row ->
+            row.videoId in episodeIds &&
+                    row.positionMs > 0L &&
+                    (row.durationMs <= 0L || row.positionMs < row.durationMs - 5 * 60 * 1000L)
+        }
+        pick?.let { row -> episodes.firstOrNull { it.uuid == row.videoId }?.to(row) }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -115,6 +135,18 @@ fun SeriesDetailScreen(
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                 Spacer(Modifier.height(8.dp))
+            }
+
+            continueWatchingEpisode?.let { (episode, progress) ->
+                item(key = "continue-watching") {
+                    ContinueWatchingCard(
+                        episode = episode,
+                        positionMs = progress.positionMs,
+                        durationMs = progress.durationMs,
+                        onResume = { onEpisodeClick(episode) },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
             }
 
             if (isLoading && episodes.isEmpty()) {
@@ -222,6 +254,90 @@ private fun HeroBlock(series: com.aeriotv.android.core.network.DispatcharrVODSer
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 5,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    episode: DispatcharrVODEpisode,
+    positionMs: Long,
+    durationMs: Long,
+    onResume: () -> Unit,
+) {
+    val progress = if (durationMs > 0L) {
+        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+    val remainingMin = if (durationMs > positionMs) {
+        ((durationMs - positionMs) / 60_000L).toInt().coerceAtLeast(1)
+    } else 0
+    val seasonEpisodeTag = listOfNotNull(
+        episode.seasonNumber?.let { "S$it" },
+        episode.episodeNumber?.let { "E$it" },
+    ).joinToString("·")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = "Continue Watching",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = buildString {
+                if (seasonEpisodeTag.isNotBlank()) append(seasonEpisodeTag).append("  ·  ")
+                append(episode.displayName.ifBlank { "Episode ${episode.id}" })
+            },
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            drawStopIndicator = {},
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                onClick = onResume,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Resume")
+            }
+            if (remainingMin > 0) {
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = "$remainingMin min left",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
