@@ -6,6 +6,7 @@ import com.aeriotv.android.core.data.db.AerioDatabase
 import com.aeriotv.android.core.data.db.dao.FavoriteChannelDao
 import com.aeriotv.android.core.data.db.dao.LocalRecordingDao
 import com.aeriotv.android.core.data.db.dao.PlaylistDao
+import com.aeriotv.android.core.data.db.dao.ReminderDao
 import com.aeriotv.android.core.data.db.dao.WatchProgressDao
 import dagger.Module
 import dagger.Provides
@@ -37,4 +38,7 @@ object DatabaseModule {
 
     @Provides
     fun provideFavoriteChannelDao(db: AerioDatabase): FavoriteChannelDao = db.favoriteChannelDao()
+
+    @Provides
+    fun provideReminderDao(db: AerioDatabase): ReminderDao = db.reminderDao()
 }

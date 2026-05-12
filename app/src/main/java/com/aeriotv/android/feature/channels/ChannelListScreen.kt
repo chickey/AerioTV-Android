@@ -74,6 +74,8 @@ import com.aeriotv.android.feature.livetv.RecordProgramSheet
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import com.aeriotv.android.feature.playlist.SortMode
 import com.aeriotv.android.feature.playlist.nowPlaying
+import com.aeriotv.android.feature.reminders.RemindersViewModel
+import com.aeriotv.android.core.data.db.entity.reminderKey
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -581,9 +583,15 @@ private fun UpcomingProgrammeRow(
     channelName: String,
     onTap: () -> Unit,
     onShowRecord: () -> Unit,
+    remindersVm: RemindersViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
+    val key = remember(programme, channelName) {
+        reminderKey(channelName, programme.title, programme.startMillis)
+    }
+    val isReminderSet by remindersVm.observeIsSet(key)
+        .collectAsStateWithLifecycle(initialValue = false)
 
     Box {
         Row(
@@ -635,14 +643,23 @@ private fun UpcomingProgrammeRow(
                 },
             )
             DropdownMenuItem(
-                text = { Text("Set Reminder") },
+                text = {
+                    Text(if (isReminderSet) "Cancel Reminder" else "Set Reminder")
+                },
                 onClick = {
                     menuOpen = false
-                    Toast.makeText(
-                        context,
-                        "Reminders land in a future phase.",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    if (isReminderSet) {
+                        remindersVm.cancelReminder(key)
+                        Toast.makeText(context, "Reminder cancelled.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        remindersVm.setReminder(
+                            channelName = channelName,
+                            programTitle = programme.title,
+                            startMillis = programme.startMillis,
+                            endMillis = programme.endMillis,
+                        )
+                        Toast.makeText(context, "Reminder set.", Toast.LENGTH_SHORT).show()
+                    }
                 },
             )
             DropdownMenuItem(

@@ -46,5 +46,9 @@
             android:name=".feature.dvr.LocalRecordingService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <receiver
+            android:name=".feature.reminders.ReminderBroadcastReceiver"
+            android:exported="false" />
     </application>
 </manifest>
