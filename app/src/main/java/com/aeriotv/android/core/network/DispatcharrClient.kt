@@ -621,6 +621,49 @@ class DispatcharrClient @Inject constructor() {
         }
     }
 
+    /**
+     * POST /api/channels/recordings/{id}/comskip/ — kick off commercial
+     * detection / removal on a completed recording. Idempotent server-side
+     * so repeated taps from the row context menu are safe (matches iOS
+     * StreamingAPIs.swift line 2432 `applyComskip`).
+     */
+    suspend fun applyComskip(baseUrl: String, apiKey: String, recordingId: Int) {
+        val url = "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/comskip/"
+        val response: HttpResponse = client.post(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) {
+            throw DispatcharrError.Transport(
+                "Remove Commercials failed: HTTP ${response.status.value} ${response.status.description}",
+            )
+        }
+    }
+
+    /**
+     * POST /api/channels/recordings/{id}/stop/ — stops an in-flight recording
+     * early, keeping the partial file on disk. Caller should call
+     * [deleteRecording] separately if they want the partial gone too
+     * (matches iOS StreamingAPIs.swift line 2408 `stopRecording`).
+     */
+    suspend fun stopRecording(baseUrl: String, apiKey: String, recordingId: Int) {
+        val url = "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/stop/"
+        val response: HttpResponse = client.post(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) {
+            throw DispatcharrError.Transport(
+                "Stop Recording failed: HTTP ${response.status.value} ${response.status.description}",
+            )
+        }
+    }
+
+    /**
+     * Playback URL for a completed Dispatcharr recording. The endpoint is
+     * `AllowAny` on the server (no auth headers required), supports HTTP
+     * Range, and serves the raw media file — safe to hand straight to
+     * MPV. Mirrors iOS recordingPlaybackURL (StreamingAPIs.swift line 2444).
+     */
+    fun recordingPlaybackUrl(baseUrl: String, recordingId: Int): String =
+        "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/file/"
+
     /** DELETE /api/channels/recordings/{id}/ — cancels a scheduled recording or removes a completed file. */
     suspend fun deleteRecording(baseUrl: String, apiKey: String, recordingId: Int) {
         val url = "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/"

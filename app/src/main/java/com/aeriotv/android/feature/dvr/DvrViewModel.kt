@@ -245,6 +245,56 @@ class DvrViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Kick off server-side commercial detection / removal on a completed
+     * recording. Mirrors iOS contextMenu "Remove Commercials" (MyRecordingsView
+     * line 305-309). The server handles idempotency so repeated taps are
+     * safe — refresh() afterwards picks up any status change Dispatcharr
+     * surfaces via custom_properties.
+     */
+    suspend fun applyComskip(recording: Recording): Result<Unit> {
+        if (recording.source != Source.Server) {
+            return Result.failure(IllegalStateException("Remove Commercials is server-only."))
+        }
+        val playlist = playlistRepository.activePlaylist()
+            ?: return Result.failure(IllegalStateException("No playlist loaded."))
+        if (playlist.apiKey.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
+        }
+        val intId = recording.id.removePrefix("server-").toIntOrNull()
+            ?: return Result.failure(IllegalStateException("Invalid recording id."))
+        return runCatching {
+            dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.applyComskip(playlist.urlString, key, intId)
+            }
+            refresh()
+        }
+    }
+
+    /**
+     * Stop an in-progress server recording early. The partial file stays on
+     * disk — caller pairs with deleteRecording when the partial isn't wanted.
+     * Mirrors iOS contextMenu "Stop Recording" (MyRecordingsView line 332-336).
+     */
+    suspend fun stopRecording(recording: Recording): Result<Unit> {
+        if (recording.source != Source.Server) {
+            return Result.failure(IllegalStateException("Stop Recording is server-only."))
+        }
+        val playlist = playlistRepository.activePlaylist()
+            ?: return Result.failure(IllegalStateException("No playlist loaded."))
+        if (playlist.apiKey.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("Active source is not Dispatcharr-backed."))
+        }
+        val intId = recording.id.removePrefix("server-").toIntOrNull()
+            ?: return Result.failure(IllegalStateException("Invalid recording id."))
+        return runCatching {
+            dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.stopRecording(playlist.urlString, key, intId)
+            }
+            refresh()
+        }
+    }
+
     private companion object {
         const val TAG = "DvrViewModel"
     }

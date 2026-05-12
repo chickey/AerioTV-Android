@@ -19,10 +19,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCut
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -86,7 +94,6 @@ fun DvrTabContent(
 
     var pendingDelete by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
     var pendingEdit by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
-    var pendingMenu by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
 
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
@@ -163,7 +170,70 @@ fun DvrTabContent(
             items(items = state.visible, key = { it.id }) { rec ->
                 RecordingRow(
                     rec = rec,
-                    onLongPress = { pendingMenu = rec },
+                    onEdit = { pendingEdit = rec },
+                    onDelete = { pendingDelete = rec },
+                    onPlay = {
+                        // Server completed playback + local playback both need
+                        // a player route that takes a raw URL. Wiring lands in
+                        // a follow-up phase (iOS MyRecordingsView playRecording
+                        // / playServerRecording paths).
+                        Toast.makeText(
+                            context,
+                            "Recording playback lands in the next phase.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onSaveToDevice = {
+                        // iOS "Save to Device" walks the recording over to the
+                        // local DVR slot via DownloadManager + a confirmation
+                        // sheet. Needs MANAGE_EXTERNAL_STORAGE or scoped storage
+                        // wiring; deferred to a dedicated phase.
+                        Toast.makeText(
+                            context,
+                            "Save to Device lands in the next phase.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onRemoveCommercials = {
+                        scope.launch {
+                            viewModel.applyComskip(rec).fold(
+                                onSuccess = {
+                                    Toast.makeText(
+                                        context,
+                                        "Remove Commercials started.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                                onFailure = { t ->
+                                    Toast.makeText(
+                                        context,
+                                        "Remove Commercials failed: ${t.message ?: t::class.simpleName}",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                            )
+                        }
+                    },
+                    onStopRecording = {
+                        scope.launch {
+                            viewModel.stopRecording(rec).fold(
+                                onSuccess = {
+                                    Toast.makeText(
+                                        context,
+                                        "Recording stopped.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                                onFailure = { t ->
+                                    Toast.makeText(
+                                        context,
+                                        "Stop Recording failed: ${t.message ?: t::class.simpleName}",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                            )
+                        }
+                    },
                 )
             }
             if (state.visible.isEmpty()) {
@@ -175,43 +245,6 @@ fun DvrTabContent(
                 }
             }
         }
-    }
-
-    pendingMenu?.let { rec ->
-        val canEdit = rec.source == DvrViewModel.Source.Server &&
-            rec.status == DvrViewModel.Recording.Status.Scheduled
-        AlertDialog(
-            onDismissRequest = { pendingMenu = null },
-            title = { Text(rec.title, style = MaterialTheme.typography.titleMedium) },
-            text = {
-                Column {
-                    if (canEdit) {
-                        TextButton(
-                            onClick = {
-                                pendingEdit = rec
-                                pendingMenu = null
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Edit recording", color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    TextButton(
-                        onClick = {
-                            pendingDelete = rec
-                            pendingMenu = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Delete recording", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { pendingMenu = null }) { Text("Cancel") }
-            },
-        )
     }
 
     pendingEdit?.let { rec ->
@@ -338,7 +371,12 @@ private fun EmptyState(title: String, body: String) {
 @Composable
 private fun RecordingRow(
     rec: DvrViewModel.Recording,
-    onLongPress: () -> Unit = {},
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onPlay: () -> Unit,
+    onSaveToDevice: () -> Unit,
+    onRemoveCommercials: () -> Unit,
+    onStopRecording: () -> Unit,
 ) {
     val sourceTag = if (rec.source == DvrViewModel.Source.Local) "Local" else "Server"
     val statusColor = when (rec.status) {
@@ -362,59 +400,157 @@ private fun RecordingRow(
     val dateLabel = "${dateFmt.format(Date(rec.startMillis))} at " +
             "${timeFmt.format(Date(rec.startMillis))} – ${timeFmt.format(Date(rec.endMillis))}"
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
-            .combinedClickable(
-                onClick = {},
-                onLongClick = onLongPress,
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = { menuOpen = true },
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.LiveTv,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.LiveTv,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-        )
-        Spacer(Modifier.size(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = rec.title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = dateLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (rec.description.isNotBlank()) {
+            Spacer(Modifier.size(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = rec.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    text = rec.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    text = dateLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (rec.description.isNotBlank()) {
+                    Text(
+                        text = rec.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = sourceTag,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            Spacer(Modifier.size(8.dp))
             Text(
-                text = sourceTag,
+                text = statusLabel.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = statusColor,
+                fontWeight = FontWeight.Bold,
             )
         }
-        Spacer(Modifier.size(8.dp))
-        Text(
-            text = statusLabel.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            color = statusColor,
-            fontWeight = FontWeight.Bold,
+        RecordingActionMenu(
+            rec = rec,
+            expanded = menuOpen,
+            onDismiss = { menuOpen = false },
+            onEdit = onEdit,
+            onDelete = onDelete,
+            onPlay = onPlay,
+            onSaveToDevice = onSaveToDevice,
+            onRemoveCommercials = onRemoveCommercials,
+            onStopRecording = onStopRecording,
+        )
+    }
+}
+
+/**
+ * Per-status context menu, anchored to the long-pressed row. Mirrors iOS
+ * MyRecordingsView.contextMenuItems(for:) (lines 280-365):
+ *
+ *  - Completed / Stopped server recording: Play / Save to Device /
+ *    Remove Commercials / Delete from Server
+ *  - Completed local recording: Play / Delete
+ *  - In-progress server recording: Stop Recording / Delete
+ *  - Scheduled server recording: Edit / Cancel
+ *  - Unknown status: bare Delete so the user can clean up rows the
+ *    server hasn't classified yet
+ */
+@Composable
+private fun RecordingActionMenu(
+    rec: DvrViewModel.Recording,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onPlay: () -> Unit,
+    onSaveToDevice: () -> Unit,
+    onRemoveCommercials: () -> Unit,
+    onStopRecording: () -> Unit,
+) {
+    val isServer = rec.source == DvrViewModel.Source.Server
+    val isCompleted = rec.status == DvrViewModel.Recording.Status.Completed ||
+        rec.status == DvrViewModel.Recording.Status.Stopped
+    val isInProgress = rec.status == DvrViewModel.Recording.Status.Recording
+    val isScheduled = rec.status == DvrViewModel.Recording.Status.Scheduled
+
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+    ) {
+        if (isCompleted) {
+            DropdownMenuItem(
+                text = { Text("Play") },
+                leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { onDismiss(); onPlay() },
+            )
+            if (isServer) {
+                DropdownMenuItem(
+                    text = { Text("Save to Device") },
+                    leadingIcon = { Icon(Icons.Outlined.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { onDismiss(); onSaveToDevice() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Remove Commercials") },
+                    leadingIcon = { Icon(Icons.Outlined.ContentCut, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { onDismiss(); onRemoveCommercials() },
+                )
+            }
+        }
+
+        if (isInProgress && isServer) {
+            DropdownMenuItem(
+                text = { Text("Stop Recording") },
+                leadingIcon = { Icon(Icons.Outlined.Stop, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { onDismiss(); onStopRecording() },
+            )
+        }
+
+        if (isScheduled && isServer) {
+            DropdownMenuItem(
+                text = { Text("Edit") },
+                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { onDismiss(); onEdit() },
+            )
+        }
+
+        val deleteLabel = when {
+            isServer && isScheduled -> "Cancel"
+            isServer -> "Delete from Server"
+            else -> "Delete"
+        }
+        DropdownMenuItem(
+            text = { Text(deleteLabel, color = MaterialTheme.colorScheme.error) },
+            leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            onClick = { onDismiss(); onDelete() },
         )
     }
 }
