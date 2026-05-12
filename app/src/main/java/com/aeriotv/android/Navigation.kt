@@ -272,6 +272,17 @@ fun AerioTVNavHost(
                 route = Routes.SERIES_DETAIL,
                 arguments = listOf(navArgument("seriesId") { type = NavType.IntType }),
             ) { entry ->
+                // Scope OnDemandViewModel to the MAIN backstack entry — the
+                // detail route is pushed ON TOP of MAIN, so MAIN's entry stays
+                // alive underneath, and resolving the VM through that entry
+                // gives this screen the SAME instance the On Demand tab
+                // populated. Default `hiltViewModel()` here would scope to
+                // this nav entry and hand back a fresh empty VM, which is
+                // the bug that caused "Series not found" on direct entry.
+                val mainEntry = remember(entry) {
+                    navController.getBackStackEntry(Routes.MAIN)
+                }
+                val onDemandVm: OnDemandViewModel = hiltViewModel(mainEntry)
                 val seriesId = entry.arguments?.getInt("seriesId") ?: 0
                 SeriesDetailScreen(
                     seriesId = seriesId,
@@ -279,6 +290,7 @@ fun AerioTVNavHost(
                     onEpisodeClick = { episode ->
                         navController.navigate(Routes.vodEpisodePlayer(episode.uuid))
                     },
+                    viewModel = onDemandVm,
                 )
             }
 
@@ -286,11 +298,16 @@ fun AerioTVNavHost(
                 route = Routes.MOVIE_DETAIL,
                 arguments = listOf(navArgument("movieUuid") { type = NavType.StringType }),
             ) { entry ->
+                val mainEntry = remember(entry) {
+                    navController.getBackStackEntry(Routes.MAIN)
+                }
+                val onDemandVm: OnDemandViewModel = hiltViewModel(mainEntry)
                 val movieUuid = Uri.decode(entry.arguments?.getString("movieUuid").orEmpty())
                 com.aeriotv.android.feature.ondemand.MovieDetailScreen(
                     movieUuid = movieUuid,
                     onBack = { navController.popBackStack() },
                     onPlay = { navController.navigate(Routes.vodPlayer(movieUuid)) },
+                    viewModel = onDemandVm,
                 )
             }
 

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -653,7 +654,11 @@ private fun ContinueWatchingCard(
 
 @Composable
 private fun FloatingBackButton(onClick: () -> Unit) {
-    Box(modifier = Modifier.padding(top = 8.dp, start = 8.dp)) {
+    Box(
+        modifier = Modifier
+            .statusBarsPadding()
+            .padding(top = 8.dp, start = 8.dp),
+    ) {
         IconButton(
             onClick = onClick,
             modifier = Modifier

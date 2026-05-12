@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -432,7 +433,15 @@ private fun MetaRow(label: String, value: String) {
 
 @Composable
 private fun FloatingBackButton(onClick: () -> Unit) {
-    Box(modifier = Modifier.padding(top = 8.dp, start = 8.dp)) {
+    // statusBarsPadding pushes the button below the system status bar / notch
+    // so the tap target lands inside the user-actionable safe area. iOS uses
+    // the toolbar slot for this; we float over the hero, so the inset has
+    // to be applied explicitly.
+    Box(
+        modifier = Modifier
+            .statusBarsPadding()
+            .padding(top = 8.dp, start = 8.dp),
+    ) {
         IconButton(
             onClick = onClick,
             modifier = Modifier
