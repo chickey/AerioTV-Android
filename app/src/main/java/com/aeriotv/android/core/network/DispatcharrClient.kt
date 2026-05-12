@@ -1,5 +1,6 @@
 package com.aeriotv.android.core.network
 
+import com.aeriotv.android.BuildConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -24,6 +25,7 @@ import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -92,35 +94,101 @@ class DispatcharrClient @Inject constructor() {
      * The returned access token has ~30 min TTL; refresh token ~24 h. We don't
      * cache the refresh token here (single-source per session), but the access
      * token feeds the immediate /users/me/ call to extract a usable api_key.
+     *
+     * Error mapping matches iOS DispatcharrDirectConnectError so the same
+     * Dashboard-vs-XC password copy lands in the UI:
+     *  - 401/403 -> "Invalid username or password. AerioTV uses your Dispatcharr
+     *    Dashboard password (System -> Users -> Account tab), not your
+     *    Dispatcharr XC password." Field reports show users typing the XC
+     *    password here (it's the more familiar one) and assuming AerioTV is
+     *    broken when it 401s; calling out the exact admin path turns the
+     *    error into a self-resolving signal.
+     *  - 200 OK but decode fails -> "Server returned an unexpected response
+     *    shape during login. Verify the URL points at a Dispatcharr 0.23.0
+     *    or newer instance." Catches the SPA-shell case (the URL points at a
+     *    non-Dispatcharr host that 200s with HTML).
+     *  - Other status / network failure -> "Login transport error: <detail>"
      */
     suspend fun login(baseUrl: String, username: String, password: String): JwtPair {
-        val response: HttpResponse = client.post("${baseUrl.trimEnd('/')}/api/accounts/token/") {
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
-            setBody(LoginRequest(username = username, password = password))
+        val response: HttpResponse = try {
+            client.post("${baseUrl.trimEnd('/')}/api/accounts/token/") {
+                contentType(ContentType.Application.Json)
+                accept(ContentType.Application.Json)
+                header("User-Agent", dispatcharrUserAgent)
+                setBody(LoginRequest(username = username, password = password))
+            }
+        } catch (t: Throwable) {
+            throw IllegalStateException(
+                "Login transport error: ${t.message ?: t::class.simpleName}",
+            )
+        }
+        val code = response.status.value
+        if (code == 401 || code == 403) {
+            throw IllegalStateException(
+                "Invalid username or password. AerioTV uses your Dispatcharr " +
+                    "Dashboard password (System -> Users -> Account tab), " +
+                    "not your Dispatcharr XC password.",
+            )
         }
         if (!response.status.isSuccess()) {
-            throw IllegalStateException("Login failed: HTTP ${response.status.value} ${response.status.description}")
+            throw IllegalStateException("Login transport error: HTTP $code")
         }
-        return response.body()
+        return try {
+            response.body()
+        } catch (e: SerializationException) {
+            throw IllegalStateException(
+                "Server returned an unexpected response shape during login. " +
+                    "Verify the URL points at a Dispatcharr 0.23.0 or newer instance.",
+            )
+        }
     }
 
     /**
      * GET /api/accounts/users/me/ with Bearer access token. Used after [login]
      * to extract the user's `api_key` so subsequent calls can run via the
-     * stable X-API-Key path. Mirrors iOS line 534-588 silent-rebootstrap.
+     * stable X-API-Key path. Mirrors iOS DispatcharrAPI.fetchCurrentUser
+     * (DispatcharrDirectConnect.swift line 421-435).
      */
     suspend fun fetchCurrentUserApiKey(baseUrl: String, accessToken: String): String {
-        val response: HttpResponse = client.get("${baseUrl.trimEnd('/')}/api/accounts/users/me/") {
-            accept(ContentType.Application.Json)
-            header("Authorization", "Bearer $accessToken")
+        val response: HttpResponse = try {
+            client.get("${baseUrl.trimEnd('/')}/api/accounts/users/me/") {
+                accept(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+                header("User-Agent", dispatcharrUserAgent)
+            }
+        } catch (t: Throwable) {
+            throw IllegalStateException(
+                "Couldn't read user profile: ${t.message ?: t::class.simpleName}",
+            )
         }
         if (!response.status.isSuccess()) {
             throw IllegalStateException("Couldn't read user profile: HTTP ${response.status.value}")
         }
-        val me: MeResponse = response.body()
+        val me: MeResponse = try {
+            response.body()
+        } catch (e: SerializationException) {
+            throw IllegalStateException(
+                "Server returned an unexpected user profile shape. Verify the URL " +
+                    "points at a Dispatcharr 0.23.0 or newer instance.",
+            )
+        }
         return me.apiKey.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("Server did not return an api_key for this user")
+    }
+
+    /**
+     * Default User-Agent for every Dispatcharr API call. Mirrors iOS
+     * DeviceInfo.defaultUserAgent format so the Dispatcharr admin Stats
+     * panel can attribute traffic to AerioTV alongside the iOS app:
+     *
+     *     AerioTV/<versionName> (Android; <Build.MODEL>)
+     *
+     * Example: `AerioTV/0.1.0 (Android; Pixel 8 Pro)`. Device nickname
+     * customisation lands when the Android Appearance / Device-name UI
+     * ships (iOS deviceNickname pref equivalent).
+     */
+    private val dispatcharrUserAgent: String by lazy {
+        "AerioTV/${BuildConfig.VERSION_NAME} (Android; ${android.os.Build.MODEL})"
     }
 
     /**
@@ -199,6 +267,7 @@ class DispatcharrClient @Inject constructor() {
         accept(ContentType.Application.Json)
         header("X-API-Key", apiKey)
         header("Authorization", "ApiKey $apiKey")
+        header("User-Agent", dispatcharrUserAgent)
     }
 
     /**
