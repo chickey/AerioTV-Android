@@ -61,6 +61,7 @@ import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.core.data.toInfoTarget
+import com.aeriotv.android.feature.favorites.FavoritesViewModel
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -101,6 +102,9 @@ fun GuideScreen(
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val favoritesVm: FavoritesViewModel = hiltViewModel()
+    val favoritesList by favoritesVm.all.collectAsStateWithLifecycle(initialValue = emptyList())
+    val favoriteIds = remember(favoritesList) { favoritesList.map { it.channelId }.toSet() }
 
     var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
     var recordTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
@@ -269,6 +273,8 @@ fun GuideScreen(
                     onProgrammeRecord = { programme ->
                         recordTarget = programme.toInfoTarget(channel.name, channel.dispatcharrChannelId)
                     },
+                    isFavorite = channel.id in favoriteIds,
+                    onToggleFavorite = { favoritesVm.toggle(channel) },
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, thickness = 0.5.dp)
             }
@@ -301,6 +307,8 @@ private fun ChannelGuideRow(
     onChannelClick: () -> Unit,
     onProgrammeClick: (EPGProgramme) -> Unit,
     onProgrammeRecord: (EPGProgramme) -> Unit,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
 ) {
     val context = LocalContext.current
     var railMenuOpen by remember { mutableStateOf(false) }
@@ -370,14 +378,12 @@ private fun ChannelGuideRow(
                 containerColor = MaterialTheme.colorScheme.surface,
             ) {
                 DropdownMenuItem(
-                    text = { Text("Add to Favorites") },
+                    text = {
+                        Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites")
+                    },
                     onClick = {
                         railMenuOpen = false
-                        Toast.makeText(
-                            context,
-                            "Favorites store lands with the conditional-tab work.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        onToggleFavorite()
                     },
                 )
             }

@@ -3,6 +3,7 @@ package com.aeriotv.android.core.di
 import android.content.Context
 import androidx.room.Room
 import com.aeriotv.android.core.data.db.AerioDatabase
+import com.aeriotv.android.core.data.db.dao.FavoriteChannelDao
 import com.aeriotv.android.core.data.db.dao.LocalRecordingDao
 import com.aeriotv.android.core.data.db.dao.PlaylistDao
 import com.aeriotv.android.core.data.db.dao.WatchProgressDao
@@ -33,4 +34,7 @@ object DatabaseModule {
 
     @Provides
     fun provideLocalRecordingDao(db: AerioDatabase): LocalRecordingDao = db.localRecordingDao()
+
+    @Provides
+    fun provideFavoriteChannelDao(db: AerioDatabase): FavoriteChannelDao = db.favoriteChannelDao()
 }

@@ -23,6 +23,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.feature.dvr.DvrTabContent
+import com.aeriotv.android.feature.favorites.FavoritesTabContent
+import com.aeriotv.android.feature.favorites.FavoritesViewModel
 import com.aeriotv.android.feature.livetv.LiveTVTabContent
 import com.aeriotv.android.feature.ondemand.OnDemandTabContent
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
@@ -50,7 +52,9 @@ fun MainScaffold(
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val tabs = visibleTabs(state)
+    val favoritesVm: FavoritesViewModel = hiltViewModel()
+    val favoritesCount by favoritesVm.count.collectAsStateWithLifecycle(initialValue = 0)
+    val tabs = visibleTabs(state, hasFavorites = favoritesCount > 0)
 
     val settingsVm: SettingsViewModel = hiltViewModel()
     val defaultTabPref by settingsVm.defaultTab.collectAsStateWithLifecycle(initialValue = "")
@@ -122,9 +126,9 @@ fun MainScaffold(
                 onChannelClick = onChannelClick,
                 modifier = Modifier.padding(padding),
             )
-            AppTab.Favorites -> PlaceholderScreen(
-                tabLabel = "Favorites",
-                hint = "Pin channels for quick access. Coming with the Favorites phase.",
+            AppTab.Favorites -> FavoritesTabContent(
+                modifier = Modifier.padding(padding),
+                onChannelClick = onChannelClick,
             )
             AppTab.DVR -> DvrTabContent(modifier = Modifier.padding(padding))
             AppTab.OnDemand -> OnDemandTabContent(
@@ -168,7 +172,10 @@ private fun SettingsTabContent() {
  * Raw M3U URLs surface only Live TV + Settings - those sources cannot enumerate
  * recordings or VOD catalogues, so the conditional tabs would be empty.
  */
-internal fun visibleTabs(state: PlaylistViewModel.UiState): List<AppTab> {
+internal fun visibleTabs(
+    state: PlaylistViewModel.UiState,
+    hasFavorites: Boolean = false,
+): List<AppTab> {
     val sourceType = SourceType.entries.firstOrNull { it.name == state.playlist?.sourceType }
         ?: SourceType.M3uUrl
     val sourceServesDvrAndVod = when (sourceType) {
@@ -177,7 +184,6 @@ internal fun visibleTabs(state: PlaylistViewModel.UiState): List<AppTab> {
         SourceType.XtreamCodes -> true
         SourceType.M3uUrl -> false
     }
-    val hasFavorites = false // TODO Phase 5: track favorites store size
     return buildList {
         add(AppTab.LiveTV)
         if (hasFavorites) add(AppTab.Favorites)

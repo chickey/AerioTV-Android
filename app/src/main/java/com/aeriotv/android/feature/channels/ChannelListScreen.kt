@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.outlined.ExpandLess
@@ -66,6 +67,7 @@ import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.core.data.toInfoTarget
+import com.aeriotv.android.feature.favorites.FavoritesViewModel
 import com.aeriotv.android.feature.livetv.LiveTVViewMode
 import com.aeriotv.android.feature.livetv.ProgramInfoSheet
 import com.aeriotv.android.feature.livetv.RecordProgramSheet
@@ -84,6 +86,9 @@ fun ChannelListScreen(
     onToggleViewMode: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val favoritesVm: FavoritesViewModel = hiltViewModel()
+    val favoritesList by favoritesVm.all.collectAsStateWithLifecycle(initialValue = emptyList())
+    val favoriteIds = remember(favoritesList) { favoritesList.map { it.channelId }.toSet() }
 
     var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
     var recordTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
@@ -100,7 +105,7 @@ fun ChannelListScreen(
         }
     }
 
-    val filtered by remember(state.channels, state.searchQuery, state.selectedGroup, state.sortMode) {
+    val filtered by remember(state.channels, state.searchQuery, state.selectedGroup, state.sortMode, favoriteIds) {
         derivedStateOf {
             val query = state.searchQuery.trim()
             val byGroupAndSearch = state.channels.asSequence()
@@ -115,10 +120,13 @@ fun ChannelListScreen(
                     compareBy({ it.channelNumber ?: Int.MAX_VALUE }, { it.name.lowercase() }),
                 )
                 SortMode.ByName -> byGroupAndSearch.sortedBy { it.name.lowercase() }
-                SortMode.FavoritesFirst -> byGroupAndSearch
-                    .sortedWith(compareBy({ it.channelNumber ?: Int.MAX_VALUE }, { it.name.lowercase() }))
-                // TODO Phase 6+: actually surface favorited channels to the top once the
-                // Favorites store lands. For now this falls back to ByNumber ordering.
+                SortMode.FavoritesFirst -> byGroupAndSearch.sortedWith(
+                    compareBy(
+                        { it.id !in favoriteIds }, // false (favorited) sorts before true
+                        { it.channelNumber ?: Int.MAX_VALUE },
+                        { it.name.lowercase() },
+                    ),
+                )
             }
         }
     }
@@ -223,7 +231,9 @@ fun ChannelListScreen(
                     channel = channel,
                     nowProgramme = nowProgramme,
                     programmes = programmes,
+                    isFavorite = channel.id in favoriteIds,
                     onPlay = { onChannelClick(channel) },
+                    onToggleFavorite = { favoritesVm.toggle(channel) },
                     onShowProgramInfo = { programInfoTarget = it },
                     onShowRecord = { recordTarget = it },
                 )
@@ -298,7 +308,9 @@ private fun ChannelRow(
     channel: M3UChannel,
     nowProgramme: EPGProgramme?,
     programmes: List<EPGProgramme>,
+    isFavorite: Boolean,
     onPlay: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onShowProgramInfo: (ProgramInfoTarget) -> Unit,
     onShowRecord: (ProgramInfoTarget) -> Unit,
 ) {
@@ -450,16 +462,19 @@ private fun ChannelRow(
             ) {
                 DropdownMenuItem(
                     leadingIcon = {
-                        Icon(Icons.Outlined.Star, contentDescription = null)
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                            contentDescription = null,
+                            tint = if (isFavorite) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     },
-                    text = { Text("Add to Favorites") },
+                    text = {
+                        Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites")
+                    },
                     onClick = {
                         menuOpen = false
-                        Toast.makeText(
-                            context,
-                            "Favorites store lands with the conditional-tab work.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        onToggleFavorite()
                     },
                 )
                 if (nowProgramme != null) {
