@@ -133,6 +133,33 @@ class MPVPlayerView @JvmOverloads constructor(
         // Black-flash mitigation. iOS 3422-3423.
         m.setOptionString("demuxer-lavf-o", "fflags=+discardcorrupt")
 
+        // ──────────────────────────────────────────────────────────────
+        // Audio output buffering. mpv's default audio-buffer of 200 ms is
+        // too aggressive for Android's AudioTrack scheduling on real HALs
+        // (and especially on emulators where audio runs through QEMU's
+        // translated audio pipe). Field-tested on the Pixel 10 Pro XL
+        // emulator: sustained ESPN HD playback degenerates after ~10 min
+        // into a tight underrun-restart loop ("Audio device underrun
+        // detected" -> "restarting audio after underrun" every 100-300ms),
+        // which the user hears as constant clicks/pops and which drags
+        // video-sync=audio into syncing onto a constantly-restarting
+        // clock -- exactly the "awful playback" symptom.
+        //
+        // audio-buffer=1.0: 5x the default headroom. Adds ~800ms of
+        // tolerance against the audio thread getting preempted before
+        // the next chunk lands. The user-facing cost is one extra
+        // sentence of audio latency on a live stream, well under the
+        // perception threshold for IPTV.
+        //
+        // audio-stream-silence=yes: when mpv would otherwise close
+        // AudioTrack and reopen on demand, instead keep it open and
+        // push silence frames. Eliminates the cascading reopen storm
+        // that follows the first underrun. Costs marginal CPU (a memset
+        // every frame's worth of samples) but completely closes the
+        // feedback loop where each restart triggered the next underrun.
+        m.setOptionString("audio-buffer", "1.0")
+        m.setOptionString("audio-stream-silence", "yes")
+
         Log.i(tag, "initOptions complete (isLive=$isLive)")
     }
 
