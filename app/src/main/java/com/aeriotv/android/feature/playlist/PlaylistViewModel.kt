@@ -184,15 +184,18 @@ class PlaylistViewModel @Inject constructor(
 
     fun loadPlaylist() {
         val s = _state.value
-        val url = s.url.trim()
-        if (url.isEmpty()) {
+        if (s.url.trim().isEmpty()) {
             _state.update { it.copy(error = "Enter a URL") }
             return
         }
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            _state.update { it.copy(error = "URL must start with http:// or https://") }
-            return
-        }
+        // Auto-prepend the scheme so users can type "dispatcharr.example.com"
+        // instead of "https://dispatcharr.example.com" -- the bare-host case
+        // is the overwhelmingly common typing pattern, and 99% of the field
+        // population is dictated by what the user copy-pastes from their
+        // server admin who almost always omits the scheme. LAN-shaped hosts
+        // (192.168 / 10 / 172.16-31 / *.local) get http:// since home
+        // servers usually don't terminate TLS; everything else gets https://.
+        val url = normalizeSchemedUrl(s.url)
         if (!s.sourceType.isImplemented) {
             _state.update {
                 it.copy(error = "${s.sourceType.displayName} support is coming in a later phase.")
@@ -208,12 +211,11 @@ class PlaylistViewModel @Inject constructor(
             _state.update { it.copy(error = "Username and password are required") }
             return
         }
-        val epgUrl = s.epgUrl.trim().takeIf { it.isNotEmpty() }
-        if (s.sourceType == SourceType.M3uUrl && epgUrl != null &&
-            !epgUrl.startsWith("http://") && !epgUrl.startsWith("https://")) {
-            _state.update { it.copy(error = "EPG URL must start with http:// or https://") }
-            return
-        }
+        // EPG URL gets the same scheme-normalization as the server URL.
+        val epgUrl = s.epgUrl.trim().takeIf { it.isNotEmpty() }?.let { normalizeSchemedUrl(it) }
+        // LAN URL too -- typing "192.168.1.50:9191" should land as
+        // "http://192.168.1.50:9191" automatically.
+        val lanUrl = s.lanUrl.trim().takeIf { it.isNotEmpty() }?.let { normalizeSchemedUrl(it) }
 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
@@ -221,7 +223,7 @@ class PlaylistViewModel @Inject constructor(
                 sourceType = s.sourceType,
                 name = s.name.trim().ifBlank { null },
                 url = url,
-                lanUrl = s.lanUrl.trim().ifBlank { null },
+                lanUrl = lanUrl,
                 epgUrl = epgUrl,
                 apiKey = s.apiKey.trim().ifBlank { null },
                 username = s.username.trim().ifBlank { null },
@@ -373,9 +375,12 @@ class PlaylistViewModel @Inject constructor(
             val request = PlaylistRepository.SaveRequest(
                 sourceType = sourceType,
                 name = name.ifBlank { null },
-                url = url.trim(),
-                lanUrl = lanUrl?.trim()?.ifBlank { null },
-                epgUrl = epgUrl?.trim()?.ifBlank { null },
+                // Scheme-normalize all three URLs so the user can type
+                // bare hostnames in Edit Playlist too. Same rules as
+                // loadPlaylist() above.
+                url = normalizeSchemedUrl(url),
+                lanUrl = lanUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { normalizeSchemedUrl(it) },
+                epgUrl = epgUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { normalizeSchemedUrl(it) },
                 apiKey = apiKey?.trim()?.ifBlank { null },
                 username = username?.trim()?.ifBlank { null },
                 password = password?.ifBlank { null },
@@ -525,4 +530,54 @@ enum class SortMode(val label: String) {
     ByNumber("By Number"),
     ByName("By Name"),
     FavoritesFirst("Favorites First"),
+}
+
+/**
+ * Auto-prepend an HTTP scheme to a bare host the user typed in onboarding /
+ * Edit Playlist. Saves the user from typing `https://` every time they
+ * paste / type a Dispatcharr or Xtream host -- "dispatcharr.example.com"
+ * becomes "https://dispatcharr.example.com", "192.168.1.50:9191" becomes
+ * "http://192.168.1.50:9191".
+ *
+ * Heuristic for picking http vs https:
+ *  - Already has `http://` or `https://` -> leave as-is.
+ *  - Host looks LAN-shaped (RFC1918 private IPv4 + `localhost` + `*.local`
+ *    mDNS) -> prepend `http://`. Home servers almost never terminate TLS.
+ *  - Anything else (public hostname, public IP) -> prepend `https://`.
+ *    Modern public IPTV servers all serve TLS by default; the legacy
+ *    http-only public host case is rare enough that a user encountering
+ *    it can still explicitly type `http://` themselves.
+ *
+ * Whitespace is trimmed off either end before the scheme check so a
+ * trailing newline from a copy-paste doesn't defeat the detection.
+ */
+internal fun normalizeSchemedUrl(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return trimmed
+    // Case-insensitive existing-scheme check covers "HTTP://..." pastes too.
+    val lower = trimmed.lowercase()
+    if (lower.startsWith("http://") || lower.startsWith("https://")) {
+        return trimmed
+    }
+    // Strip any user-supplied leading scheme-ish prefix that's NOT a real
+    // scheme (e.g. "//example.com" protocol-relative) before deciding.
+    val hostPart = trimmed.removePrefix("//")
+    // Pull out the host (drop port + path) for the LAN-shape check. The
+    // resulting prefix decision applies to the FULL trimmed input, not
+    // just the host -- we want to keep the user's port/path intact.
+    val hostOnly = hostPart.substringBefore('/').substringBefore(':')
+    val isLan = when {
+        hostOnly.equals("localhost", ignoreCase = true) -> true
+        hostOnly.endsWith(".local", ignoreCase = true) -> true
+        hostOnly.startsWith("192.168.") -> true
+        hostOnly.startsWith("10.") -> true
+        // 172.16.0.0/12 -> 172.16. through 172.31.
+        hostOnly.startsWith("172.") -> {
+            val secondOctet = hostOnly.removePrefix("172.").substringBefore('.').toIntOrNull()
+            secondOctet != null && secondOctet in 16..31
+        }
+        else -> false
+    }
+    val scheme = if (isLan) "http://" else "https://"
+    return "$scheme$hostPart"
 }
