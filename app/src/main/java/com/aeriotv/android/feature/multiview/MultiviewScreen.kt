@@ -7,9 +7,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,7 +41,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -155,10 +159,17 @@ fun MultiviewScreen(
                 }
             },
             onTileLongPress = { idx ->
-                // Long-press is a no-op in fullscreen mode (no other tiles
-                // to swap with). Exit fullscreen first if active.
+                // Long-press picks up the tile (drag-to-reorder start, or the
+                // tap-to-swap fallback if released in place). No-op in
+                // fullscreen mode -- nothing else on screen to reorder against.
                 if (fullscreenIndex != null) return@TileGrid
-                relocatingIndex = if (relocatingIndex == idx) null else idx
+                relocatingIndex = idx
+            },
+            onReorder = { from, to ->
+                // Committed on drag-drop. Insert semantics (move, not swap) to
+                // match iOS drag-reorder. Clears the pickup highlight.
+                storeHandle.move(from, to)
+                relocatingIndex = null
             },
             onTileDoubleTap = { idx ->
                 // Toggle fullscreen for this tile. Audio focus rides along
@@ -265,6 +276,7 @@ private fun TileGrid(
     onTileTap: (Int) -> Unit,
     onTileLongPress: (Int) -> Unit,
     onTileDoubleTap: (Int) -> Unit,
+    onReorder: (Int, Int) -> Unit,
 ) {
     // Fullscreen branch: render exactly the focused tile filling the whole
     // viewport. We deliberately skip the grid recomposition path so the
@@ -280,6 +292,7 @@ private fun TileGrid(
                     channel = ch,
                     isAudioFocused = true,
                     isRelocating = false,
+                    isDropTarget = false,
                     httpHeaders = httpHeaders,
                     cachingMs = cachingMs,
                     audioFocusStyle = audioFocusStyle,
@@ -287,7 +300,6 @@ private fun TileGrid(
                     chromeVisible = chromeVisible,
                     focusFadedOut = focusFadedOut,
                     onTap = { onTileTap(idx) },
-                    onLongPress = { onTileLongPress(idx) },
                     onDoubleTap = { onTileDoubleTap(idx) },
                 )
             }
@@ -297,37 +309,88 @@ private fun TileGrid(
 
     val (rows, cols) = gridShapeFor(tiles.size)
     val pad = if (tilePadding) 4.dp else 0.dp
-    Column(modifier = Modifier.fillMaxSize()) {
-        for (r in 0 until rows) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                for (c in 0 until cols) {
-                    val index = r * cols + c
-                    val channel = tiles.getOrNull(index)
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .padding(pad),
-                    ) {
-                        if (channel != null) {
-                            Tile(
-                                channel = channel,
-                                isAudioFocused = index == focusedIndex,
-                                isRelocating = index == relocatingIndex,
-                                httpHeaders = httpHeaders,
-                                cachingMs = cachingMs,
-                                audioFocusStyle = audioFocusStyle,
-                                tileRounded = tileRounded,
-                                chromeVisible = chromeVisible,
-                                focusFadedOut = focusFadedOut,
-                                onTap = { onTileTap(index) },
-                                onLongPress = { onTileLongPress(index) },
-                                onDoubleTap = { onTileDoubleTap(index) },
-                            )
+
+    // Drag-to-reorder state. The MPV tiles are positional (never moved); a
+    // long-press picks a tile up and we only commit the reorder on drop, so no
+    // SurfaceView is relocated mid-drag (avoids the black-flash the in-place
+    // swap architecture is built to prevent). dragPos is an absolute pixel
+    // coordinate within the grid; it maps to the hovered cell for the
+    // drop-target highlight + the final move.
+    var dragSource by remember { mutableStateOf<Int?>(null) }
+    var dragPos by remember { mutableStateOf(Offset.Zero) }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val cellW = (constraints.maxWidth.toFloat() / cols).coerceAtLeast(1f)
+        val cellH = (constraints.maxHeight.toFloat() / rows).coerceAtLeast(1f)
+        fun cellIndexAt(pos: Offset): Int {
+            val c = (pos.x / cellW).toInt().coerceIn(0, cols - 1)
+            val r = (pos.y / cellH).toInt().coerceIn(0, rows - 1)
+            return (r * cols + c).coerceIn(0, tiles.size - 1)
+        }
+        val hoverIndex = dragSource?.let { cellIndexAt(dragPos) }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            for (r in 0 until rows) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    for (c in 0 until cols) {
+                        val index = r * cols + c
+                        val channel = tiles.getOrNull(index)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                                .padding(pad)
+                                .then(
+                                    if (channel != null) {
+                                        Modifier.pointerInput(index, cols, rows, tiles.size, cellW, cellH) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { offset ->
+                                                    val col0 = index % cols
+                                                    val row0 = index / cols
+                                                    dragSource = index
+                                                    dragPos = Offset(col0 * cellW + offset.x, row0 * cellH + offset.y)
+                                                    onTileLongPress(index)
+                                                },
+                                                onDrag = { change, amount ->
+                                                    change.consume()
+                                                    dragPos += amount
+                                                },
+                                                onDragEnd = {
+                                                    val from = dragSource
+                                                    if (from != null) {
+                                                        val to = cellIndexAt(dragPos)
+                                                        if (to != from) onReorder(from, to)
+                                                    }
+                                                    dragSource = null
+                                                },
+                                                onDragCancel = { dragSource = null },
+                                            )
+                                        }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        ) {
+                            if (channel != null) {
+                                Tile(
+                                    channel = channel,
+                                    isAudioFocused = index == focusedIndex,
+                                    isRelocating = index == relocatingIndex || index == dragSource,
+                                    isDropTarget = hoverIndex == index && dragSource != index,
+                                    httpHeaders = httpHeaders,
+                                    cachingMs = cachingMs,
+                                    audioFocusStyle = audioFocusStyle,
+                                    tileRounded = tileRounded,
+                                    chromeVisible = chromeVisible,
+                                    focusFadedOut = focusFadedOut,
+                                    onTap = { onTileTap(index) },
+                                    onDoubleTap = { onTileDoubleTap(index) },
+                                )
+                            }
                         }
                     }
                 }
@@ -342,6 +405,7 @@ private fun Tile(
     channel: M3UChannel,
     isAudioFocused: Boolean,
     isRelocating: Boolean,
+    isDropTarget: Boolean,
     httpHeaders: Map<String, String>,
     cachingMs: Int,
     audioFocusStyle: String,
@@ -349,7 +413,6 @@ private fun Tile(
     chromeVisible: Boolean,
     focusFadedOut: Boolean,
     onTap: () -> Unit,
-    onLongPress: () -> Unit,
     onDoubleTap: () -> Unit,
 ) {
     val shape = if (tileRounded) RoundedCornerShape(8.dp) else RoundedCornerShape(0.dp)
@@ -359,6 +422,7 @@ private fun Tile(
     //   themeFading: cyan border that auto-hides after 5s of inactivity
     val showCenterIcon = isAudioFocused && audioFocusStyle == "centerIcon" && chromeVisible
     val borderColor = when {
+        isDropTarget -> MaterialTheme.colorScheme.tertiary
         isRelocating -> MaterialTheme.colorScheme.primary
         isAudioFocused && audioFocusStyle == "grayPersistent" ->
             Color.White.copy(alpha = 0.5f)
@@ -367,6 +431,7 @@ private fun Tile(
         else -> Color.White.copy(alpha = 0.08f)
     }
     val borderWidth = when {
+        isDropTarget -> 4.dp
         isRelocating -> 3.dp
         isAudioFocused && (audioFocusStyle == "grayPersistent" ||
                 (audioFocusStyle == "themeFading" && !focusFadedOut)) -> 2.dp
@@ -379,7 +444,6 @@ private fun Tile(
             .border(borderWidth, borderColor, shape)
             .combinedClickable(
                 onClick = onTap,
-                onLongClick = onLongPress,
                 onDoubleClick = onDoubleTap,
             ),
     ) {

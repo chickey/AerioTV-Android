@@ -77,6 +77,29 @@ class MultiviewStore @Inject constructor() {
     }
 
     /**
+     * Move the tile at [fromIndex] to [toIndex] with insert (not swap)
+     * semantics, shifting the tiles in between. Backs the drag-to-reorder
+     * gesture (iOS MultiviewContainerView drag-reorder). Audio focus follows
+     * the originally-focused channel to its new slot. The positional Tile
+     * composables stay mounted; each affected slot's `update` callback sees a
+     * new url and does an in-place loadfile, so no SurfaceView moves.
+     */
+    fun move(fromIndex: Int, toIndex: Int) {
+        val current = _selected.value
+        if (fromIndex !in current.indices || toIndex !in current.indices) return
+        if (fromIndex == toIndex) return
+        val focusedChannelId = current.getOrNull(_audioFocusedIndex.value)?.id
+        val mutable = current.toMutableList()
+        val item = mutable.removeAt(fromIndex)
+        mutable.add(toIndex, item)
+        _selected.value = mutable
+        if (focusedChannelId != null) {
+            val newFocus = mutable.indexOfFirst { it.id == focusedChannelId }
+            if (newFocus >= 0) _audioFocusedIndex.value = newFocus
+        }
+    }
+
+    /**
      * Replace the channel at [index] with [newChannel] in place. Mirrors iOS
      * MultiviewStore.swapTileContent (commit cc28f18 + e627ca7) — the
      * positional Tile composable preserves its AndroidView, the update
