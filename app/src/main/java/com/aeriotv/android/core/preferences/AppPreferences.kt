@@ -235,6 +235,19 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_STREAM_BUFFER_SIZE] = value }
     }
 
+    /**
+     * iOS `epgWindowHours` parity. How many hours wide the EPG Guide's
+     * horizontal time strip spans. One of 6/12/24/36/48/72; the sentinel
+     * value 0 means "All available" (Guide spans from now to the latest
+     * loaded programme end). Default 24 — keeps the scroll manageable on a
+     * phone while covering the rest of the day. The Guide always shows 1h of
+     * history before "now" regardless of this value.
+     */
+    val epgWindowHours: Flow<Int> = store.data.map { it[KEY_EPG_WINDOW_HOURS] ?: 24 }
+    suspend fun setEpgWindowHours(value: Int) {
+        store.edit { it[KEY_EPG_WINDOW_HOURS] = value }
+    }
+
     // ── Multiview ────────────────────────────────────────────────────────
 
     /**
@@ -481,6 +494,7 @@ class AppPreferences @Inject constructor(
         val KEY_NETWORK_TIMEOUT = doublePreferencesKey("network_timeout_secs")
         val KEY_MAX_RETRIES = intPreferencesKey("max_retries")
         val KEY_STREAM_BUFFER_SIZE = stringPreferencesKey("stream_buffer_size")
+        val KEY_EPG_WINDOW_HOURS = intPreferencesKey("epg_window_hours")
         val KEY_MULTIVIEW_AUDIO_FOCUS_STYLE = stringPreferencesKey("multiview_audio_focus_style")
         val KEY_MULTIVIEW_TILE_PADDING = booleanPreferencesKey("multiview_tile_padding")
         val KEY_MULTIVIEW_TILE_CORNERS_ROUNDED = booleanPreferencesKey("multiview_tile_corners_rounded")

@@ -117,6 +117,7 @@ fun GuideScreen(
     val favoriteIds = remember(favoritesList) { favoritesList.map { it.channelId }.toSet() }
     val settingsVm: SettingsViewModel = hiltViewModel()
     val palette by settingsVm.categoryPalette.collectAsStateWithLifecycle(initialValue = CategoryPaletteState.Default)
+    val epgWindowHours by settingsVm.epgWindowHours.collectAsStateWithLifecycle(initialValue = 24)
     val multiviewStore = rememberMultiviewStoreHandle()
 
     var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
@@ -132,16 +133,27 @@ fun GuideScreen(
         }
     }
 
-    // Guide window: -1h history to +23h ahead = 24h scrollable strip. Matches
-    // iOS-default `epgWindowHours=36` only loosely (24h keeps the strip a
-    // manageable scroll on a 9-inch tablet); Phase 8 user preference will let
-    // the user choose 6/12/24/36/48/72 hours like iOS.
+    // Guide window: 1h of history before "now", then `epgWindowHours` ahead.
+    // The user picks the span in Settings > Network > EPG Window
+    // (6/12/24/36/48/72h or "All available"). iOS `epgWindowHours` parity.
     val windowStart = remember(nowMillis) {
         // Floor `now` to the start of the current hour to keep header labels clean.
         val hourMs = 3_600_000L
         (nowMillis / hourMs) * hourMs - hourMs
     }
-    val windowDurationMs = 24L * 3_600_000L
+    // "All available" (sentinel 0) spans from windowStart to the latest loaded
+    // programme end, clamped to a 6h floor so a thin EPG still scrolls. A
+    // numeric hour value is just that many hours wide.
+    val windowDurationMs = remember(epgWindowHours, state.epgByChannel, windowStart) {
+        if (epgWindowHours > 0) {
+            epgWindowHours.toLong() * 3_600_000L
+        } else {
+            val latestEnd = state.epgByChannel.values.asSequence()
+                .flatten()
+                .maxOfOrNull { it.endMillis } ?: (windowStart + 24L * 3_600_000L)
+            (latestEnd - windowStart).coerceAtLeast(6L * 3_600_000L)
+        }
+    }
 
     val groups by remember(state.channels) {
         derivedStateOf {

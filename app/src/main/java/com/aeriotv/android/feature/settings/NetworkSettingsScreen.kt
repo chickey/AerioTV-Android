@@ -58,6 +58,7 @@ fun NetworkSettingsScreen(
     val timeoutSecs by viewModel.networkTimeoutSecs.collectAsStateWithLifecycle(initialValue = 15.0)
     val maxRetries by viewModel.maxRetries.collectAsStateWithLifecycle(initialValue = 3)
     val bufferSize by viewModel.streamBufferSize.collectAsStateWithLifecycle(initialValue = "default")
+    val epgWindowHours by viewModel.epgWindowHours.collectAsStateWithLifecycle(initialValue = 24)
     val homeSsids by viewModel.homeSsids.collectAsStateWithLifecycle(initialValue = emptySet<String>())
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -108,6 +109,10 @@ fun NetworkSettingsScreen(
             BufferSizeSection(
                 current = bufferSize,
                 onSelect = viewModel::setStreamBufferSize,
+            )
+            EpgWindowSection(
+                currentHours = epgWindowHours,
+                onSelect = viewModel::setEpgWindowHours,
             )
             HomeWifiSection(
                 homeSsids = homeSsids,
@@ -284,6 +289,62 @@ private fun SettingsCard(
         }
     }
 }
+
+/**
+ * EPG Window picker. iOS `epgWindowHours` parity (Network settings radio
+ * list 6/12/24/36/48/72h + "All available"). The sentinel 0 = All. Drives
+ * GuideScreen's horizontal time-strip span.
+ */
+@Composable
+private fun EpgWindowSection(
+    currentHours: Int,
+    onSelect: (Int) -> Unit,
+) {
+    SettingsCard(
+        header = "EPG Window",
+        footer = "How far ahead the TV Guide timeline extends. The guide always shows 1 hour of history. Wider windows need more horizontal scrolling; \"All available\" spans your full loaded guide data.",
+    ) {
+        EPG_WINDOW_OPTIONS.forEachIndexed { idx, opt ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(opt.hours) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = opt.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (opt.hours == currentHours) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            if (idx < EPG_WINDOW_OPTIONS.lastIndex) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            }
+        }
+    }
+}
+
+private data class EpgWindowOption(val hours: Int, val label: String)
+
+private val EPG_WINDOW_OPTIONS: List<EpgWindowOption> = listOf(
+    EpgWindowOption(6, "6 hours"),
+    EpgWindowOption(12, "12 hours"),
+    EpgWindowOption(24, "24 hours"),
+    EpgWindowOption(36, "36 hours"),
+    EpgWindowOption(48, "48 hours"),
+    EpgWindowOption(72, "72 hours"),
+    EpgWindowOption(0, "All available"),
+)
 
 data class BufferOption(val id: String, val label: String, val detail: String, val cachingMs: Int)
 

@@ -113,6 +113,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { prefs.setStreamBufferSize(value) }
     }
 
+    val epgWindowHours: Flow<Int> = prefs.epgWindowHours
+    fun setEpgWindowHours(value: Int) {
+        viewModelScope.launch { prefs.setEpgWindowHours(value) }
+    }
+
     // Multiview (Phase 11c)
     val multiviewAudioFocusStyle: Flow<String> = prefs.multiviewAudioFocusStyle
     fun setMultiviewAudioFocusStyle(value: String) {
