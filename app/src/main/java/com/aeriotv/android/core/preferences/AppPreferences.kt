@@ -157,6 +157,35 @@ class AppPreferences @Inject constructor(
     }
 
     /**
+     * LRU list of recently-played channel ids, most-recent first. Mirrors iOS
+     * RecentChannelsStore (@AppStorage `recentChannelIDs`). Stored newline-
+     * delimited to preserve order (a Preferences string Set would not).
+     * Capped at [RECENT_CHANNELS_CAP]; the AddToMultiview sheet shows the
+     * first few as its "Recent" section. PlayerScreen records on each flip.
+     */
+    val recentChannelIds: Flow<List<String>> = store.data.map { prefs ->
+        val raw = prefs[KEY_RECENT_CHANNEL_IDS] ?: ""
+        if (raw.isBlank()) emptyList()
+        else raw.split('\n').mapNotNull { it.trim().takeIf(String::isNotBlank) }
+    }
+
+    /**
+     * Promote [channelId] to the front of the recents list, de-duplicating and
+     * capping at [RECENT_CHANNELS_CAP]. No-op for blanks.
+     */
+    suspend fun recordRecentChannel(channelId: String) {
+        val id = channelId.trim()
+        if (id.isBlank()) return
+        store.edit { prefs ->
+            val existing = (prefs[KEY_RECENT_CHANNEL_IDS] ?: "")
+                .split('\n')
+                .mapNotNull { it.trim().takeIf(String::isNotBlank) }
+            val reordered = (listOf(id) + existing.filterNot { it == id }).take(RECENT_CHANNELS_CAP)
+            prefs[KEY_RECENT_CHANNEL_IDS] = reordered.joinToString("\n")
+        }
+    }
+
+    /**
      * SSIDs the user has flagged as "home network". When the device is on
      * one of these networks, [PlaylistEntity.lanUrlString] is used instead
      * of the remote [PlaylistEntity.urlString] for outbound requests. Stored
@@ -477,6 +506,9 @@ class AppPreferences @Inject constructor(
         store.data.first()[KEY_DVR_KEEP_AWAKE] ?: true
 
     private companion object {
+        /** Max entries kept in [recentChannelIds]. iOS keeps a short LRU. */
+        const val RECENT_CHANNELS_CAP = 15
+        val KEY_RECENT_CHANNEL_IDS = stringPreferencesKey("recent_channel_ids")
         val KEY_SELECTED_THEME = stringPreferencesKey("selected_theme")
         val KEY_USE_CUSTOM_ACCENT = booleanPreferencesKey("use_custom_accent")
         val KEY_CUSTOM_ACCENT_HEX = stringPreferencesKey("custom_accent_hex")

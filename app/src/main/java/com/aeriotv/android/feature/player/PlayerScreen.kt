@@ -108,7 +108,12 @@ fun PlayerScreen(
     // it without losing channel context.
     LaunchedEffect(currentChannel?.id) {
         currentChannel?.let { ch ->
-            if (ch.id.isNotBlank()) settingsVm.setLastWatchedChannelId(ch.id)
+            if (ch.id.isNotBlank()) {
+                settingsVm.setLastWatchedChannelId(ch.id)
+                // Feed the LRU recents list (AddToMultiview "Recent" section,
+                // iOS RecentChannelsStore parity).
+                settingsVm.recordRecentChannel(ch.id)
+            }
             miniPlayerVm.setCurrentChannel(ch)
         }
     }

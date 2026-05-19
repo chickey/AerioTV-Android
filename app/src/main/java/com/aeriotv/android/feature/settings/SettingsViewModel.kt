@@ -85,6 +85,12 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { prefs.setLastWatchedChannelId(value) }
     }
 
+    /** LRU recent channel ids (most-recent first). Powers the AddToMultiview "Recent" section. */
+    val recentChannelIds: Flow<List<String>> = prefs.recentChannelIds
+    fun recordRecentChannel(channelId: String) {
+        viewModelScope.launch { prefs.recordRecentChannel(channelId) }
+    }
+
     val defaultTab: Flow<String> = prefs.defaultTab
     fun setDefaultTab(value: String) {
         viewModelScope.launch { prefs.setDefaultTab(value) }
