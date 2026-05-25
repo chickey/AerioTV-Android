@@ -89,7 +89,7 @@ class DriveSyncManager @Inject constructor(
             ?: return RequestResult.Failed
         val token = authResult.accessToken
         if (token != null) {
-            _status.value = Status.SignedIn(token)
+            setSignedIn(token)
             return RequestResult.Authorized(token)
         }
         val pi = authResult.pendingIntent
@@ -100,15 +100,55 @@ class DriveSyncManager @Inject constructor(
         }
     }
 
-    /** Consume the activity result intent from the consent flow. */
-    fun acceptConsentResult(data: android.content.Intent?) {
+    /** Consume the activity result intent from the consent flow. Persists the
+     * resulting token so the session survives a process restart. */
+    suspend fun acceptConsentResult(data: android.content.Intent?) {
         val token = auth.extractAccessToken(data)
-        _status.value = if (token != null) Status.SignedIn(token) else Status.SignedOut
+        if (token != null) setSignedIn(token) else _status.value = Status.SignedOut
+    }
+
+    /**
+     * Restore a usable Drive access token across process restarts WITHOUT a
+     * manual re-login. Order:
+     *   1. Already [Status.SignedIn] this process -> return its token.
+     *   2. A persisted token that hasn't hit its estimated expiry -> adopt it
+     *      (pure disk read, no network, no consent UI). This is the common
+     *      "it just stays signed in" path.
+     *   3. Otherwise refresh silently via AuthorizationClient, which returns a
+     *      fresh token with NO UI because the Drive scope is already granted
+     *      (the access token Google issues only lives ~1h, so this fires after
+     *      long gaps). Returns null only when no token can be had without user
+     *      interaction (never signed in, scope revoked, offline) so background
+     *      callers just skip instead of popping a sheet.
+     */
+    suspend fun ensureSignedIn(): String? {
+        (status.value as? Status.SignedIn)?.let { return it.accessToken }
+        appPreferences.syncTokenOnce()?.let { (saved, expiry) ->
+            if (System.currentTimeMillis() < expiry) {
+                _status.value = Status.SignedIn(saved)
+                return saved
+            }
+        }
+        if (!SyncConfig.isConfigured()) return null
+        // Only refresh for a user who has opted into sync before -- never
+        // trigger an authorize() for someone who never signed in.
+        if (appPreferences.syncAccountEmailOnce().isBlank()) return null
+        val authResult = runCatching { auth.requestDriveAuthorization() }.getOrNull() ?: return null
+        val token = authResult.accessToken ?: return null
+        setSignedIn(token)
+        return token
+    }
+
+    /** Persist the token with a conservative expiry and flip status to signed-in. */
+    private suspend fun setSignedIn(token: String) {
+        appPreferences.saveSyncToken(token, System.currentTimeMillis() + TOKEN_TTL_MS)
+        _status.value = Status.SignedIn(token)
     }
 
     suspend fun signOut() {
         runCatching { auth.signOut() }
         appPreferences.setSyncAccountEmail("")
+        appPreferences.clearSyncToken()
         _status.value = Status.SignedOut
     }
 
@@ -344,5 +384,11 @@ class DriveSyncManager @Inject constructor(
         object Failed : RequestResult
     }
 
-    companion object { private const val TAG = "DriveSyncManager" }
+    companion object {
+        private const val TAG = "DriveSyncManager"
+        /** Conservative cache lifetime for a persisted access token. Google's
+         * tokens last ~1h; refreshing at 50min avoids handing out a token
+         * that's about to expire mid-sync. */
+        private const val TOKEN_TTL_MS = 50L * 60L * 1000L
+    }
 }

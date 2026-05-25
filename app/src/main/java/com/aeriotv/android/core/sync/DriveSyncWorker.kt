@@ -41,10 +41,12 @@ class DriveSyncWorker @AssistedInject constructor(
             Log.i(TAG, "Master sync disabled — skipping")
             return@runCatching Result.success()
         }
-        val status = sync.status.value
-        val token = (status as? DriveSyncManager.Status.SignedIn)?.accessToken
+        // Restore the session from the persisted token (or silently refresh)
+        // rather than relying on in-process status, which is empty in the
+        // fresh process WorkManager spawns hours later.
+        val token = sync.ensureSignedIn()
         if (token == null) {
-            Log.i(TAG, "Not signed in to Drive — skipping")
+            Log.i(TAG, "No Drive token (not signed in / consent needed) — skipping")
             return@runCatching Result.success()
         }
         val enabled = SyncCategory.entries

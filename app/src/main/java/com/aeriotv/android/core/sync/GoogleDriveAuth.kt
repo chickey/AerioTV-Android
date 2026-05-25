@@ -85,9 +85,15 @@ class GoogleDriveAuth(private val context: Context) {
     suspend fun requestDriveAuthorization(): AuthorizationResult? {
         if (!SyncConfig.isConfigured()) return null
         val client = Identity.getAuthorizationClient(context)
+        // No requestOfflineAccess: AerioTV uses the access token client-side
+        // (there's no backend to exchange a server auth code for), and forcing
+        // an auth code makes authorize() re-prompt for consent on every call,
+        // which defeats silent re-authorization after an app restart. Without
+        // it, authorize() returns a cached access token with NO UI once the
+        // user has granted the Drive AppData scope -- the basis for
+        // [DriveSyncManager.ensureSignedIn].
         val request = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(SyncConfig.DRIVE_APPDATA_SCOPE)))
-            .requestOfflineAccess(SyncConfig.WEB_CLIENT_ID, /* forceCodeForRefreshToken = */ true)
             .build()
         return suspendCancellableCoroutine { cont ->
             client.authorize(request)

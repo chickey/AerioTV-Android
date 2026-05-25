@@ -44,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +97,10 @@ fun SyncSettingsScreen(
     val lastPull by viewModel.lastPullAt.collectAsStateWithLifecycle(initialValue = 0L)
     val statusObj by viewModel.driveStatus.collectAsState()
     val configured = remember { SyncConfig.isConfigured() }
+
+    // Silently restore a persisted Drive session on open so the screen shows
+    // signed-in (and Sync Now works) without a manual re-login.
+    LaunchedEffect(Unit) { viewModel.restoreSessionIfPossible() }
 
     var inFlight by remember { mutableStateOf(false) }
     // When Sign-in with Google is tapped on a build without an OAuth client

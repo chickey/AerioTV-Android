@@ -56,7 +56,16 @@ class SyncSettingsViewModel @Inject constructor(
         sync.requestDriveScope()
 
     fun acceptConsentResult(data: android.content.Intent?) {
-        sync.acceptConsentResult(data)
+        viewModelScope.launch { sync.acceptConsentResult(data) }
+    }
+
+    /**
+     * Silently restore the Drive session from the persisted token (or refresh
+     * with no UI when it has lapsed) so the screen reflects signed-in and Sync
+     * Now works without a manual re-login. Safe no-op when never signed in.
+     */
+    fun restoreSessionIfPossible() {
+        viewModelScope.launch { sync.ensureSignedIn() }
     }
 
     fun signOut() {

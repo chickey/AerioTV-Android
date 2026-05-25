@@ -412,6 +412,37 @@ class AppPreferences @Inject constructor(
     }
 
     val syncAccountEmail: Flow<String> = store.data.map { it[KEY_SYNC_ACCOUNT_EMAIL] ?: "" }
+    /** One-shot read of the saved sync account email. Blank when the user has
+     * never signed in to Drive, used to gate silent re-authorization. */
+    suspend fun syncAccountEmailOnce(): String = syncAccountEmail.first()
+
+    /**
+     * Persist the Drive access token + its (estimated) expiry so a signed-in
+     * session survives process death. The access token is short-lived (~1h),
+     * so [expiryMs] is a conservative wall-clock deadline after which callers
+     * should refresh rather than trust the cached value.
+     */
+    suspend fun saveSyncToken(token: String, expiryMs: Long) {
+        store.edit { prefs ->
+            prefs[KEY_SYNC_ACCESS_TOKEN] = token
+            prefs[KEY_SYNC_TOKEN_EXPIRY] = expiryMs
+        }
+    }
+
+    /** Saved (token, expiryMs) pair, or null when none is stored. */
+    suspend fun syncTokenOnce(): Pair<String, Long>? {
+        val prefs = store.data.first()
+        val token = prefs[KEY_SYNC_ACCESS_TOKEN]?.takeIf { it.isNotBlank() } ?: return null
+        val expiry = prefs[KEY_SYNC_TOKEN_EXPIRY] ?: 0L
+        return token to expiry
+    }
+
+    suspend fun clearSyncToken() {
+        store.edit { prefs ->
+            prefs.remove(KEY_SYNC_ACCESS_TOKEN)
+            prefs.remove(KEY_SYNC_TOKEN_EXPIRY)
+        }
+    }
     suspend fun setSyncAccountEmail(value: String) {
         store.edit { prefs ->
             if (value.isBlank()) prefs.remove(KEY_SYNC_ACCOUNT_EMAIL)
@@ -562,5 +593,7 @@ class AppPreferences @Inject constructor(
         val KEY_SYNC_ACCOUNT_EMAIL = stringPreferencesKey("sync_account_email")
         val KEY_SYNC_LAST_PUSH = longPreferencesKey("sync_last_push_at")
         val KEY_SYNC_LAST_PULL = longPreferencesKey("sync_last_pull_at")
+        val KEY_SYNC_ACCESS_TOKEN = stringPreferencesKey("sync_access_token")
+        val KEY_SYNC_TOKEN_EXPIRY = longPreferencesKey("sync_token_expiry")
     }
 }
