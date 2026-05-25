@@ -1,8 +1,17 @@
 package com.aeriotv.android.feature.main
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -17,8 +26,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.SourceType
@@ -122,6 +137,34 @@ fun MainScaffold(
         if (selectedTab !in tabs) selectedTab = AppTab.LiveTV
     }
 
+    // Android TV / Google TV: a 10-foot top tab bar instead of the phone
+    // bottom NavigationBar. D-pad friendly, overscan-safe, and mirrors the
+    // tvOS TabView. Phone / tablet / fold keep the bottom nav below.
+    val isTv = rememberLiveTvFormFactor().isTv
+    if (isTv) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            TvTopTabBar(
+                tabs = tabs,
+                selected = selectedTab,
+                onSelect = { selectedTab = it },
+            )
+            MainTabContent(
+                selectedTab = selectedTab,
+                onChannelClick = onChannelClick,
+                onMovieClick = onMovieClick,
+                onSeriesClick = onSeriesClick,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            )
+        }
+        return
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -186,23 +229,114 @@ fun MainScaffold(
             }
         },
     ) { padding ->
+        MainTabContent(
+            selectedTab = selectedTab,
+            onChannelClick = onChannelClick,
+            onMovieClick = onMovieClick,
+            onSeriesClick = onSeriesClick,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Shared body for both the phone (bottom-nav Scaffold) and TV (top-tab) shells.
+ * [modifier] carries the per-shell insets: Scaffold content padding on phone,
+ * a weight + fill on TV.
+ */
+@Composable
+private fun MainTabContent(
+    selectedTab: AppTab,
+    onChannelClick: (M3UChannel) -> Unit,
+    onMovieClick: (String) -> Unit,
+    onSeriesClick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier) {
         when (selectedTab) {
-            AppTab.LiveTV -> LiveTVTabContent(
-                onChannelClick = onChannelClick,
-                modifier = Modifier.padding(padding),
-            )
-            AppTab.Favorites -> FavoritesTabContent(
-                modifier = Modifier.padding(padding),
-                onChannelClick = onChannelClick,
-            )
-            AppTab.DVR -> DvrTabContent(modifier = Modifier.padding(padding))
+            AppTab.LiveTV -> LiveTVTabContent(onChannelClick = onChannelClick)
+            AppTab.Favorites -> FavoritesTabContent(onChannelClick = onChannelClick)
+            AppTab.DVR -> DvrTabContent()
             AppTab.OnDemand -> OnDemandTabContent(
-                modifier = Modifier.padding(padding),
                 onMovieClick = { movie -> onMovieClick(movie.uuid) },
                 onSeriesClick = { series -> onSeriesClick(series.id) },
             )
             AppTab.Settings -> SettingsTabContent()
         }
+    }
+}
+
+/**
+ * 10-foot top navigation for Android TV. A horizontal, D-pad-traversable row of
+ * pill tabs with overscan-safe margins. Selection follows focus (tvOS TabView
+ * behaviour): landing on a tab switches to it; pressing DOWN drops into content.
+ */
+@Composable
+private fun TvTopTabBar(
+    tabs: List<AppTab>,
+    selected: AppTab,
+    onSelect: (AppTab) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            // Overscan-safe: TVs can crop ~5% of each edge.
+            .padding(horizontal = 48.dp, vertical = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tabs.forEach { tab ->
+            TvTab(
+                tab = tab,
+                selected = tab == selected,
+                onFocused = { onSelect(tab) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvTab(
+    tab: AppTab,
+    selected: Boolean,
+    onFocused: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val background = when {
+        focused -> MaterialTheme.colorScheme.primary
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        else -> Color.Transparent
+    }
+    val foreground = when {
+        focused -> MaterialTheme.colorScheme.onPrimary
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(26.dp))
+            .background(background)
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .focusable()
+            .padding(horizontal = 22.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Icon(
+            imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
+            contentDescription = null,
+            tint = foreground,
+            modifier = Modifier.size(24.dp),
+        )
+        Text(
+            text = tab.label,
+            color = foreground,
+            style = MaterialTheme.typography.titleMedium,
+        )
     }
 }
 
