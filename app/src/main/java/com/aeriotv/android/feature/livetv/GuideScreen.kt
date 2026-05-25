@@ -247,15 +247,18 @@ fun GuideScreen(
                 scale = scale,
                 onSelect = { settingsVm.setGuideScale(it) },
             )
-            IconButton(onClick = {
-                jumpScope.launch {
-                    // Land the now-indicator ~1/4 into the viewport so the user
-                    // sees a bit of past + the upcoming block. iOS parity.
-                    val target = (nowOffsetPx - with(density) { scaledHourWidth.toPx() / 2f })
-                        .toInt().coerceAtLeast(0)
-                    horizontalScrollState.animateScrollTo(target)
-                }
-            }) {
+            IconButton(
+                onClick = {
+                    jumpScope.launch {
+                        // Land the now-indicator ~1/4 into the viewport so the user
+                        // sees a bit of past + the upcoming block. iOS parity.
+                        val target = (nowOffsetPx - with(density) { scaledHourWidth.toPx() / 2f })
+                            .toInt().coerceAtLeast(0)
+                        horizontalScrollState.animateScrollTo(target)
+                    }
+                },
+                modifier = Modifier.size(36.dp),
+            ) {
                 Icon(
                     imageVector = Icons.Filled.AccessTime,
                     contentDescription = "Jump to now",
@@ -263,15 +266,20 @@ fun GuideScreen(
                         MaterialTheme.colorScheme.primary
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
             }
             if (canToggleViewMode) {
-                IconButton(onClick = onToggleViewMode) {
+                IconButton(
+                    onClick = onToggleViewMode,
+                    modifier = Modifier.size(36.dp),
+                ) {
                     Icon(
                         imageVector = if (viewMode == LiveTVViewMode.Guide)
                             Icons.Filled.ViewList else Icons.Filled.CalendarMonth,
                         contentDescription = if (viewMode == LiveTVViewMode.Guide) "Switch to List" else "Switch to Guide",
                         tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
@@ -761,14 +769,25 @@ private val GUIDE_ZOOM_PRESETS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 @Composable
 private fun ZoomSelector(scale: Float, onSelect: (Float) -> Unit) {
     var open by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { open = true }) {
-            Text(
-                text = "${kotlin.math.round(scale * 100).toInt()}%",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        // Compact percentage pill (was a min-width TextButton). Tight padding so
+        // it takes little space, with a clear D-pad focus highlight.
+        Text(
+            text = "${kotlin.math.round(scale * 100).toInt()}%",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (focused) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(
+                    if (focused) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                )
+                .onFocusChanged { focused = it.isFocused }
+                .clickable { open = true }
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+        )
         DropdownMenu(
             expanded = open,
             onDismissRequest = { open = false },
