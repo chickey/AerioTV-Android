@@ -36,6 +36,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.onFocusChanged
 import com.aeriotv.android.core.preferences.GUIDE_SCALE_MAX
 import com.aeriotv.android.core.preferences.GUIDE_SCALE_MIN
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -345,6 +347,9 @@ fun GuideScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                // Treat the grid as one focus group so D-pad DOWN from the chips
+                // / top bar reliably descends into the programme cells on TV.
+                .focusGroup()
                 // Pinch-to-zoom the timeline. Custom detector that only acts on
                 // two-or-more pointers so single-finger pans still reach the
                 // LazyColumn's vertical scroll + the rows' horizontal scroll.
@@ -612,14 +617,21 @@ private fun ProgrammeCell(
     }
     val isReminderSet by remindersVm.observeIsSet(key)
         .collectAsStateWithLifecycle(initialValue = false)
-    val bg = categoryTint ?: if (isLive)
+    var focused by remember { mutableStateOf(false) }
+    val baseBg = categoryTint ?: if (isLive)
         MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
     else
         MaterialTheme.colorScheme.surface.copy(alpha = 0.35f)
-    val borderColor = if (isLive)
+    val baseBorderColor = if (isLive)
         MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
     else
         MaterialTheme.colorScheme.surfaceVariant
+    // D-pad focus highlight: a bright, thick ring plus a brightened fill so the
+    // focused programme cell is unmistakable on a 10-foot display. Harmless on
+    // touch devices, which never raise focus on these cells.
+    val bg = if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.32f) else baseBg
+    val borderColor = if (focused) MaterialTheme.colorScheme.primary else baseBorderColor
+    val borderWidth = if (focused) 3.dp else 0.5.dp
     val titleColor = if (isLive)
         MaterialTheme.colorScheme.primary
     else
@@ -631,7 +643,8 @@ private fun ProgrammeCell(
             .padding(start = 1.dp, end = 1.dp, top = 4.dp, bottom = 4.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(bg)
-            .border(0.5.dp, borderColor, RoundedCornerShape(6.dp))
+            .border(borderWidth, borderColor, RoundedCornerShape(6.dp))
+            .onFocusChanged { focused = it.isFocused }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = { menuOpen = true },
