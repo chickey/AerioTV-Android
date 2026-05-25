@@ -141,13 +141,14 @@ fun GuideScreen(
     val scale = liveScale.coerceIn(GUIDE_SCALE_MIN, GUIDE_SCALE_MAX)
     val scaledHourWidth = GuideMetrics.HOUR_WIDTH * scale
 
-    // 10-foot sizing on Android TV: a wider channel rail, taller rows, and a
-    // taller time header so the guide is legible from a couch. Phone/tablet
-    // keep the compact GuideMetrics defaults.
+    // Android TV: keep rows DENSE so more channels fit without scrolling (like
+    // the tvOS guide), and keep the channel rail narrow. Legibility comes from
+    // text sizing inside the cells/rail, not from oversized rows. Phone/tablet
+    // keep the GuideMetrics defaults.
     val isTv = rememberLiveTvFormFactor().isTv
-    val railWidth = if (isTv) 264.dp else GuideMetrics.RAIL_WIDTH
-    val rowHeight = if (isTv) 118.dp else GuideMetrics.ROW_HEIGHT
-    val headerHeight = if (isTv) 48.dp else GuideMetrics.HEADER_HEIGHT
+    val railWidth = if (isTv) 150.dp else GuideMetrics.RAIL_WIDTH
+    val rowHeight = if (isTv) 64.dp else GuideMetrics.ROW_HEIGHT
+    val headerHeight = if (isTv) 40.dp else GuideMetrics.HEADER_HEIGHT
 
     var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
     var recordTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
@@ -224,13 +225,9 @@ fun GuideScreen(
         val jumpScope = rememberCoroutineScope()
         val density = LocalDensity.current
         TopAppBar(
-            title = {
-                val playlistName = state.playlist?.name?.takeIf { it.isNotBlank() } ?: "Live TV"
-                Text(
-                    text = "$playlistName  •  ${filteredChannels.size} / ${state.channels.size}",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            },
+            // Server name + channel count removed: unnecessary noise on every
+            // form factor. The bar now just hosts the guide controls.
+            title = {},
             actions = {
                 // Jump-to-now button. Highlights primary tint when the
                 // horizontal scroll has drifted more than two hours from
@@ -464,12 +461,13 @@ private fun ChannelGuideRow(
     val context = LocalContext.current
     var railMenuOpen by remember { mutableStateOf(false) }
 
-    // 10-foot sizing knobs (compact defaults on phone/tablet).
-    val numberStyle = if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelSmall
-    val numberWidth = if (isTv) 30.dp else 22.dp
-    val logoBox = if (isTv) 52.dp else 36.dp
-    val logoImage = if (isTv) 46.dp else 32.dp
-    val nameStyle = if (isTv) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelMedium
+    // Compact rail sizing. On TV we keep it tight (narrow rail, small logo) so
+    // more channels fit; legibility comes from the name/cell text, not bulk.
+    val numberStyle = if (isTv) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall
+    val numberWidth = if (isTv) 24.dp else 22.dp
+    val logoBox = if (isTv) 38.dp else 36.dp
+    val logoImage = if (isTv) 34.dp else 32.dp
+    val nameStyle = if (isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -487,7 +485,7 @@ private fun ChannelGuideRow(
                     onClick = onChannelClick,
                     onLongClick = { railMenuOpen = true },
                 )
-                .padding(horizontal = if (isTv) 14.dp else 8.dp),
+                .padding(horizontal = if (isTv) 10.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             channel.channelNumber?.let { num ->
@@ -498,7 +496,7 @@ private fun ChannelGuideRow(
                     modifier = Modifier.width(numberWidth),
                 )
             }
-            Spacer(Modifier.width(if (isTv) 8.dp else 4.dp))
+            Spacer(Modifier.width(if (isTv) 6.dp else 4.dp))
             Box(
                 modifier = Modifier
                     .size(logoBox)
@@ -521,7 +519,7 @@ private fun ChannelGuideRow(
                     )
                 }
             }
-            Spacer(Modifier.width(if (isTv) 10.dp else 6.dp))
+            Spacer(Modifier.width(if (isTv) 8.dp else 6.dp))
             Text(
                 text = channel.name,
                 style = nameStyle,
@@ -742,18 +740,18 @@ private fun ProgrammeCell(
         }
         Text(
             text = programme.title.ifBlank { "—" },
-            style = if (isTv) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelMedium,
+            style = if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelMedium,
             color = titleColor,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
+            maxLines = if (isTv) 1 else 2,
             overflow = TextOverflow.Ellipsis,
         )
         if (programme.description.isNotBlank()) {
             Text(
                 text = programme.description,
-                style = if (isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelSmall,
+                style = if (isTv) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (isTv) 3 else 2,
+                maxLines = if (isTv) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
