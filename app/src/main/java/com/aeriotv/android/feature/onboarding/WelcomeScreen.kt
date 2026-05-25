@@ -76,10 +76,11 @@ fun WelcomeScreen(
     googleSignInInProgress: Boolean = false,
 ) {
     val config = LocalConfiguration.current
-    // Two-column when the viewport is meaningfully wider than tall. Threshold
-    // chosen so Pixel Tablet portrait stays single-column (it's >=600w but also
-    // >=800h) while TV landscape and foldable-unfolded tip into two-column.
-    val twoColumn = config.screenWidthDp >= 720 && config.screenHeightDp < 720
+    val isTv = com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor().isTv
+    // Two-column when the viewport is meaningfully wider than tall (tablet
+    // landscape, foldable unfolded). TV is excluded: it uses the centered
+    // single column to mirror the tvOS welcome layout.
+    val twoColumn = !isTv && config.screenWidthDp >= 720 && config.screenHeightDp < 720
 
     if (twoColumn) WelcomeTwoColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
     else WelcomeSingleColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
@@ -100,7 +101,13 @@ private fun WelcomeSingleColumn(
         WelcomeAmbientOrbs(modifier = Modifier.fillMaxSize())
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                // Constrain + center so the column doesn't stretch edge-to-edge
+                // on wide screens (TV) -- mirrors the centered tvOS layout while
+                // staying full-width on a narrow phone.
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+                .widthIn(max = 620.dp)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
