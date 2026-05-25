@@ -281,8 +281,9 @@ private fun TvTopTabBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            // Overscan-safe: TVs can crop ~5% of each edge.
-            .padding(horizontal = 48.dp, vertical = 18.dp),
+            // Overscan-safe horizontally; kept vertically slim so the bar
+            // doesn't steal space from the guide below.
+            .padding(horizontal = 48.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -322,7 +323,7 @@ private fun TvTab(
                 if (it.isFocused) onFocused()
             }
             .focusable()
-            .padding(horizontal = 22.dp, vertical = 11.dp),
+            .padding(horizontal = 20.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {

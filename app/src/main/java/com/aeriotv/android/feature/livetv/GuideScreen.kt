@@ -224,95 +224,87 @@ fun GuideScreen(
         // way across the viewport.
         val jumpScope = rememberCoroutineScope()
         val density = LocalDensity.current
-        TopAppBar(
-            // Server name + channel count removed: unnecessary noise on every
-            // form factor. The bar now just hosts the guide controls.
-            title = {},
-            actions = {
-                // Jump-to-now button. Highlights primary tint when the
-                // horizontal scroll has drifted more than two hours from
-                // the now-indicator, so it visually announces itself only
-                // when actually useful. Matches iOS EPGGuideView nav-bar
-                // "now" affordance.
-                val nowOffsetPx = with(density) {
-                    msToDp(nowMillis - windowStart, scaledHourWidth).toPx()
+        // Single control + filter row. The zoom %, jump-to-now, and List/Guide
+        // toggle sit on the LEFT, then the channel-group pills fill the rest.
+        // Folding the controls into the pill row removes the old (title-less)
+        // app bar and hands that vertical space back to the guide.
+        val nowOffsetPx = with(density) {
+            msToDp(nowMillis - windowStart, scaledHourWidth).toPx()
+        }
+        val visibleCenter = horizontalScrollState.value +
+            with(density) { scaledHourWidth.toPx() }
+        val nowOffScreen = kotlin.math.abs(visibleCenter - nowOffsetPx) >
+            with(density) { (scaledHourWidth * 2).toPx() }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (isTv) 60.dp else 56.dp)
+                .padding(horizontal = if (isTv) 24.dp else 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Discrete zoom selector (iOS guideScale, complements pinch).
+            ZoomSelector(
+                scale = scale,
+                onSelect = { settingsVm.setGuideScale(it) },
+            )
+            IconButton(onClick = {
+                jumpScope.launch {
+                    // Land the now-indicator ~1/4 into the viewport so the user
+                    // sees a bit of past + the upcoming block. iOS parity.
+                    val target = (nowOffsetPx - with(density) { scaledHourWidth.toPx() / 2f })
+                        .toInt().coerceAtLeast(0)
+                    horizontalScrollState.animateScrollTo(target)
                 }
-                val visibleCenter = horizontalScrollState.value +
-                    with(density) { scaledHourWidth.toPx() }
-                val nowOffScreen = kotlin.math.abs(visibleCenter - nowOffsetPx) >
-                    with(density) { (scaledHourWidth * 2).toPx() }
-                // Discrete zoom selector (iOS guideScale, complements pinch).
-                ZoomSelector(
-                    scale = scale,
-                    onSelect = { settingsVm.setGuideScale(it) },
+            }) {
+                Icon(
+                    imageVector = Icons.Filled.AccessTime,
+                    contentDescription = "Jump to now",
+                    tint = if (nowOffScreen)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                IconButton(onClick = {
-                    jumpScope.launch {
-                        // Land the now-indicator ~1/4 into the viewport so
-                        // the user sees a bit of past + the upcoming block
-                        // of programmes. iOS uses the same offset.
-                        val target = (nowOffsetPx - with(density) { scaledHourWidth.toPx() / 2f })
-                            .toInt().coerceAtLeast(0)
-                        horizontalScrollState.animateScrollTo(target)
-                    }
-                }) {
+            }
+            if (canToggleViewMode) {
+                IconButton(onClick = onToggleViewMode) {
                     Icon(
-                        imageVector = Icons.Filled.AccessTime,
-                        contentDescription = "Jump to now",
-                        tint = if (nowOffScreen)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = if (viewMode == LiveTVViewMode.Guide)
+                            Icons.Filled.ViewList else Icons.Filled.CalendarMonth,
+                        contentDescription = if (viewMode == LiveTVViewMode.Guide) "Switch to List" else "Switch to Guide",
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
-                if (canToggleViewMode) {
-                    IconButton(onClick = onToggleViewMode) {
-                        Icon(
-                            imageVector = if (viewMode == LiveTVViewMode.Guide)
-                                Icons.Filled.ViewList else Icons.Filled.CalendarMonth,
-                            contentDescription = if (viewMode == LiveTVViewMode.Guide) "Switch to List" else "Switch to Guide",
-                            tint = MaterialTheme.colorScheme.primary,
+            }
+            // Group filter chips fill the remainder of the row.
+            if (groups.size > 1) {
+                Spacer(Modifier.width(if (isTv) 12.dp else 6.dp))
+                LazyRow(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(end = if (isTv) 24.dp else 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    items(groups, key = { it }) { group ->
+                        FilterChip(
+                            selected = state.selectedGroup == group,
+                            onClick = { viewModel.onGroupSelected(group) },
+                            label = {
+                                Text(
+                                    group,
+                                    // labelLarge is the FilterChip default, so phone
+                                    // is unchanged; TV bumps to a 10-foot size.
+                                    style = if (isTv) MaterialTheme.typography.titleMedium
+                                    else MaterialTheme.typography.labelLarge,
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
                         )
                     }
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                titleContentColor = MaterialTheme.colorScheme.onBackground,
-            ),
-        )
-
-        // Group filter chips - same UX as the List view so toggling between
-        // modes keeps the user's filter context.
-        if (groups.size > 1) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(if (isTv) 76.dp else 56.dp),
-                contentPadding = PaddingValues(
-                    horizontal = if (isTv) 48.dp else 16.dp,
-                    vertical = 8.dp,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp),
-            ) {
-                items(groups, key = { it }) { group ->
-                    FilterChip(
-                        selected = state.selectedGroup == group,
-                        onClick = { viewModel.onGroupSelected(group) },
-                        label = {
-                            Text(
-                                group,
-                                // labelLarge is the FilterChip default, so phone
-                                // is unchanged; TV bumps to a 10-foot size.
-                                style = if (isTv) MaterialTheme.typography.titleMedium
-                                else MaterialTheme.typography.labelLarge,
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    )
                 }
             }
         }
