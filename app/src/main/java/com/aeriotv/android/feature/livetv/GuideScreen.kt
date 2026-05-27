@@ -166,7 +166,7 @@ fun GuideScreen(
         screenWidthDp < 600 -> 118.dp
         else -> GuideMetrics.RAIL_WIDTH
     }
-    val rowHeight = if (isTv) 64.dp else GuideMetrics.ROW_HEIGHT
+    val rowHeight = if (isTv) 56.dp else GuideMetrics.ROW_HEIGHT
     val headerHeight = if (isTv) 40.dp else GuideMetrics.HEADER_HEIGHT
 
     var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
@@ -246,7 +246,12 @@ fun GuideScreen(
         }
     }
 
-    val timeFormatter = remember { SimpleDateFormat("h a", Locale.getDefault()).apply { timeZone = TimeZone.getDefault() } }
+    // Half-hour labels on the 10-foot guide (tvOS parity: 7:00 / 7:30 / 8:00);
+    // hourly on phone where the axis is narrower.
+    val timeFormatter = remember(isTv) {
+        SimpleDateFormat(if (isTv) "h:mm a" else "h a", Locale.getDefault())
+            .apply { timeZone = TimeZone.getDefault() }
+    }
 
     // Horizontal scroll state shared across the time-header row + every channel
     // row so they pan together.
@@ -381,16 +386,22 @@ fun GuideScreen(
                     .background(MaterialTheme.colorScheme.background),
             ) {
                 val hourCount = (windowDurationMs / 3_600_000L).toInt()
+                // TV shows half-hour columns (tvOS parity); phone stays hourly.
+                // Total width is unchanged (slotWidth * slotCount == hour total),
+                // so programme-cell alignment via msToDp is unaffected.
+                val slotMs = if (isTv) 1_800_000L else 3_600_000L
+                val slotWidth = if (isTv) scaledHourWidth / 2 else scaledHourWidth
+                val slotCount = (windowDurationMs / slotMs).toInt()
                 Row(
                     modifier = Modifier
                         .width(scaledHourWidth * hourCount)
                         .height(headerHeight),
                 ) {
-                    for (i in 0 until hourCount) {
-                        val slotStart = windowStart + i * 3_600_000L
+                    for (i in 0 until slotCount) {
+                        val slotStart = windowStart + i * slotMs
                         Box(
                             modifier = Modifier
-                                .width(scaledHourWidth)
+                                .width(slotWidth)
                                 .fillMaxHeight(),
                             contentAlignment = Alignment.CenterStart,
                         ) {
