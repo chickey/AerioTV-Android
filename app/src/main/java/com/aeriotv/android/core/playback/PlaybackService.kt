@@ -8,13 +8,21 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.aeriotv.android.MainActivity
 import com.aeriotv.android.R
+import com.aeriotv.android.core.network.PlaylistFetcher
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service that keeps the held MPV instance alive after the user
@@ -25,13 +33,16 @@ import javax.inject.Inject
  * for the DVR recording service — same type fits this use case.
  *
  * Notification surfaces a play/pause action that toggles MPV pause via the
- * [MPVPlayerHolder] singleton. The notification also routes tap → MainActivity
- * so the user can return to the fullscreen player.
+ * [MPVPlayerHolder] singleton, shows the channel logo as the large icon, and
+ * routes tap → MainActivity (SINGLE_TOP, so it resumes the running stream).
  */
 @AndroidEntryPoint
 class PlaybackService : Service() {
 
     @Inject lateinit var holder: MPVPlayerHolder
+    @Inject lateinit var fetcher: PlaylistFetcher
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -40,8 +51,24 @@ class PlaybackService : Service() {
             ACTION_START -> {
                 val title = intent.getStringExtra(EXTRA_TITLE) ?: "AerioTV"
                 val subtitle = intent.getStringExtra(EXTRA_SUBTITLE).orEmpty()
+                val logoUrl = intent.getStringExtra(EXTRA_LOGO)
                 ensureChannel()
-                startForegroundCompat(buildNotification(title, subtitle))
+                // Show immediately (with the app icon) to satisfy the
+                // startForeground deadline, then swap in the channel logo once
+                // it's fetched. A failed / absent logo just keeps the app icon.
+                startForegroundCompat(buildNotification(title, subtitle, null))
+                if (!logoUrl.isNullOrBlank()) {
+                    scope.launch {
+                        val bmp = runCatching {
+                            val bytes = fetcher.fetchBytes(logoUrl)
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        }.getOrNull()
+                        if (bmp != null) {
+                            getSystemService(NotificationManager::class.java)
+                                .notify(NOTIF_ID, buildNotification(title, subtitle, bmp))
+                        }
+                    }
+                }
             }
             ACTION_TOGGLE_PAUSE -> {
                 val nowPaused = holder.isPaused()
@@ -67,6 +94,11 @@ class PlaybackService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     private fun startForegroundCompat(notification: Notification) {
@@ -106,7 +138,7 @@ class PlaybackService : Service() {
         mgr.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(title: String, subtitle: String): Notification {
+    private fun buildNotification(title: String, subtitle: String, largeIcon: Bitmap?): Notification {
         val openIntent = Intent(this, MainActivity::class.java).apply {
             // SINGLE_TOP (not CLEAR_TOP) so tapping the notification RESUMES the
             // existing activity via onNewIntent -- the player + its stream are
@@ -130,7 +162,7 @@ class PlaybackService : Service() {
             Intent(this, PlaybackService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle(title)
             .setContentText(subtitle.ifBlank { "Playing in background" })
@@ -142,7 +174,8 @@ class PlaybackService : Service() {
             .setContentIntent(openPi)
             .addAction(android.R.drawable.ic_media_pause, "Pause / Resume", pauseToggle)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stop)
-            .build()
+        if (largeIcon != null) builder.setLargeIcon(largeIcon)
+        return builder.build()
     }
 
     companion object {
@@ -151,14 +184,16 @@ class PlaybackService : Service() {
         const val ACTION_STOP = "com.aeriotv.android.PLAYBACK_STOP"
         const val EXTRA_TITLE = "title"
         const val EXTRA_SUBTITLE = "subtitle"
+        const val EXTRA_LOGO = "logo"
         private const val CHANNEL_ID = "aeriotv_background_playback"
         private const val NOTIF_ID = 0xAF
 
-        fun startBackground(context: Context, title: String, subtitle: String) {
+        fun startBackground(context: Context, title: String, subtitle: String, logoUrl: String? = null) {
             val intent = Intent(context, PlaybackService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_SUBTITLE, subtitle)
+                .putExtra(EXTRA_LOGO, logoUrl)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

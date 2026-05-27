@@ -141,6 +141,7 @@ fun PlayerScreen(
                 context = context,
                 title = ch.name,
                 subtitle = nowProgramme?.title.orEmpty(),
+                logoUrl = ch.tvgLogo.takeIf { it.isNotBlank() },
             )
         }
         onClose()
@@ -166,6 +167,7 @@ fun PlayerScreen(
     DisposableEffect(audioOnly, currentChannel?.id, nowProgramme?.title) {
         PipState.nowPlayingTitle = currentChannel?.name ?: "AerioTV"
         PipState.nowPlayingSubtitle = nowProgramme?.title.orEmpty()
+        PipState.nowPlayingLogo = currentChannel?.tvgLogo?.takeIf { it.isNotBlank() }
         PipState.videoPlaybackActive.value = !audioOnly
         PipState.audioPlaybackActive.value = audioOnly
         onDispose {

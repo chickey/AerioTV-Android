@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
                     this,
                     PipState.nowPlayingTitle,
                     PipState.nowPlayingSubtitle,
+                    PipState.nowPlayingLogo,
                 )
             }
             // Video on API < 31 has no setAutoEnterEnabled, so trigger PiP here.

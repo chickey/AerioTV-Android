@@ -42,6 +42,9 @@ object PipState {
     /** Now-playing labels for the background notification used on audio-only leave. */
     @Volatile var nowPlayingTitle: String = "AerioTV"
     @Volatile var nowPlayingSubtitle: String = ""
+
+    /** Now-playing channel logo URL, shown as the notification's large icon. */
+    @Volatile var nowPlayingLogo: String? = null
 }
 
 /** Walk a Compose context chain to the host Activity. */
