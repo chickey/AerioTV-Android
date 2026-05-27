@@ -40,4 +40,17 @@ data class WatchProgressEntity(
     val durationMs: Long,
     val updatedAt: Long,
     val playlistId: String? = null,
+    // v1.7.3 parity (iOS Issue #19): episode metadata + an up-next queue so
+    // Continue Watching surfaces in-progress episodes (with series art) and
+    // advances to the next episode when one finishes. All DB-local: these are
+    // deliberately NOT part of the Drive sync snapshot (the queue + stream URLs
+    // are device-derived / can carry credentials), matching iOS where they ride
+    // alongside the iCloud-synced fields without being synced.
+    val vodType: String = "movie",   // "movie" or "episode"
+    val seriesId: String? = null,    // parent series id for episode rows
+    val seasonNumber: Int = 0,
+    val episodeNumber: Int = 0,
+    val streamUrl: String? = null,   // resolved stream for seeded next-episode rows
+    val isFinished: Boolean = false,
+    val upNextQueue: String? = null, // JSON [UpNextEntry]
 )

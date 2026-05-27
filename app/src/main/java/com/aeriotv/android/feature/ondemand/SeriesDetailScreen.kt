@@ -62,6 +62,7 @@ import coil3.compose.AsyncImage
 import com.aeriotv.android.core.network.DispatcharrVODEpisode
 import com.aeriotv.android.core.network.DispatcharrVODProviderInfo
 import com.aeriotv.android.core.network.DispatcharrVODSeries
+import com.aeriotv.android.feature.watchprogress.UpNextEntry
 import com.aeriotv.android.feature.watchprogress.WatchProgressViewModel
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -119,17 +120,50 @@ fun SeriesDetailScreen(
             ?: emptyList()
     }
 
-    // Continue Watching pick: most-recently-updated episode that (a) belongs
-    // to this series and (b) isn't within 5 min of the end. Same heuristic
-    // iOS VODDetailView applies (architecture spec section D).
+    // Continue Watching pick: the most-recently-touched unfinished episode of
+    // this series. iOS Issue #19 parity: this includes the next episode that
+    // the up-next queue seeds (positionMs 0, not finished) after you finish one,
+    // so the series surfaces "what's next" instead of dropping off.
     val continueWatchingEpisode = remember(recent, episodes) {
         val episodeIds = episodes.asSequence().map { it.uuid }.toSet()
         val pick = recent.firstOrNull { row ->
-            row.videoId in episodeIds &&
-                row.positionMs > 0L &&
-                (row.durationMs <= 0L || row.positionMs < row.durationMs - 5 * 60 * 1000L)
+            row.videoId in episodeIds && !row.isFinished
         }
         pick?.let { row -> episodes.firstOrNull { it.uuid == row.videoId }?.to(row) }
+    }
+
+    // Capture episode metadata + an up-next queue (rest of the series, ordered
+    // by season then episode, capped at 50) before launching the player, so
+    // finishing this episode advances Continue Watching to the next one
+    // (iOS Issue #19). Resume position is preserved by captureEpisodePlay.
+    val playEpisode: (DispatcharrVODEpisode) -> Unit = { ep ->
+        val ordered = episodes.sortedWith(
+            compareBy({ it.seasonNumber ?: 0 }, { it.episodeNumber ?: Int.MAX_VALUE }),
+        )
+        val idx = ordered.indexOfFirst { it.uuid == ep.uuid }
+        val queue = if (idx >= 0) {
+            ordered.drop(idx + 1).take(50).map {
+                UpNextEntry(
+                    vodId = it.uuid,
+                    title = it.displayName,
+                    posterUrl = it.stillImageUrl,
+                    streamUrl = null, // re-resolved by uuid at play time
+                    seasonNumber = it.seasonNumber ?: 0,
+                    episodeNumber = it.episodeNumber ?: 0,
+                )
+            }
+        } else emptyList()
+        watchVm.captureEpisodePlay(
+            videoId = ep.uuid,
+            title = ep.displayName,
+            posterUrl = ep.stillImageUrl,
+            seriesId = seriesId.toString(),
+            seasonNumber = ep.seasonNumber ?: 0,
+            episodeNumber = ep.episodeNumber ?: 0,
+            streamUrl = null,
+            upNextQueue = WatchProgressViewModel.encodeQueue(queue),
+        )
+        onEpisodeClick(ep)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -171,7 +205,7 @@ fun SeriesDetailScreen(
                             episode = episode,
                             positionMs = progress.positionMs,
                             durationMs = progress.durationMs,
-                            onResume = { onEpisodeClick(episode) },
+                            onResume = { playEpisode(episode) },
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                         Spacer(Modifier.height(12.dp))
@@ -217,7 +251,7 @@ fun SeriesDetailScreen(
                     items(items = episodesInSeason, key = { it.id }) { ep ->
                         EpisodeRow(
                             episode = ep,
-                            onClick = { onEpisodeClick(ep) },
+                            onClick = { playEpisode(ep) },
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         )
                     }

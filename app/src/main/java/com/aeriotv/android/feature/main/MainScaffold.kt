@@ -73,6 +73,7 @@ fun MainScaffold(
     onChannelClick: (M3UChannel) -> Unit,
     onMovieClick: (String) -> Unit = {},
     onSeriesClick: (Int) -> Unit = {},
+    onEpisodeResume: (String) -> Unit = {},
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -157,6 +158,7 @@ fun MainScaffold(
                 onChannelClick = onChannelClick,
                 onMovieClick = onMovieClick,
                 onSeriesClick = onSeriesClick,
+                onEpisodeResume = onEpisodeResume,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -234,6 +236,7 @@ fun MainScaffold(
             onChannelClick = onChannelClick,
             onMovieClick = onMovieClick,
             onSeriesClick = onSeriesClick,
+            onEpisodeResume = onEpisodeResume,
             modifier = Modifier.padding(padding),
         )
     }
@@ -250,6 +253,7 @@ private fun MainTabContent(
     onChannelClick: (M3UChannel) -> Unit,
     onMovieClick: (String) -> Unit,
     onSeriesClick: (Int) -> Unit,
+    onEpisodeResume: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
@@ -260,6 +264,7 @@ private fun MainTabContent(
             AppTab.OnDemand -> OnDemandTabContent(
                 onMovieClick = { movie -> onMovieClick(movie.uuid) },
                 onSeriesClick = { series -> onSeriesClick(series.id) },
+                onEpisodeResume = onEpisodeResume,
             )
             AppTab.Settings -> SettingsTabContent()
         }

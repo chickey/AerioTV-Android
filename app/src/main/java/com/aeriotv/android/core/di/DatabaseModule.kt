@@ -34,6 +34,23 @@ object DatabaseModule {
         }
     }
 
+    /**
+     * v11 -> v12: add episode metadata + the up-next queue to `watch_progress`
+     * (iOS Issue #19 parity). Clean ALTERs so existing resume positions survive.
+     * Defaults keep pre-v12 rows behaving as movies with no queue.
+     */
+    private val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE watch_progress ADD COLUMN vodType TEXT NOT NULL DEFAULT 'movie'")
+            db.execSQL("ALTER TABLE watch_progress ADD COLUMN seriesId TEXT")
+            db.execSQL("ALTER TABLE watch_progress ADD COLUMN seasonNumber INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE watch_progress ADD COLUMN episodeNumber INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE watch_progress ADD COLUMN streamUrl TEXT")
+            db.execSQL("ALTER TABLE watch_progress ADD COLUMN isFinished INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE watch_progress ADD COLUMN upNextQueue TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AerioDatabase =
@@ -41,7 +58,7 @@ object DatabaseModule {
             // Preserve user data across known schema bumps where a clean ALTER
             // exists; fall back to a destructive rebuild only for un-mapped
             // version jumps (older dev builds).
-            .addMigrations(MIGRATION_10_11)
+            .addMigrations(MIGRATION_10_11, MIGRATION_11_12)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 

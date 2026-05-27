@@ -356,6 +356,9 @@ fun AerioTVNavHost(
                     onSeriesClick = { seriesId ->
                         navController.navigate(Routes.seriesDetail(seriesId))
                     },
+                    onEpisodeResume = { videoId ->
+                        navController.navigate(Routes.vodEpisodePlayer(videoId))
+                    },
                 )
             }
 

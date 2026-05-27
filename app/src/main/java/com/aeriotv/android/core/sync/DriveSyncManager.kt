@@ -322,11 +322,23 @@ class DriveSyncManager @Inject constructor(
         snapshot.entries.forEach { remote ->
             val local = watchProgressDao.getOnce(remote.videoId)
             if (local == null || remote.updatedAt > local.updatedAt) {
+                // The snapshot only carries the synced position fields, so MERGE
+                // onto any existing local row to preserve its local-only episode
+                // metadata (vodType, seriesId, season/episode, streamUrl,
+                // isFinished, upNextQueue) and playlistId. Matches iOS, where the
+                // iCloud merge only overwrites the synced fields (Issue #19).
+                val base = local ?: WatchProgressEntity(
+                    videoId = remote.videoId,
+                    title = remote.title,
+                    posterUrl = remote.posterUrl,
+                    positionMs = remote.positionMs,
+                    durationMs = remote.durationMs,
+                    updatedAt = remote.updatedAt,
+                )
                 watchProgressDao.upsert(
-                    WatchProgressEntity(
-                        videoId = remote.videoId,
+                    base.copy(
                         title = remote.title,
-                        posterUrl = remote.posterUrl,
+                        posterUrl = remote.posterUrl ?: base.posterUrl,
                         positionMs = remote.positionMs,
                         durationMs = remote.durationMs,
                         updatedAt = remote.updatedAt,

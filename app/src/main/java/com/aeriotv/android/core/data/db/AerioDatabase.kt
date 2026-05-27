@@ -21,7 +21,7 @@ import com.aeriotv.android.core.data.db.entity.WatchProgressEntity
         FavoriteChannelEntity::class,
         ReminderEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class AerioDatabase : RoomDatabase() {

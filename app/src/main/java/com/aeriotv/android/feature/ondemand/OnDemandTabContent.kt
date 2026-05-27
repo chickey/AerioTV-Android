@@ -74,6 +74,7 @@ fun OnDemandTabContent(
     modifier: Modifier = Modifier,
     onMovieClick: (DispatcharrVODMovie) -> Unit = {},
     onSeriesClick: (DispatcharrVODSeries) -> Unit = {},
+    onEpisodeResume: (String) -> Unit = {},
     viewModel: OnDemandViewModel = hiltViewModel(),
 ) {
     var section by rememberSaveable { mutableStateOf(OnDemandSection.Movies) }
@@ -111,6 +112,7 @@ fun OnDemandTabContent(
             OnDemandSection.Series -> SeriesSubScreen(
                 viewModel = viewModel,
                 onSeriesClick = onSeriesClick,
+                onEpisodeResume = onEpisodeResume,
             )
         }
     }
@@ -312,8 +314,19 @@ private fun MoviesSubScreen(
 private fun SeriesSubScreen(
     viewModel: OnDemandViewModel,
     onSeriesClick: (DispatcharrVODSeries) -> Unit,
+    onEpisodeResume: (String) -> Unit = {},
+    watchVm: WatchProgressViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val recentProgress by watchVm.observeRecent(20)
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val seriesById = remember(state.series) { state.series.associateBy { it.id } }
+    // Continue Watching for series = unfinished episode rows. Includes the next
+    // episode the up-next queue seeded (positionMs 0) after finishing one, so a
+    // binge keeps surfacing the next episode (iOS Issue #19).
+    val continueWatchingEpisodes = remember(recentProgress) {
+        recentProgress.filter { it.vodType == "episode" && !it.isFinished }.take(8)
+    }
 
     if (state.unsupportedSource) {
         EmptyState(
@@ -349,6 +362,14 @@ private fun SeriesSubScreen(
                 imeAction = androidx.compose.ui.text.input.ImeAction.Search,
             ),
         )
+
+        if (continueWatchingEpisodes.isNotEmpty() && state.seriesSearchQuery.isBlank()) {
+            SeriesContinueWatchingRail(
+                items = continueWatchingEpisodes,
+                seriesById = seriesById,
+                onItemClick = { row -> onEpisodeResume(row.videoId) },
+            )
+        }
 
         val countLabel = state.seriesTotalCount.takeIf { it > 0 }?.let { total ->
             "${state.series.size} / $total"
@@ -562,6 +583,122 @@ private fun ContinueWatchingCard(
                 text = "$remainingMin min left",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Continue Watching rail for series episodes. iOS Issue #19 + 16e3b83 parity:
+ * each card shows the parent SERIES poster + name with an "S1:E4 - Title"
+ * subtitle (resolved from the series cache by seriesId), instead of the
+ * episode's own still. Tapping resumes the episode directly.
+ */
+@Composable
+private fun SeriesContinueWatchingRail(
+    items: List<WatchProgressEntity>,
+    seriesById: Map<Int, DispatcharrVODSeries>,
+    onItemClick: (WatchProgressEntity) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Text(
+            text = "Continue Watching",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(items = items, key = { it.videoId }) { row ->
+                val series = row.seriesId?.toIntOrNull()?.let { seriesById[it] }
+                SeriesContinueWatchingCard(
+                    row = row,
+                    seriesPoster = series?.posterUrl ?: row.posterUrl,
+                    seriesName = series?.displayName ?: row.title,
+                    onClick = { onItemClick(row) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesContinueWatchingCard(
+    row: WatchProgressEntity,
+    seriesPoster: String?,
+    seriesName: String,
+    onClick: () -> Unit,
+) {
+    val progress = if (row.durationMs > 0L) {
+        (row.positionMs.toFloat() / row.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+    val tag = listOfNotNull(
+        row.seasonNumber.takeIf { it > 0 }?.let { "S$it" },
+        row.episodeNumber.takeIf { it > 0 }?.let { "E$it" },
+    ).joinToString(":")
+    val subtitle = listOf(tag, row.title).filter { it.isNotBlank() }.joinToString(" · ")
+    Column(
+        modifier = Modifier
+            .width(140.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            if (!seriesPoster.isNullOrBlank()) {
+                AsyncImage(
+                    model = seriesPoster,
+                    contentDescription = seriesName,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.PlayCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+            if (progress > 0f) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    drawStopIndicator = {},
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = seriesName.ifBlank { "Untitled" },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+        if (subtitle.isNotBlank()) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 2.dp),
             )
         }
