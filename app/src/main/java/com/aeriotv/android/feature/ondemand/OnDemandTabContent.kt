@@ -1,6 +1,7 @@
 package com.aeriotv.android.feature.ondemand
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,6 +58,7 @@ import coil3.compose.AsyncImage
 import com.aeriotv.android.core.data.db.entity.WatchProgressEntity
 import com.aeriotv.android.core.network.DispatcharrVODMovie
 import com.aeriotv.android.core.network.DispatcharrVODSeries
+import com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor
 import com.aeriotv.android.feature.settings.SettingsViewModel
 import com.aeriotv.android.feature.watchprogress.WatchProgressViewModel
 import com.aeriotv.android.ui.scale.WithDisplayScale
@@ -187,6 +190,7 @@ private fun MoviesSubScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val recentProgress by watchVm.observeRecent(20).collectAsStateWithLifecycle(initialValue = emptyList())
+    val isTv = rememberLiveTvFormFactor().isTv
 
     if (state.unsupportedSource) {
         EmptyState(
@@ -286,23 +290,24 @@ private fun MoviesSubScreen(
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 120.dp),
+            // Larger posters + overscan-safe padding on the 10-foot TV; phone
+            // keeps the compact grid whose 104dp bottom clears the bottom
+            // NavigationBar (TV has top tabs, so it needs far less bottom inset).
+            columns = GridCells.Adaptive(minSize = if (isTv) 160.dp else 120.dp),
             modifier = Modifier.fillMaxSize(),
-            // 104dp bottom clears the MainScaffold NavigationBar so the
-            // final row of movie posters isn't half-buried behind the
-            // tab bar.
             contentPadding = PaddingValues(
-                start = 12.dp,
-                end = 12.dp,
-                top = 8.dp,
-                bottom = 104.dp,
+                start = if (isTv) 48.dp else 12.dp,
+                end = if (isTv) 48.dp else 12.dp,
+                top = if (isTv) 16.dp else 8.dp,
+                bottom = if (isTv) 32.dp else 104.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 12.dp),
         ) {
             items(items = state.visible, key = { it.id }) { movie ->
                 MoviePoster(
                     movie = movie,
+                    isTv = isTv,
                     onClick = { onMovieClick(movie) },
                 )
             }
@@ -320,6 +325,7 @@ private fun SeriesSubScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val recentProgress by watchVm.observeRecent(20)
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val isTv = rememberLiveTvFormFactor().isTv
     val seriesById = remember(state.series) { state.series.associateBy { it.id } }
     // Continue Watching for series = unfinished episode rows. Includes the next
     // episode the up-next queue seeded (positionMs 0) after finishing one, so a
@@ -412,21 +418,22 @@ private fun SeriesSubScreen(
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 120.dp),
+            // Series tab matches the Movies tab's TV / phone grid metrics.
+            columns = GridCells.Adaptive(minSize = if (isTv) 160.dp else 120.dp),
             modifier = Modifier.fillMaxSize(),
-            // Series tab matches Movies tab nav-bar inset.
             contentPadding = PaddingValues(
-                start = 12.dp,
-                end = 12.dp,
-                top = 8.dp,
-                bottom = 104.dp,
+                start = if (isTv) 48.dp else 12.dp,
+                end = if (isTv) 48.dp else 12.dp,
+                top = if (isTv) 16.dp else 8.dp,
+                bottom = if (isTv) 32.dp else 104.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 12.dp),
         ) {
             items(items = state.visibleSeries, key = { it.id }) { series ->
                 SeriesPoster(
                     series = series,
+                    isTv = isTv,
                     onClick = { onSeriesClick(series) },
                 )
             }
@@ -437,11 +444,14 @@ private fun SeriesSubScreen(
 @Composable
 private fun SeriesPoster(
     series: DispatcharrVODSeries,
+    isTv: Boolean = false,
     onClick: () -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
     ) {
@@ -450,7 +460,18 @@ private fun SeriesPoster(
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+                .then(
+                    // D-pad focus ring so the highlighted poster is obvious at
+                    // 10 feet. No-op on touch (phone posters never gain focus).
+                    if (isTv && focused)
+                        Modifier.border(
+                            3.dp,
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(10.dp),
+                        )
+                    else Modifier,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             val poster = series.posterUrl
@@ -708,11 +729,14 @@ private fun SeriesContinueWatchingCard(
 @Composable
 private fun MoviePoster(
     movie: DispatcharrVODMovie,
+    isTv: Boolean = false,
     onClick: () -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
     ) {
@@ -721,7 +745,18 @@ private fun MoviePoster(
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+                .then(
+                    // D-pad focus ring so the highlighted poster is obvious at
+                    // 10 feet. No-op on touch (phone posters never gain focus).
+                    if (isTv && focused)
+                        Modifier.border(
+                            3.dp,
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(10.dp),
+                        )
+                    else Modifier,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             val poster = movie.posterUrl
