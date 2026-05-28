@@ -86,6 +86,24 @@ class MPVPlayerView @JvmOverloads constructor(
         // we just stop spending cycles on success chatter.
         m.setOptionString("msg-level", "all=warn")
 
+        // Persistent-view architecture (Phase 165 onwards) keeps the
+        // libmpv core alive across composable lifecycles. mpv's default
+        // is idle=no, which makes the player core shut itself down when
+        // a file ends -- and a 4K HEVC live stream that falls back to
+        // software decode WILL end, either via the server timing out
+        // the slow consumer or via mpv's own buffer-underrun -> end-file
+        // recovery. Once shutdown fires, the holder still owns a View
+        // pointer but loadfile becomes a no-op and the next channel tap
+        // shows a black screen (verified on Z Fold 5 with channel 38 SW
+        // decode running ~90s then end-file+shutdown, after which the
+        // ch40 tap fired `Channel switch on persistent view` but mpv
+        // never started a new file).
+        //
+        // idle=yes keeps the core alive after end-file so the next
+        // loadfile from the holder lands on a healthy player. The X-
+        // close button still tears mpv down via mpvHolder.destroy().
+        m.setOptionString("idle", "yes")
+
         m.setOptionString("subs-match-os-language", "yes")  // iOS 3107
         m.setOptionString("subs-fallback", "yes")           // iOS 3108
 
