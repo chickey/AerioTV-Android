@@ -97,6 +97,7 @@ fun DvrTabContent(
 
     var pendingDelete by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
     var pendingEdit by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
+    var pendingClearAll by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -121,30 +122,52 @@ fun DvrTabContent(
             return@Column
         }
 
-        LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            item {
-                FilterPill(
-                    label = "Scheduled (${state.scheduledCount})",
-                    selected = state.filter == DvrViewModel.Filter.Scheduled,
-                    onClick = { viewModel.setFilter(DvrViewModel.Filter.Scheduled) },
-                )
+            LazyRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    FilterPill(
+                        label = "Scheduled (${state.scheduledCount})",
+                        selected = state.filter == DvrViewModel.Filter.Scheduled,
+                        onClick = { viewModel.setFilter(DvrViewModel.Filter.Scheduled) },
+                    )
+                }
+                item {
+                    FilterPill(
+                        label = "Recording (${state.recordingCount})",
+                        selected = state.filter == DvrViewModel.Filter.Recording,
+                        onClick = { viewModel.setFilter(DvrViewModel.Filter.Recording) },
+                    )
+                }
+                item {
+                    FilterPill(
+                        label = "Completed (${state.completedCount})",
+                        selected = state.filter == DvrViewModel.Filter.Completed,
+                        onClick = { viewModel.setFilter(DvrViewModel.Filter.Completed) },
+                    )
+                }
             }
-            item {
-                FilterPill(
-                    label = "Recording (${state.recordingCount})",
-                    selected = state.filter == DvrViewModel.Filter.Recording,
-                    onClick = { viewModel.setFilter(DvrViewModel.Filter.Recording) },
-                )
-            }
-            item {
-                FilterPill(
-                    label = "Completed (${state.completedCount})",
-                    selected = state.filter == DvrViewModel.Filter.Completed,
-                    onClick = { viewModel.setFilter(DvrViewModel.Filter.Completed) },
-                )
+            // Audit task #50 (delete-all): only visible when the Completed
+            // filter is selected and there is at least one recording to
+            // delete. Confirms via AlertDialog before firing the bulk delete.
+            if (state.filter == DvrViewModel.Filter.Completed && state.completedCount > 0) {
+                TextButton(
+                    onClick = { pendingClearAll = true },
+                    modifier = Modifier.padding(start = 8.dp),
+                ) {
+                    Text(
+                        text = "Clear All",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
         }
 
@@ -340,6 +363,53 @@ fun DvrTabContent(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // Audit task #50 delete-all confirmation. Uses the running snapshot of
+    // state.completedCount so the count in the prompt reflects what would
+    // actually be deleted at the moment the user opens the dialog.
+    if (pendingClearAll) {
+        AlertDialog(
+            onDismissRequest = { pendingClearAll = false },
+            title = { Text("Clear all completed?") },
+            text = {
+                Text(
+                    "This removes all ${state.completedCount} completed " +
+                        "recordings. Server-side recordings are deleted on " +
+                        "your Dispatcharr server; local recordings have " +
+                        "their files removed from this device. This can't " +
+                        "be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingClearAll = false
+                    scope.launch {
+                        viewModel.deleteAllCompleted().fold(
+                            onSuccess = { n ->
+                                Toast.makeText(
+                                    context,
+                                    "Deleted $n recordings.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                            onFailure = { t ->
+                                Toast.makeText(
+                                    context,
+                                    "Clear All partially failed: ${t.message ?: t::class.simpleName}",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                        )
+                    }
+                }) {
+                    Text("Delete All", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClearAll = false }) { Text("Cancel") }
             },
         )
     }

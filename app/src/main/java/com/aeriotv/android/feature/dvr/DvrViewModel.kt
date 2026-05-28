@@ -150,6 +150,33 @@ class DvrViewModel @Inject constructor(
      * scheduled rows). Local rows delete the .ts file from getExternalFilesDir
      * AND drop the Room row so it disappears from the DVR tab immediately.
      */
+    /**
+     * Audit task #50 (delete-all sub-item): bulk-delete every Completed /
+     * Stopped / Failed recording currently visible. Loops through
+     * deleteRecording per row so server + local sources are each handled
+     * via their respective path (server: API delete + refresh; local: rm
+     * the .ts file + drop the row). Aggregates failures rather than
+     * short-circuiting, so a single server 401 doesn't strand a dozen
+     * local rows.
+     */
+    suspend fun deleteAllCompleted(): Result<Int> = runCatching {
+        // Snapshot the list -- as we delete, the state list flips out from
+        // under us; we want to preserve the original work order.
+        val targets = _state.value.recordings.filter {
+            it.status == Recording.Status.Completed ||
+                it.status == Recording.Status.Stopped ||
+                it.status == Recording.Status.Failed
+        }
+        var failures = 0
+        for (rec in targets) {
+            deleteRecording(rec).onFailure { failures++ }
+        }
+        if (failures > 0) {
+            throw IllegalStateException("Failed to delete $failures of ${targets.size}")
+        }
+        targets.size
+    }
+
     suspend fun deleteRecording(recording: Recording): Result<Unit> {
         return runCatching {
             when (recording.source) {
