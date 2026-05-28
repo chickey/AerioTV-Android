@@ -166,16 +166,33 @@ fun PlayerScreen(
         context.resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_TYPE_MASK
         ) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+    // Chrome auto-starts visible on phone (user can immediately reach
+    // controls + close) but hidden on TV (the user just pressed a
+    // channel and wants to watch -- 1st Back press surfaces chrome,
+    // tvOS-style). See BackHandler below for the three-press TV flow.
+    // Declared HERE (above BackHandler) so the BackHandler closure
+    // can read + mutate it.
+    var chromeVisible by remember { mutableStateOf(!isTvForm) }
     androidx.activity.compose.BackHandler {
         if (isTvForm) {
-            // Phase 165: persistent-SurfaceView mini path. Flip the root-
-            // level PersistentMpvWindow into Mini mode (210x118 top-right),
-            // promote the MiniPlayerSession to Active so
-            // TvMiniPlayerOverlay's hint chip renders. The SurfaceView
-            // never reparents -- only its size + position. No reload, no
-            // ANR, no fresh-handle race. The stream just keeps playing.
-            mpvWindowState.requestMini()
-            miniPlayerVm.showMiniPlayer()
+            // tvOS-style 3-press back flow (Archie spec 2026-05-28):
+            //   1st Back from fullscreen, chrome hidden  -> show chrome
+            //   2nd Back (chrome now visible)            -> exit to mini
+            //   3rd Back (mini Active, see TvMiniPlayerOverlay)  -> close mini
+            //
+            // Phase 165 persistent-SurfaceView mini path: flip the
+            // root-level PersistentMpvWindow into Mini mode (210x118
+            // top-right), promote MiniPlayerSession to Active so the
+            // hint chip renders. The SurfaceView never reparents -- only
+            // its size + position. No reload, no ANR, no fresh-handle
+            // race. The stream just keeps playing.
+            if (!chromeVisible) {
+                chromeVisible = true
+            } else {
+                mpvWindowState.requestMini()
+                miniPlayerVm.showMiniPlayer()
+                onClose()
+            }
         } else {
             miniPlayerVm.showMiniPlayer()
             currentChannel?.let { ch ->
@@ -188,12 +205,12 @@ fun PlayerScreen(
                     logoUrl = ch.tvgLogo.takeIf { it.isNotBlank() },
                 )
             }
+            onClose()
         }
-        onClose()
     }
 
     // Chrome + ad-hoc sub-modal state.
-    var chromeVisible by remember { mutableStateOf(true) }
+    // chromeVisible declared above (before the BackHandler).
     var audioOnly by remember { mutableStateOf(false) }
     var recordTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
     var streamInfo by remember { mutableStateOf<StreamInfoSnapshot?>(null) }

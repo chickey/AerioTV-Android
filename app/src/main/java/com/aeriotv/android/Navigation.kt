@@ -693,14 +693,14 @@ fun AerioTVNavHost(
         val miniPlayerVm: MiniPlayerViewModel = androidx.hilt.navigation.compose.hiltViewModel()
         val miniState by miniPlayerVm.state.collectAsStateWithLifecycle()
         val miniContext = androidx.compose.ui.platform.LocalContext.current
-        val miniMpvHolder = remember {
-            dagger.hilt.android.EntryPointAccessors
-                .fromApplication(
-                    miniContext.applicationContext,
-                    MainScaffoldEntryPoint::class.java,
-                )
-                .mpvPlayerHolder()
+        val miniEntry = remember {
+            dagger.hilt.android.EntryPointAccessors.fromApplication(
+                miniContext.applicationContext,
+                MainScaffoldEntryPoint::class.java,
+            )
         }
+        val miniMpvHolder = remember { miniEntry.mpvPlayerHolder() }
+        val miniMpvWindowState = remember { miniEntry.mpvWindowState() }
         // The TV mini is a static card (channel logo + name + double-press
         // hint), not a video window - re-parenting the SurfaceView between
         // composables fights libmpv's render path. Audio continues via the
@@ -721,7 +721,10 @@ fun AerioTVNavHost(
                 // Match MainScaffold's phone-row dismiss: tear MPV down and
                 // stop the background audio service so the user gets a clean
                 // exit, not just a hidden mini-player still consuming RAM.
+                // Phase 165: also flip the PersistentMpvWindow back to
+                // Hidden mode so the SurfaceView collapses to size(0).
                 miniPlayerVm.dismiss()
+                miniMpvWindowState.hide()
                 miniMpvHolder.destroy()
                 PlaybackService.stop(miniContext)
             },

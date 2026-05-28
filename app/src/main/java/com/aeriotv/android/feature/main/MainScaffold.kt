@@ -604,6 +604,7 @@ internal fun visibleTabs(
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 interface MainScaffoldEntryPoint {
     fun mpvPlayerHolder(): MPVPlayerHolder
+    fun mpvWindowState(): com.aeriotv.android.feature.player.MpvWindowState
 }
 
 /** Two-step Add Playlist flow embedded in the Settings tab. None = closed. */

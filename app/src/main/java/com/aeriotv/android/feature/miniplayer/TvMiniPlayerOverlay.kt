@@ -1,6 +1,7 @@
 package com.aeriotv.android.feature.miniplayer
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.padding
@@ -42,6 +43,16 @@ fun BoxScope.TvMiniPlayerOverlay(
     val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
     if (!isTv) return
+
+    // tvOS-style 3-press back: this is the THIRD press handler.
+    // PlayerScreen owns Backs #1 (chrome show) + #2 (exit to mini).
+    // Now that we're on MAIN with mini Active, the user's next Back
+    // dismisses the mini cleanly: stop playback, destroy the held
+    // MPV, drop the foreground media session. After dismiss, the
+    // next Back falls through to the system (e.g. Streamer launcher).
+    BackHandler {
+        onDismiss()
+    }
 
     // Hint chip rendered directly below the persistent mini video's
     // bottom edge. No clickable / focusable surface -- resume is owned
