@@ -11,6 +11,7 @@ import coil3.disk.directory
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
 import com.aeriotv.android.core.debug.DebugLogger
+import com.aeriotv.android.core.debug.MemoryPressureBus
 import com.aeriotv.android.core.debug.ResourceTelemetry
 import com.aeriotv.android.core.network.DispatcharrWarmupCoordinator
 import com.aeriotv.android.core.preferences.AppPreferences
@@ -47,6 +48,7 @@ class AerioTVApplication : Application(), Configuration.Provider, SingletonImage
     @Inject lateinit var reminderBannerBus: ReminderBannerBus
     @Inject lateinit var resourceTelemetry: ResourceTelemetry
     @Inject lateinit var multiviewStore: MultiviewStore
+    @Inject lateinit var memoryPressureBus: MemoryPressureBus
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -130,5 +132,11 @@ class AerioTVApplication : Application(), Configuration.Provider, SingletonImage
         // audio tracks), so dropping non-focused tiles is the most effective
         // way to keep the process alive. No-op for softer trim levels.
         multiviewStore.onMemoryPressure(level)
+        // Audit task #58 (Phase 144): fan-out to any nav-scoped ViewModel
+        // that can drop large in-memory state (PlaylistViewModel's
+        // epgByChannel map; future: parsed playlists, large bitmap arenas).
+        // The bus's replay=1 means a ViewModel created after this fires
+        // still sees the most recent signal and can shed accordingly.
+        memoryPressureBus.emit(level)
     }
 }

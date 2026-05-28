@@ -9,6 +9,7 @@ import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
 import com.aeriotv.android.core.data.repository.ChannelProfileOption
 import com.aeriotv.android.core.data.repository.PlaylistRepository
+import com.aeriotv.android.core.debug.MemoryPressureBus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PlaylistViewModel @Inject constructor(
     private val repository: PlaylistRepository,
+    private val memoryPressureBus: MemoryPressureBus,
 ) : ViewModel() {
 
     enum class Phase { Bootstrapping, NeedsUrl, ChannelsReady }
@@ -99,6 +101,32 @@ class PlaylistViewModel @Inject constructor(
 
     init {
         bootstrap()
+        observeMemoryPressure()
+    }
+
+    /**
+     * Phase 144 audit task #58: when the system signals critical memory
+     * pressure, drop the in-memory `epgByChannel` map. The Room disk cache is
+     * untouched, so the next guide open re-paints from cache; the gain is
+     * tens of MB of parsed EPGProgramme objects + the groupBy result map
+     * that would otherwise wait until the next launch to be GC'd.
+     *
+     * The Streamer was running at 91% RAM + 100% swap in Phase 142
+     * diagnostics; even modest EPG shedding here keeps us out of the
+     * low-memory killer queue when other apps want to come up.
+     */
+    private fun observeMemoryPressure() {
+        viewModelScope.launch {
+            memoryPressureBus.level.collect { level ->
+                if (MemoryPressureBus.isCritical(level)) {
+                    val cleared = _state.value.epgByChannel.isNotEmpty()
+                    if (cleared) {
+                        Log.i(TAG, "onTrimMemory=$level: shedding in-memory EPG map")
+                        _state.update { it.copy(epgByChannel = emptyMap()) }
+                    }
+                }
+            }
+        }
     }
 
     private fun bootstrap() {

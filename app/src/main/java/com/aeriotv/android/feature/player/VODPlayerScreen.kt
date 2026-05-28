@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aeriotv.android.BuildConfig
 import com.aeriotv.android.core.pip.PipState
 import com.aeriotv.android.core.pip.enterPip16x9
 import com.aeriotv.android.core.pip.findActivity
@@ -204,7 +205,13 @@ fun VODPlayerScreen(
 
                 view.mpv.addLogObserver(object : MPV.LogObserver {
                     override fun logMessage(prefix: String, level: Int, text: String) {
-                        Log.i(TAG, "[mpv $prefix/L$level] ${text.trimEnd()}")
+                        // Phase 144: gate the per-mpv-message relay behind DEBUG.
+                        // mpv emits dozens of lines per second during playback;
+                        // Log.i is a syscall that wakes logd and serialises
+                        // through a single Binder channel, adding measurable
+                        // CPU to a passively-cooled TV. PlayerScreen already
+                        // gates the equivalent (Phase 141); VOD missed it.
+                        if (BuildConfig.DEBUG) Log.i(TAG, "[mpv $prefix/L$level] ${text.trimEnd()}")
                     }
                 })
                 view.mpv.addObserver(object : MPV.EventObserver {
