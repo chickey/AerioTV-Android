@@ -343,11 +343,22 @@ class PlaylistRepository @Inject constructor(
             SourceType.XtreamCodes -> {
                 // Xtream EPG is a standard XMLTV feed at xmltv.php. Reuse the
                 // XMLTV parser; programmes map to channels by tvg-id like M3U.
-                val user = playlist.username?.takeIf { it.isNotBlank() }
-                    ?: return@runCatching emptyList()
-                val b = base.trimEnd('/')
-                val xmltvUrl = "$b/xmltv.php?username=${xtreamEncode(user)}" +
-                    "&password=${xtreamEncode(playlist.password.orEmpty())}"
+                //
+                // Audit task #19: if the user has set a custom XMLTV URL on
+                // the playlist (Edit Playlist -> EPG URL field), prefer
+                // that. iOS parity: a separate XMLTV provider often supplies
+                // richer category/genre tags than the Xtream server's own
+                // xmltv.php, which the channel tinting + category list
+                // depend on. Fall back to xmltv.php only when no override
+                // is set.
+                val override = playlist.epgUrl?.takeIf { it.isNotBlank() }
+                val xmltvUrl = override ?: run {
+                    val user = playlist.username?.takeIf { it.isNotBlank() }
+                        ?: return@runCatching emptyList()
+                    val b = base.trimEnd('/')
+                    "$b/xmltv.php?username=${xtreamEncode(user)}" +
+                        "&password=${xtreamEncode(playlist.password.orEmpty())}"
+                }
                 XMLTVParser.parseBytes(fetcher.fetchBytes(xmltvUrl))
             }
         }

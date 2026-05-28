@@ -123,7 +123,17 @@ fun EditPlaylistScreen(
                             name = name,
                             url = url,
                             lanUrl = lanUrl,
-                            epgUrl = if (sourceType == SourceType.M3uUrl) epgUrl else null,
+                            // Persist EPG URL for both M3uUrl and XtreamCodes:
+                            // M3U uses it as the only EPG source; XtreamCodes
+                            // treats it as an OVERRIDE of the server's
+                            // xmltv.php (audit #19, for richer category tags
+                            // from third-party XMLTV providers). Dispatcharr
+                            // sources own their EPG via the API, so this
+                            // field doesn't apply there.
+                            epgUrl = when (sourceType) {
+                                SourceType.M3uUrl, SourceType.XtreamCodes -> epgUrl
+                                else -> null
+                            },
                             apiKey = when {
                                 sourceType == SourceType.DispatcharrApiKey -> apiKey
                                 sourceType == SourceType.DispatcharrUserPass &&
@@ -389,11 +399,16 @@ fun EditPlaylistScreen(
                 }
             }
 
-            if (sourceType == SourceType.M3uUrl) {
+            if (sourceType == SourceType.M3uUrl || sourceType == SourceType.XtreamCodes) {
                 item {
+                    val footerText = if (sourceType == SourceType.M3uUrl) {
+                        "Optional XMLTV URL. Leave empty if your M3U doesn't ship with a separate EPG."
+                    } else {
+                        "Optional override. When set, AerioTV pulls the guide from this XMLTV URL instead of the server's xmltv.php. Useful when an external provider supplies richer category tags."
+                    }
                     Section(
                         header = "EPG Source",
-                        footer = "Optional XMLTV URL. Leave empty if your M3U doesn't ship with a separate EPG.",
+                        footer = footerText,
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             OutlinedTextField(
