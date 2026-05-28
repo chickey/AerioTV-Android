@@ -8,6 +8,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -74,6 +75,33 @@ class DispatcharrClient @Inject constructor() {
         }
         install(ContentNegotiation) {
             json(json)
+        }
+        engine {
+            // Phase 131: Concurrency gate at the OkHttp dispatcher. Default
+            // OkHttp caps are maxRequests=64 / maxRequestsPerHost=5 - plenty
+            // for any single host. Dispatcharr deployments are commonly behind
+            // a reverse proxy on a Synology / Raspberry Pi / etc., which sheds
+            // connections under bursty parallel load (e.g. the category-
+            // enrichment fan-out + EPG grid fetch + channel list refresh + 50
+            // Coil logo requests all firing concurrently on a cold launch).
+            // That manifests as UI stutter (the "slow / stuttery / laggy"
+            // complaint) because each shed connection retries / times out and
+            // blocks the calling coroutine. Capping concurrency in one place
+            // here keeps every code path well-behaved without scattering
+            // Semaphore.withPermit{} across 20+ call sites.
+            config {
+                dispatcher(
+                    Dispatcher().apply {
+                        // Cap TOTAL concurrent requests at 4 (covers the rare
+                        // case where multiple hosts are in play - LAN + WAN +
+                        // logo CDN), and per-host at 2 so any single
+                        // Dispatcharr server gets at most two parallel
+                        // requests in flight.
+                        maxRequests = 4
+                        maxRequestsPerHost = 2
+                    },
+                )
+            }
         }
     }
 
