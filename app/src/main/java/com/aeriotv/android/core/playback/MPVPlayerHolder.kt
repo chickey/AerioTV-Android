@@ -133,6 +133,24 @@ class MPVPlayerHolder @Inject constructor() {
             .onFailure { Log.w(TAG, "setVideoEnabled $enabled failed", it) }
     }
 
+    /**
+     * Phase 172: stop playback without destroying the libmpv handle or
+     * the held SurfaceView. Used by the X-close button and the mini's
+     * 3rd-Back dismiss in the persistent-MPV architecture (Phase 165).
+     * After stop(), the next user channel tap calls playFile on the
+     * SAME view and starts decoding instantly -- no native init wait.
+     *
+     * mpv's "stop" command: "Stop playback and clear playlist." Releases
+     * the demuxer + decoders for the current file but keeps the player
+     * core and the vo binding alive. Idempotent.
+     */
+    fun stop() {
+        val v = view ?: return
+        currentChannelId = null
+        runCatching { v.mpv.command("stop") }
+            .onFailure { Log.w(TAG, "mpv stop failed", it) }
+    }
+
     /** Pause / resume playback without tearing anything down. */
     fun setPaused(paused: Boolean) {
         val v = view ?: return

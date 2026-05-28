@@ -718,14 +718,15 @@ fun AerioTVNavHost(
                 }
             },
             onDismiss = {
-                // Match MainScaffold's phone-row dismiss: tear MPV down and
-                // stop the background audio service so the user gets a clean
-                // exit, not just a hidden mini-player still consuming RAM.
-                // Phase 165: also flip the PersistentMpvWindow back to
-                // Hidden mode so the SurfaceView collapses to size(0).
+                // Phase 172: stop() instead of destroy() so the held
+                // SurfaceView (mounted at MainActivity root, owned by
+                // PersistentMpvWindow) survives. The next channel tap
+                // plays instantly on the existing handle. destroy()
+                // wiped holder.view=null and subsequent taps couldn't
+                // find a view to play on, leaving channels stuck.
                 miniPlayerVm.dismiss()
                 miniMpvWindowState.hide()
-                miniMpvHolder.destroy()
+                miniMpvHolder.stop()
                 PlaybackService.stop(miniContext)
             },
         )

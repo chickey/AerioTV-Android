@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -173,6 +174,10 @@ fun PlayerScreen(
     // Declared HERE (above BackHandler) so the BackHandler closure
     // can read + mutate it.
     var chromeVisible by remember { mutableStateOf(!isTvForm) }
+    // Last user interaction timestamp. Bumped on D-pad presses while
+    // chrome is visible so the auto-hide timer re-arms instead of firing
+    // mid-traversal. Phase 172.
+    var lastInteractionAt by remember { mutableStateOf(0L) }
     androidx.activity.compose.BackHandler {
         if (isTvForm) {
             // tvOS-style 3-press back flow (Archie spec 2026-05-28):
@@ -271,7 +276,20 @@ fun PlayerScreen(
     // mpvView is a derived view-into-the-holder so the chrome callbacks
     // (onShowStreamInfo / onShowSubtitles / etc.) keep working.
     val mpvView: MPVPlayerView? = mpvHolder.view
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // Phase 172: bump lastInteractionAt on every key event while
+            // chrome is visible so the auto-hide timer keeps re-arming.
+            // onPreviewKeyEvent returns false -> doesn't consume; the
+            // event still reaches the chrome buttons below.
+            .onPreviewKeyEvent {
+                if (chromeVisible) {
+                    lastInteractionAt = android.os.SystemClock.uptimeMillis()
+                }
+                false
+            },
+    ) {
 
         // Transparent tap-target above the video to toggle chrome. Vertical drag
         // on the same layer (while chrome is visible) flips to next/prev channel.
@@ -314,9 +332,17 @@ fun PlayerScreen(
             // session, destroy the held MPV instance, and stop the background
             // PlaybackService so the notification disappears. System back keeps
             // the session + service alive instead (handled by BackHandler above).
+            // Phase 172: stop() rather than destroy() so the persistent
+            // SurfaceView mounted at MainActivity root stays alive --
+            // the next channel tap plays instantly on the existing
+            // handle. destroy() set holder.view=null and the next
+            // LaunchedEffect(currentChannel.id) couldn't find a view to
+            // playFile on, leaving subsequent channels permanently
+            // stuck.
             onClose = {
                 miniPlayerVm.dismiss()
-                mpvHolder.destroy()
+                mpvWindowState.hide()
+                mpvHolder.stop()
                 PlaybackService.stop(context)
                 onClose()
             },
@@ -371,7 +397,12 @@ fun PlayerScreen(
         )
     }
 
-    LaunchedEffect(chromeVisible) {
+    // Auto-hide chrome after AUTO_HIDE_MS of inactivity. Phase 172:
+    // re-arms whenever the user interacts (lastInteractionAt advances),
+    // so D-pad navigation through the chrome buttons resets the timer
+    // instead of letting it fire mid-traversal. The key is
+    // lastInteractionAt -- changing that restarts the LaunchedEffect.
+    LaunchedEffect(chromeVisible, lastInteractionAt) {
         if (chromeVisible) {
             delay(AUTO_HIDE_MS)
             chromeVisible = false

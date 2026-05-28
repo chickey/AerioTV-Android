@@ -179,6 +179,20 @@ fun PlayerChromeOverlay(
                     onClick = onClose,
                     modifier = Modifier.focusRequester(closeFocus),
                 )
+                // Phase 172: pill rendered INLINE to the right of Close
+                // when chrome is visible (so it doesn't consume a
+                // separate vertical band of screen). The launch-hint
+                // path (chromeVisible == false but pillVisible == true)
+                // uses the separate AnimatedVisibility below, which
+                // stays at top-left over the bare video.
+                channel?.let { ch ->
+                    Spacer(Modifier.width(12.dp))
+                    InfoCard(
+                        channel = ch,
+                        programme = nowProgramme,
+                        sleepRemainingMillis = sleepRemainingMillis,
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 Box {
                     CircleIconButton(
@@ -304,27 +318,20 @@ fun PlayerChromeOverlay(
         }
     }
 
-    // Info pill (channel logo + name + programme) -- a SECOND
-    // AnimatedVisibility, gated on `pillVisible`. PlayerScreen sets
-    // pillVisible to true for a few seconds after the channel launches
-    // (a "what am I watching" hint) AND whenever chromeVisible is true
-    // (so it reads alongside the rest of the chrome on a back press).
-    //
-    // wrapContentSize + align(TopStart) so the pill OCCUPIES ONLY the
-    // top-left corner -- not the full screen. Without this the
-    // AnimatedVisibility's content Box was fillMaxSize, which both
-    // visually centered the InfoCard's intrinsic content (looking like
-    // it spanned the screen) AND drew over the chrome's top-right
-    // button row, intercepting focus searches that needed to reach the
-    // close / more / multiview buttons.
+    // Standalone launch-hint pill: only renders when the user just
+    // opened a channel (pillVisible == true) AND the full chrome is
+    // hidden (chromeVisible == false). When chrome is visible the pill
+    // is shown INLINE in the chrome row above (right of Close). This
+    // path covers the "what am I watching" hint that fades out after
+    // 4s on its own without surfacing the rest of the chrome.
     AnimatedVisibility(
-        visible = pillVisible && !inPip,
+        visible = pillVisible && !chromeVisible && !inPip,
         enter = fadeIn(),
         exit = fadeOut(),
         modifier = Modifier
             .align(Alignment.TopStart)
             .statusBarsPadding()
-            .padding(top = 84.dp, start = 16.dp),
+            .padding(top = 14.dp, start = 70.dp),
     ) {
         channel?.let {
             InfoCard(
