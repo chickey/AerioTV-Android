@@ -260,24 +260,35 @@ class MainActivity : ComponentActivity() {
                 ) {
                     NotificationPermissionGate()
                     SplashGate {
-                        // Phase 165: PersistentMpvWindow lives as a SIBLING
-                        // of NavHost inside an outer Box. The video
-                        // SurfaceView is mounted ONCE at this scope and
-                        // never changes parents -- only its modifier
-                        // (Hidden / Fullscreen / Mini) flips. PlayerScreen
-                        // and TvMiniPlayerOverlay update MpvWindowState
-                        // instead of owning their own AndroidView.
+                        // Phase 165/167: PersistentMpvWindow lives as a
+                        // SIBLING of NavHost inside an outer Box. The
+                        // video SurfaceView is mounted ONCE at this scope
+                        // and never changes parents -- only its modifier
+                        // (Hidden / Fullscreen / Mini) flips.
+                        //
+                        // ORDER MATTERS: PersistentMpvWindow is declared
+                        // FIRST so it draws at the BOTTOM of the Box's
+                        // z-stack. NavHost (containing PlayerScreen's
+                        // chrome overlay) is declared SECOND so its
+                        // children draw ON TOP, occluding the
+                        // PersistentMpvWindow's black backing wherever
+                        // chrome controls are visible. Without this
+                        // ordering, PersistentMpvWindow's
+                        // fillMaxSize+black background paints over the
+                        // chrome and the user only sees the SurfaceView
+                        // punch-through (video) -- chrome IS in state
+                        // but never reaches the pixels.
                         Box(modifier = Modifier.fillMaxSize()) {
+                            PersistentMpvWindow(
+                                mpvHolder = mpvHolder,
+                                state = mpvWindowState,
+                            )
                             AerioTVNavHost(
                                 initialUrl = initialUrl,
                                 initialEpgUrl = initialEpgUrl,
                                 initialApiKey = initialApiKey,
                                 deepLinkTarget = deepLinkTarget.value,
                                 onDeepLinkConsumed = { deepLinkTarget.value = null },
-                            )
-                            PersistentMpvWindow(
-                                mpvHolder = mpvHolder,
-                                state = mpvWindowState,
                             )
                         }
                     }
