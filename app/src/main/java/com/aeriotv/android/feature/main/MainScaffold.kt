@@ -178,10 +178,18 @@ fun MainScaffold(
     // tvOS TabView. Phone / tablet / fold keep the bottom nav below.
     val isTv = rememberLiveTvFormFactor().isTv
     if (isTv) {
+        // When the TV mini-player is active, shift the entire chrome (top
+        // tab bar + chips + guide rows) down so the mini-window in the
+        // top-right doesn't overlap anything (tvOS PlayerSession parity).
+        // The mini is ~118dp tall + 36dp top inset + 24dp hint+spacer = ~178dp;
+        // 184dp here gives a small breathing margin under the hint chip.
+        val miniActive = miniPlayerState is MiniPlayerSession.State.Active
+        val tvMiniTopShift = if (miniActive) 184.dp else 0.dp
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
+                .background(MaterialTheme.colorScheme.background)
+                .padding(top = tvMiniTopShift),
         ) {
             TvTopTabBar(
                 tabs = tabs,

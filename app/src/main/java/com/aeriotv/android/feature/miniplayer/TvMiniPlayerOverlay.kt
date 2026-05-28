@@ -3,7 +3,6 @@ package com.aeriotv.android.feature.miniplayer
 import android.content.res.Configuration
 import android.view.ViewGroup
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -72,16 +71,14 @@ fun BoxScope.TvMiniPlayerOverlay(
         horizontalAlignment = Alignment.End,
     ) {
         // ── Video window ──────────────────────────────────────────────
+        // ~25% smaller than the first cut (Archie feedback): 280x158 -> 210x118
+        // dp, 16:9. No cyan focus border - the chip-style hint underneath is
+        // enough affordance.
         Box(
             modifier = Modifier
-                .size(width = 280.dp, height = 158.dp)
+                .size(width = 210.dp, height = 118.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black)
-                .border(
-                    width = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(8.dp),
-                ),
+                .background(Color.Black),
         ) {
             AndroidView(
                 factory = { ctx ->

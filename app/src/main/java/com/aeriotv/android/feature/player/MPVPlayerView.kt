@@ -75,6 +75,17 @@ class MPVPlayerView @JvmOverloads constructor(
     override fun initOptions() {
         val m = mpv
 
+        // Thermal mitigation on passively-cooled Android TV hardware. Default
+        // mpv log-level emits dozens of "info" lines per second (vo resize,
+        // VIDEO_RECONFIG, track changes, libplacebo shader compiles), each of
+        // which goes through addLogObserver -> Log.i in PlayerScreen. On a
+        // long session this measurably warms the chip and the user reports
+        // sluggishness even after closing the app (thermal throttling lingers
+        // ~minutes after the workload ends on the Google TV Streamer). Cap
+        // at warn+error in debug + release; we still capture failure modes,
+        // we just stop spending cycles on success chatter.
+        m.setOptionString("msg-level", "all=warn")
+
         m.setOptionString("subs-match-os-language", "yes")  // iOS 3107
         m.setOptionString("subs-fallback", "yes")           // iOS 3108
 
