@@ -1,11 +1,13 @@
 package com.aeriotv.android.ui.theme
 
+import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 
 val LocalAppTheme = staticCompositionLocalOf { AppTheme.Aerio }
 
@@ -19,13 +21,18 @@ fun AerioTVTheme(
     // accent in Appearance, replace the preset's primary with their hex. Falls
     // back to the preset's own accent when [customAccent] is null.
     val effectivePrimary = customAccent ?: appTheme.accentPrimary
-    // Mirrors iOS Colors.swift textSecondary = accent.opacity(0.65). Every
-    // secondary copy (subtitles, card descriptions, info-banner body, hint
-    // text) renders cyan-tinted instead of plain white, which is what gives
-    // the iOS Welcome / Add Playlist / Configure screens their soft branded
-    // feel. Mapped through Material3 onSurfaceVariant so every call site
+    // Android TV needs a 10-foot type scale + slightly brighter dim text. iOS
+    // keeps a separate ~1.5x tvOS Typography and pushes secondary text opacity
+    // to 0.75 (vs 0.65 on phone) for legibility at distance (Colors.swift).
+    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
+    // Mirrors iOS Colors.swift textSecondary = accent.opacity(0.65 phone / 0.75
+    // tvOS). Every secondary copy (subtitles, card descriptions, info-banner
+    // body, hint text) renders cyan-tinted instead of plain white, which is what
+    // gives the iOS Welcome / Add Playlist / Configure screens their soft
+    // branded feel. Mapped through Material3 onSurfaceVariant so every call site
     // (`MaterialTheme.colorScheme.onSurfaceVariant`) picks it up.
-    val textSecondary = effectivePrimary.copy(alpha = 0.65f)
+    val textSecondary = effectivePrimary.copy(alpha = if (isTv) 0.75f else 0.65f)
     val colorScheme = darkColorScheme(
         primary = effectivePrimary,
         onPrimary = appTheme.appBackground,
@@ -44,7 +51,7 @@ fun AerioTVTheme(
     CompositionLocalProvider(LocalAppTheme provides appTheme) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = Typography,
+            typography = aerioTypography(isTv),
             content = content,
         )
     }
