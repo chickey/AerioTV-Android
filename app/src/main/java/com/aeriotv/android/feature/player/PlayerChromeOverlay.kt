@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -118,6 +119,20 @@ fun PlayerChromeOverlay(
     val inPip by PipState.inPictureInPicture
     val pipAvailable = remember { context.supportsPip() }
 
+    // Initial focus target when chrome appears -- Close button on the top
+    // row. Without this, the focus stays on PlayerScreen's tap-target
+    // Box (which has clickable from gesture handling), so D-pad presses
+    // don't traverse to the chrome buttons. Compose's `focusRequester`
+    // is fired by the LaunchedEffect below whenever chromeVisible flips
+    // to true.
+    val closeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(chromeVisible) {
+        if (chromeVisible) {
+            kotlinx.coroutines.delay(100)
+            runCatching { closeFocus.requestFocus() }
+        }
+    }
+
     // Phase 170: one outer Box at root so both AnimatedVisibilities live
     // in the same BoxScope (Modifier.align works) AND so neither one
     // intercepts focus / hit-testing from siblings. Each
@@ -162,6 +177,7 @@ fun PlayerChromeOverlay(
                     icon = Icons.Filled.Close,
                     contentDescription = "Close",
                     onClick = onClose,
+                    modifier = Modifier.focusRequester(closeFocus),
                 )
                 Spacer(Modifier.weight(1f))
                 Box {
@@ -337,9 +353,10 @@ private fun CircleIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(44.dp)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.55f)),
