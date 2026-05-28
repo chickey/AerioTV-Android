@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.ClosedCaption
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material3.DropdownMenu
@@ -101,6 +102,7 @@ fun PlayerChromeOverlay(
     onShowRecord: (ProgramInfoTarget) -> Unit,
     onShowStreamInfo: () -> Unit,
     onShowSubtitles: () -> Unit,
+    onShowAudioTracks: () -> Unit,
     onToggleAudioOnly: () -> Unit,
     audioOnly: Boolean,
     onSetSleepMinutes: (Int) -> Unit,
@@ -170,6 +172,10 @@ fun PlayerChromeOverlay(
                         onSubtitles = {
                             moreOpen = false
                             onShowSubtitles()
+                        },
+                        onAudioTracks = {
+                            moreOpen = false
+                            onShowAudioTracks()
                         },
                         onRecord = {
                             moreOpen = false
@@ -321,6 +327,7 @@ private fun PlayerMoreMenu(
     audioOnly: Boolean,
     sleepActive: Boolean,
     onSubtitles: () -> Unit,
+    onAudioTracks: () -> Unit,
     onRecord: () -> Unit,
     onSleepTimer: () -> Unit,
     onStreamInfo: () -> Unit,
@@ -346,6 +353,17 @@ private fun PlayerMoreMenu(
             },
             text = { Text("Subtitles") },
             onClick = onSubtitles,
+        )
+        DropdownMenuItem(
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            },
+            text = { Text("Audio Track") },
+            onClick = onAudioTracks,
         )
         if (canRecord) {
             DropdownMenuItem(
@@ -684,6 +702,64 @@ fun SubtitlesSheet(
     }
 }
 
+/**
+ * Sister sheet to [SubtitlesSheet] for picking the active audio track. Same
+ * RadioButton-row layout so it reads identically; difference is no "Off" row
+ * (every live stream needs an audio track to play sound; mute lives in the
+ * Audio Only / system volume affordance, not here).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AudioTracksSheet(
+    tracks: List<AudioTrack>,
+    currentTrackId: Int?,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+            Text(
+                text = "Audio Track",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(12.dp))
+            if (tracks.isEmpty()) {
+                Text(
+                    text = "No audio tracks reported by the stream.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            } else {
+                tracks.forEach { track ->
+                    val label = buildString {
+                        append(track.title.ifBlank { "Track ${track.id}" })
+                        val meta = buildList {
+                            if (track.lang.isNotBlank()) add(track.lang)
+                            if (track.codec.isNotBlank()) add(track.codec)
+                            if (track.channels.isNotBlank()) add(track.channels)
+                        }
+                        if (meta.isNotEmpty()) append("  ·  ${meta.joinToString("  ·  ")}")
+                    }
+                    SubtitleRow(
+                        label = label,
+                        selected = currentTrackId == track.id,
+                        onClick = { onSelect(track.id) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
 @Composable
 private fun SubtitleRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
@@ -739,6 +815,17 @@ data class SubtitleTrack(
     val id: Int,
     val title: String,
     val lang: String,
+)
+
+/** A selectable audio track surfaced from mpv `track-list` (type=audio). The
+ *  optional [codec] / [channels] labels surface helpful disambiguation when a
+ *  stream carries multiple audio renditions (e.g. AC3 5.1 vs AAC stereo). */
+data class AudioTrack(
+    val id: Int,
+    val title: String,
+    val lang: String,
+    val codec: String,
+    val channels: String,
 )
 
 data class StreamInfoSnapshot(

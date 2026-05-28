@@ -154,6 +154,7 @@ fun PlayerScreen(
     var recordTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
     var streamInfo by remember { mutableStateOf<StreamInfoSnapshot?>(null) }
     var subtitles by remember { mutableStateOf<SubtitlesState?>(null) }
+    var audioTracks by remember { mutableStateOf<AudioTracksState?>(null) }
     var multiviewPickerOpen by remember { mutableStateOf(false) }
 
     // Sleep timer: stores the wall-clock millis at which the player should close.
@@ -367,6 +368,13 @@ fun PlayerScreen(
                     currentSid = view.readCurrentSid(),
                 )
             },
+            onShowAudioTracks = {
+                val view = mpvView ?: return@PlayerChromeOverlay
+                audioTracks = AudioTracksState(
+                    tracks = view.readAudioTracks(),
+                    currentAid = view.readCurrentAid(),
+                )
+            },
             onToggleAudioOnly = {
                 audioOnly = !audioOnly
                 val view = mpvView
@@ -447,6 +455,17 @@ fun PlayerScreen(
             onDismiss = { subtitles = null },
         )
     }
+    audioTracks?.let { state ->
+        AudioTracksSheet(
+            tracks = state.tracks,
+            currentTrackId = state.currentAid,
+            onSelect = { aid ->
+                mpvView?.mpv?.setPropertyString("aid", aid.toString())
+                audioTracks = null
+            },
+            onDismiss = { audioTracks = null },
+        )
+    }
 
     DisposableEffect(Unit) {
         onDispose { /* AndroidView.onRelease handles native cleanup. */ }
@@ -456,6 +475,11 @@ fun PlayerScreen(
 private data class SubtitlesState(
     val tracks: List<SubtitleTrack>,
     val currentSid: Int?,
+)
+
+private data class AudioTracksState(
+    val tracks: List<AudioTrack>,
+    val currentAid: Int?,
 )
 
 private fun MPVPlayerView.captureStreamInfo(): StreamInfoSnapshot {
@@ -539,6 +563,43 @@ private fun MPVPlayerView.readSubtitleTracks(): List<SubtitleTrack> {
 
 private fun MPVPlayerView.readCurrentSid(): Int? {
     val raw = mpv.getPropertyString("sid") ?: return null
+    if (raw == "no" || raw == "auto") return null
+    return raw.toIntOrNull()
+}
+
+/** Sister to [readSubtitleTracks] - audio tracks only. Surfaces codec +
+ *  channel layout because audio-track choices on a live stream usually mean
+ *  picking between e.g. an AAC stereo English vs an AC3 5.1 spanish rendition. */
+private fun MPVPlayerView.readAudioTracks(): List<AudioTrack> {
+    val m = mpv
+    val countStr = m.getPropertyString("track-list/count") ?: return emptyList()
+    val count = countStr.toIntOrNull() ?: return emptyList()
+    val out = mutableListOf<AudioTrack>()
+    for (i in 0 until count) {
+        val type = m.getPropertyString("track-list/$i/type").orEmpty()
+        if (type != "audio") continue
+        val id = m.getPropertyString("track-list/$i/id")?.toIntOrNull() ?: continue
+        val title = m.getPropertyString("track-list/$i/title").orEmpty()
+        val lang = m.getPropertyString("track-list/$i/lang").orEmpty()
+        val codec = m.getPropertyString("track-list/$i/codec").orEmpty()
+        val channels = m.getPropertyString("track-list/$i/demux-channel-count").orEmpty()
+            .let { n ->
+                when (n.toIntOrNull()) {
+                    1 -> "mono"
+                    2 -> "stereo"
+                    6 -> "5.1"
+                    8 -> "7.1"
+                    null, 0 -> ""
+                    else -> "${n}ch"
+                }
+            }
+        out += AudioTrack(id = id, title = title, lang = lang, codec = codec, channels = channels)
+    }
+    return out
+}
+
+private fun MPVPlayerView.readCurrentAid(): Int? {
+    val raw = mpv.getPropertyString("aid") ?: return null
     if (raw == "no" || raw == "auto") return null
     return raw.toIntOrNull()
 }
