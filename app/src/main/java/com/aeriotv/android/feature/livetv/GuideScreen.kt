@@ -168,8 +168,12 @@ fun GuideScreen(
         screenWidthDp < 600 -> 118.dp
         else -> GuideMetrics.RAIL_WIDTH
     }
-    val rowHeight = if (isTv) 56.dp else GuideMetrics.ROW_HEIGHT
-    val headerHeight = if (isTv) 40.dp else GuideMetrics.HEADER_HEIGHT
+    // TV rows are taller than the old 56dp so the 1.5x TV type scale (Phase 123)
+    // fits the cell's title + time-range without clipping; this trades a little
+    // vertical density for legible 10-foot text (the primary complaint), matching
+    // the tvOS guide's generous 110pt rows.
+    val rowHeight = if (isTv) 76.dp else GuideMetrics.ROW_HEIGHT
+    val headerHeight = if (isTv) 44.dp else GuideMetrics.HEADER_HEIGHT
     // tvOS draws the guide grid separators as cyan (accentPrimary) hairlines, not
     // neutral gray; mirror that on TV so the grid reads as one continuous surface.
     // Phone keeps the existing gray surfaceVariant divider.
@@ -595,9 +599,11 @@ private fun ChannelGuideRow(
     // Compact rail sizing. On TV we keep it tight (narrow rail, small logo) so
     // more channels fit; legibility comes from the name/cell text, not bulk.
     val numberStyle = if (isTv) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall
-    val numberWidth = if (isTv) 24.dp else 22.dp
-    val logoBox = if (isTv) 38.dp else 36.dp
-    val logoImage = if (isTv) 34.dp else 32.dp
+    // TV widths grown to fit the 1.5x type scale (a 3-digit number + the channel
+    // name need more room at 10-foot sizes); phone unchanged.
+    val numberWidth = if (isTv) 34.dp else 22.dp
+    val logoBox = if (isTv) 48.dp else 36.dp
+    val logoImage = if (isTv) 44.dp else 32.dp
     val nameStyle = if (isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium
     Row(
         modifier = Modifier

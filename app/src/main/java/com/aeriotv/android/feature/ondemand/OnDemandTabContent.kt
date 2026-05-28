@@ -293,7 +293,7 @@ private fun MoviesSubScreen(
             // Larger posters + overscan-safe padding on the 10-foot TV; phone
             // keeps the compact grid whose 104dp bottom clears the bottom
             // NavigationBar (TV has top tabs, so it needs far less bottom inset).
-            columns = GridCells.Adaptive(minSize = if (isTv) 160.dp else 120.dp),
+            columns = GridCells.Adaptive(minSize = if (isTv) 190.dp else 120.dp),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = if (isTv) 48.dp else 12.dp,
@@ -419,7 +419,7 @@ private fun SeriesSubScreen(
 
         LazyVerticalGrid(
             // Series tab matches the Movies tab's TV / phone grid metrics.
-            columns = GridCells.Adaptive(minSize = if (isTv) 160.dp else 120.dp),
+            columns = GridCells.Adaptive(minSize = if (isTv) 190.dp else 120.dp),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = if (isTv) 48.dp else 12.dp,
