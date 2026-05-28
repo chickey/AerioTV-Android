@@ -15,6 +15,7 @@ import com.aeriotv.android.core.debug.DebugLogger
 import com.aeriotv.android.core.debug.MemoryPressureBus
 import com.aeriotv.android.core.debug.ResourceTelemetry
 import com.aeriotv.android.core.network.DispatcharrWarmupCoordinator
+import com.aeriotv.android.core.security.SafeUrlInterceptor
 import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.feature.multiview.MultiviewStore
 import com.aeriotv.android.feature.player.MpvLibraryWarmup
@@ -86,6 +87,12 @@ class AerioTVApplication : Application(), Configuration.Provider, SingletonImage
                     .maxSizeBytes(100L * 1024L * 1024L)
                     .build()
             }
+            // Audit task #53: SSRF-style gate -- block image fetches whose
+            // source URL uses file:// / content:// / javascript: / etc.
+            // Playlist providers can put anything in `tvg-logo` and a few
+            // other text fields; this keeps Coil from honouring a hostile
+            // value.
+            .components { add(SafeUrlInterceptor()) }
             .crossfade(true)
             .build()
 
