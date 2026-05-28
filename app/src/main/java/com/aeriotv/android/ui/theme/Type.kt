@@ -6,20 +6,31 @@ import androidx.compose.ui.unit.isSpecified
 
 /**
  * Material 3 type scale. Phone / tablet / foldable use the stock Material
- * defaults. Android TV scales every token up so text is legible at 10 feet,
- * mirroring how the tvOS app keeps a SEPARATE, ~1.5x-larger Typography table
- * (iOS Design/Typography.swift: tvOS bodyMedium 24 vs iOS 15, labelSmall 18 vs
- * 11, displayLarge 52 vs 34). A stock Material port renders TV text at roughly
- * 60% of the tvOS reference, which is the "doesn't scale like the tvOS app /
- * too small" complaint. Because the whole app reads `MaterialTheme.typography`,
- * swapping in this scaled table on TV fixes the size app-wide in one place.
+ * defaults. Android TV keeps the SAME default scale (factor 1.0) - and this is
+ * deliberate, derived from measured canvas geometry rather than copied from the
+ * tvOS point sizes.
  *
- * The factor is a single tunable knob. 1.5x lands the smallest label near
- * 16-17sp and body near 21sp; the tvOS floor is ~18sp, so this is a deliberate,
- * slightly-conservative starting point that pairs with the per-surface sizing
- * work (guide / posters / rows) in the scaling + foldable tasks.
+ * THE CANVAS MATH (why TV must NOT scale type up):
+ *  - tvOS lays out on a 1920x1080 POINT canvas. Its bodyMedium is 24pt, i.e.
+ *    24/1080 = 2.2% of screen height.
+ *  - Android TV (Google TV Streamer + the typical Android-TV convention)
+ *    presents apps a 1920x1080px framebuffer at 320dpi = density 2.0, so the
+ *    Compose layout canvas is 960x540 dp - exactly HALF the linear size of the
+ *    tvOS point canvas.
+ *  - On a 540dp-tall canvas, Material's DEFAULT bodyMedium (14sp) is already
+ *    14/540 = 2.6% of height - i.e. already a touch LARGER than tvOS's 24pt.
+ *  - A 14sp glyph at density 2.0 renders to 28px on the 1920x1080 framebuffer;
+ *    tvOS's 24pt renders to 24px on its 1920x1080 framebuffer filling the same
+ *    panel. So Material default is ~17% bigger than tvOS on-screen, NOT smaller.
+ *
+ * An earlier 1.5x multiplier here made bodyMedium 21sp = 3.9% of height (~1.75x
+ * tvOS) - the "TERRIBLY scaled / 350x zoom" regression. The fix is factor 1.0:
+ * Material's own scale is already proportionally on par with (slightly larger
+ * than) tvOS once the half-size dp canvas is accounted for. Per-surface sizing
+ * (guide rows / posters) is handled with explicit tvOS-proportion dp values at
+ * each call site, not a global type multiplier.
  */
-private const val TV_TYPE_SCALE = 1.5f
+private const val TV_TYPE_SCALE = 1.0f
 
 private val PhoneTypography = Typography()
 

@@ -164,16 +164,19 @@ fun GuideScreen(
     // (phones, and the Fold cover screen at ~344dp). Clamp to a narrow rail there;
     // reserve the wider rail for tablets / the unfolded Fold.
     val railWidth = when {
-        isTv -> 150.dp
+        isTv -> 140.dp
         screenWidthDp < 600 -> 118.dp
         else -> GuideMetrics.RAIL_WIDTH
     }
-    // TV rows are taller than the old 56dp so the 1.5x TV type scale (Phase 123)
-    // fits the cell's title + time-range without clipping; this trades a little
-    // vertical density for legible 10-foot text (the primary complaint), matching
-    // the tvOS guide's generous 110pt rows.
-    val rowHeight = if (isTv) 76.dp else GuideMetrics.ROW_HEIGHT
-    val headerHeight = if (isTv) 44.dp else GuideMetrics.HEADER_HEIGHT
+    // TV row + header sized to tvOS PROPORTIONS on the 960x540dp Android-TV
+    // canvas (NOT copied from tvOS point values, which would be ~2x too big).
+    // tvOS rowHeight 110pt / 1080 = 10.2% of height -> 540dp * 0.102 = ~55dp;
+    // timeHeader 50pt / 1080 = 4.6% -> ~25dp (a touch more for the time labels).
+    // The old 76dp rows only fit ~5 channels on screen because the (since
+    // reverted) 1.5x type forced them tall; default type fits a title + time in
+    // ~56dp, restoring the ~7-9 visible rows the dense tvOS guide shows.
+    val rowHeight = if (isTv) 56.dp else GuideMetrics.ROW_HEIGHT
+    val headerHeight = if (isTv) 30.dp else GuideMetrics.HEADER_HEIGHT
     // tvOS draws the guide grid separators as cyan (accentPrimary) hairlines, not
     // neutral gray; mirror that on TV so the grid reads as one continuous surface.
     // Phone keeps the existing gray surfaceVariant divider.
@@ -320,7 +323,7 @@ fun GuideScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (isTv) 60.dp else 56.dp)
+                .height(if (isTv) 52.dp else 56.dp)
                 .padding(horizontal = if (isTv) 24.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -599,11 +602,12 @@ private fun ChannelGuideRow(
     // Compact rail sizing. On TV we keep it tight (narrow rail, small logo) so
     // more channels fit; legibility comes from the name/cell text, not bulk.
     val numberStyle = if (isTv) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall
-    // TV widths grown to fit the 1.5x type scale (a 3-digit number + the channel
-    // name need more room at 10-foot sizes); phone unchanged.
-    val numberWidth = if (isTv) 34.dp else 22.dp
-    val logoBox = if (isTv) 48.dp else 36.dp
-    val logoImage = if (isTv) 44.dp else 32.dp
+    // TV rail sizing for default (non-inflated) type + the 56dp row: a 3-4 digit
+    // number fits ~30dp at labelMedium, and a 36dp logo leaves breathing room in
+    // the row instead of filling it. Phone unchanged.
+    val numberWidth = if (isTv) 30.dp else 22.dp
+    val logoBox = if (isTv) 36.dp else 36.dp
+    val logoImage = if (isTv) 32.dp else 32.dp
     val nameStyle = if (isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium
     Row(
         modifier = Modifier
