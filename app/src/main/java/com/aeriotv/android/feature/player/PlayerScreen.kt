@@ -3,6 +3,7 @@ package com.aeriotv.android.feature.player
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
+import com.aeriotv.android.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -218,7 +219,11 @@ fun PlayerScreen(
                     // observers first, loadfile second.
                     view.mpv.addLogObserver(object : MPV.LogObserver {
                         override fun logMessage(prefix: String, level: Int, text: String) {
-                            Log.i(TAG, "[mpv $prefix/L$level] ${text.trimEnd()}")
+                            // DEBUG-only: this fires for every libmpv log line (dozens/sec).
+                            // On a passively-cooled Android TV that per-line Log.i churn
+                            // measurably adds jank (iOS pulled its mpv log level back to
+                            // warn/error for the same reason).
+                            if (BuildConfig.DEBUG) Log.i(TAG, "[mpv $prefix/L$level] ${text.trimEnd()}")
                         }
                     })
                     view.mpv.addObserver(object : MPV.EventObserver {
@@ -237,6 +242,13 @@ fun PlayerScreen(
                         override fun eventProperty(property: String, value: Double) {}
                         override fun eventProperty(property: String, value: MPVNode) {}
                         override fun event(eventId: Int, data: MPVNode) {
+                            if (eventId == MPVEvents.START_FILE) {
+                                loadStartedAt = android.os.SystemClock.elapsedRealtime()
+                            }
+                            // Per-event logging is DEBUG-only too (VIDEO_RECONFIG can
+                            // fire repeatedly on 4K). Native crashes still surface via
+                            // logcat tags (AndroidRuntime/DEBUG/SurfaceFlinger) + tombstones.
+                            if (!BuildConfig.DEBUG) return
                             val label = when (eventId) {
                                 MPVEvents.START_FILE -> "START_FILE"
                                 MPVEvents.FILE_LOADED -> "FILE_LOADED"
@@ -248,10 +260,7 @@ fun PlayerScreen(
                                 MPVEvents.SHUTDOWN -> "SHUTDOWN"
                                 else -> "event#$eventId"
                             }
-                            if (eventId == MPVEvents.START_FILE) {
-                                loadStartedAt = android.os.SystemClock.elapsedRealtime()
-                                Log.i(TAG, "mpv $label")
-                            } else if (eventId == MPVEvents.PLAYBACK_RESTART && loadStartedAt > 0) {
+                            if (eventId == MPVEvents.PLAYBACK_RESTART && loadStartedAt > 0) {
                                 val ms = android.os.SystemClock.elapsedRealtime() - loadStartedAt
                                 Log.i(TAG, "mpv $label (tap-to-first-frame: ${ms}ms)")
                             } else {

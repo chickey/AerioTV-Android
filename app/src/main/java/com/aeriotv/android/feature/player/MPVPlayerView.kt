@@ -1,6 +1,7 @@
 package com.aeriotv.android.feature.player
 
 import android.content.Context
+import android.content.res.Configuration
 import android.util.AttributeSet
 import android.util.Log
 import `is`.xyz.mpv.BaseMPVView
@@ -56,6 +57,16 @@ class MPVPlayerView @JvmOverloads constructor(
      * regardless of user choice to absorb audio-decoder underruns.
      */
     var cachingMs: Int = 1_000
+
+    /**
+     * True on Android TV / Google TV. Drives the 10-foot resilience tier (longer
+     * live cache floor + larger audio buffer) since TV boxes are passively cooled
+     * like the Apple TV, where iOS bumps these same values (cache 10s / audio-buffer
+     * 2.5s on tvOS vs 5s / 1.0s elsewhere).
+     */
+    private val isTv: Boolean
+        get() = (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
 
     /**
      * Pre-init options (iOS lines 3055-3527, before mpv_initialize).
@@ -123,6 +134,18 @@ class MPVPlayerView @JvmOverloads constructor(
             m.setOptionString("cache-pause-initial", "no")
             m.setOptionString("hls-bitrate", "max")
             m.setOptionString("video-latency-hacks", "yes")
+            // Bound the live demuxer queue. iOS 3833+: without a cap, a faster-
+            // than-realtime decoder lets the video packet queue grow unbounded
+            // while audio starves -> A/V desync + the "too many packets in
+            // demuxer queue" stutter. 8 MiB forward, no back-buffer, no donation.
+            m.setOptionString("demuxer-max-bytes", "8MiB")
+            m.setOptionString("demuxer-max-back-bytes", "0")
+            m.setOptionString("demuxer-donate-buffer", "no")
+        } else {
+            // VOD: bigger queue for smooth seeking + a back-buffer for short
+            // back-seeks. iOS 3832.
+            m.setOptionString("demuxer-max-bytes", "50MiB")
+            m.setOptionString("demuxer-max-back-bytes", "10MiB")
         }
 
         // Frame-drop + A/V sync. iOS 3373-3375.
@@ -132,6 +155,15 @@ class MPVPlayerView @JvmOverloads constructor(
 
         // Black-flash mitigation. iOS 3422-3423.
         m.setOptionString("demuxer-lavf-o", "fflags=+discardcorrupt")
+
+        // HDR -> SDR tone-map. The gpu-next/libplacebo path rendering into the
+        // SurfaceView can't reliably emit HDR, so pin the render target to SDR
+        // (bt.709) and let mpv tone-map (bt.2390). This makes UHD HEVC HDR (e.g.
+        // Sky Sports UHD) render with correct, non-washed-out colors instead of
+        // a green/grey cast. Unconditional: a no-op for SDR content. iOS 3495-3497.
+        m.setOptionString("target-prim", "bt.709")
+        m.setOptionString("target-trc", "bt.709")
+        m.setOptionString("tone-mapping", "bt.2390")
 
         // ──────────────────────────────────────────────────────────────
         // Audio output buffering. mpv's default audio-buffer of 200 ms is
@@ -157,7 +189,10 @@ class MPVPlayerView @JvmOverloads constructor(
         // that follows the first underrun. Costs marginal CPU (a memset
         // every frame's worth of samples) but completely closes the
         // feedback loop where each restart triggered the next underrun.
-        m.setOptionString("audio-buffer", "1.0")
+        // 2.5s on Android TV (passively cooled, like the Apple TV where iOS uses
+        // 2.5; thermal throttling makes the audio thread miss deadlines more often),
+        // 1.0s elsewhere.
+        m.setOptionString("audio-buffer", if (isTv) "2.5" else "1.0")
         m.setOptionString("audio-stream-silence", "yes")
 
         Log.i(tag, "initOptions complete (isLive=$isLive)")
@@ -183,7 +218,10 @@ class MPVPlayerView @JvmOverloads constructor(
         // Cache window. Mirrors iOS MPVPlayerView.swift:3679+ — user-chosen buffer
         // size (set via [cachingMs] before initialize()) is the floor, with a 5s
         // live-minimum enforcement so audio-output underruns don't freeze video.
-        val effectiveMs = if (isLive) maxOf(cachingMs, 5_000) else cachingMs
+        // Live cache floor: 10s on Android TV (passive cooling -> deeper buffer
+        // against thermal hitches, matching tvOS), 5s elsewhere.
+        val liveFloorMs = if (isTv) 10_000 else 5_000
+        val effectiveMs = if (isLive) maxOf(cachingMs, liveFloorMs) else cachingMs
         val effectiveSecs = effectiveMs / 1000.0
         m.setPropertyString("cache", "yes")
         m.setPropertyString("demuxer-readahead-secs", String.format(java.util.Locale.US, "%.1f", effectiveSecs))
