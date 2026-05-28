@@ -5,7 +5,9 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Rational
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,6 +26,7 @@ import androidx.compose.ui.Modifier
 import com.aeriotv.android.core.pip.PipState
 import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.core.system.NotificationPermissionGate
+import com.aeriotv.android.feature.miniplayer.MiniPlayerSession
 import com.aeriotv.android.feature.splash.SplashGate
 import com.aeriotv.android.ui.theme.AerioTVTheme
 import com.aeriotv.android.ui.theme.AppTheme
@@ -34,6 +37,40 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var appPreferences: AppPreferences
+    @Inject lateinit var miniPlayerSession: MiniPlayerSession
+
+    /** Wall-clock timestamp of the last DPAD_CENTER press (uptimeMillis).
+     *  Reset to 0 after a successful double-press detection so a fast triple
+     *  doesn't trigger twice. */
+    private var lastSelectPressMs = 0L
+
+    /**
+     * Audit task #22 mini-player resume. The Google TV Streamer remote has
+     * no dedicated play/pause key, so we repurpose a double-press of D-pad
+     * Select (KEYCODE_DPAD_CENTER, also KEYCODE_ENTER on some remotes) as
+     * the "bring me back to fullscreen" affordance while the mini-player is
+     * Active. We don't consume the FIRST press - it still acts as a normal
+     * Compose click on whatever's focused - and only consume the SECOND
+     * press when it lands inside the double-press window AND the mini-player
+     * is showing. That keeps single-press OK working in all other contexts.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                event.keyCode == KeyEvent.KEYCODE_ENTER)
+        ) {
+            val now = SystemClock.uptimeMillis()
+            val sinceLast = now - lastSelectPressMs
+            lastSelectPressMs = now
+            val miniActive = miniPlayerSession.state.value is MiniPlayerSession.State.Active
+            if (miniActive && sinceLast in 1L..DOUBLE_PRESS_THRESHOLD_MS) {
+                miniPlayerSession.requestResume()
+                lastSelectPressMs = 0L
+                return true // consume - don't let the second press double-click anything.
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
 
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
@@ -166,5 +203,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private companion object {
+        /** Max gap between two D-pad Select presses to count as a double-press
+         *  for the mini-player resume action. 350ms is a comfortable but not
+         *  sluggish window that matches typical "double-tap" expectations on
+         *  TV remotes. */
+        const val DOUBLE_PRESS_THRESHOLD_MS = 350L
     }
 }

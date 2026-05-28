@@ -36,6 +36,8 @@ import com.aeriotv.android.feature.onboarding.WelcomeScreen
 import com.aeriotv.android.feature.multiview.MultiviewScreen
 import com.aeriotv.android.feature.ondemand.OnDemandViewModel
 import com.aeriotv.android.feature.ondemand.SeriesDetailScreen
+import com.aeriotv.android.feature.miniplayer.MiniPlayerViewModel
+import com.aeriotv.android.feature.miniplayer.TvMiniPlayerOverlay
 import com.aeriotv.android.feature.player.PlayerScreen
 import com.aeriotv.android.feature.player.VODPlayerScreen
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
@@ -594,6 +596,33 @@ fun AerioTVNavHost(
         // last-dismissed value; first-ever install is seeded silently so
         // the onboarding flow isn't interrupted.
         WhatsNewGate()
+
+        // Mini-player overlay (Phase 139 / audit #22). The session ViewModel
+        // is rooted here so the same instance is visible from PlayerScreen
+        // (writes state on its dispose) and from this overlay (reads state
+        // and renders). The TV variant draws a top-right video window with a
+        // "double-press OK to resume" hint; the phone variant lives inside
+        // MainScaffold as a row above the bottom nav.
+        val miniPlayerVm: MiniPlayerViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+        val miniState by miniPlayerVm.state.collectAsStateWithLifecycle()
+        TvMiniPlayerOverlay(
+            state = miniState,
+            onResume = {
+                val resumed = miniPlayerVm.resumeChannel()
+                if (resumed != null) {
+                    navController.navigate(Routes.player(resumed.id))
+                }
+            },
+            onDismiss = { miniPlayerVm.dismiss() },
+        )
+        // Double-press D-pad Select event - MainActivity emits into the
+        // session's resumeRequests flow; this collects and re-pushes the
+        // PLAYER route. Belongs at the NavController scope, hence here.
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            miniPlayerVm.session.resumeRequests.collect { channel ->
+                navController.navigate(Routes.player(channel.id))
+            }
+        }
     }
 }
 

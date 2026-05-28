@@ -3,8 +3,12 @@ package com.aeriotv.android.feature.miniplayer
 import com.aeriotv.android.core.data.M3UChannel
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
@@ -35,6 +39,32 @@ class MiniPlayerSession @Inject constructor() {
 
     private val _state: MutableStateFlow<State> = MutableStateFlow(State.Hidden)
     val state: StateFlow<State> = _state.asStateFlow()
+
+    /**
+     * One-shot resume events. MainActivity.dispatchKeyEvent emits here when it
+     * detects a double-press of D-pad Select while the mini-player is Active
+     * (Google TV Streamer remotes have no play/pause key). The Navigation root
+     * collects this and re-pushes the PLAYER route with the active channel.
+     * Buffer is 1 + DROP_OLDEST so a quick double-tap during nav transition
+     * isn't lost.
+     */
+    private val _resumeRequests = MutableSharedFlow<M3UChannel>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val resumeRequests: SharedFlow<M3UChannel> = _resumeRequests.asSharedFlow()
+
+    /**
+     * Called from MainActivity.dispatchKeyEvent when D-pad Select is
+     * double-pressed and the mini-player is Active. Promotes Active -> Pending
+     * (so the mini overlay vanishes) and emits a resume event for the
+     * NavController to navigate on. No-op when the state isn't Active.
+     */
+    fun requestResume() {
+        val ch = (_state.value as? State.Active)?.channel ?: return
+        _state.value = State.Pending(ch)
+        _resumeRequests.tryEmit(ch)
+    }
 
     /** Called when PlayerScreen mounts (or flips channel). Holding fullscreen
      * is represented by [State.Pending] so the mini-player UI doesn't render

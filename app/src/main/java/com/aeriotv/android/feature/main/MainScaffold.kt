@@ -215,7 +215,11 @@ fun MainScaffold(
         bottomBar = {
             androidx.compose.foundation.layout.Column {
                 val miniState = miniPlayerState
-                if (miniState is MiniPlayerSession.State.Active) {
+                // Phase 139 / audit #22: on TV the mini-player is a top-right
+                // video window (TvMiniPlayerOverlay, mounted at NavHost root).
+                // Suppress the phone-style row above the bottom nav so we
+                // don't double-render the same session.
+                if (miniState is MiniPlayerSession.State.Active && !isTv) {
                     val channel = miniState.channel
                     val nowProgramme = state.epgByChannel[channel.tvgID]?.nowPlaying()
                     MiniPlayerRow(
