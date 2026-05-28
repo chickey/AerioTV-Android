@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.playback.MPVPlayerHolder
 import `is`.xyz.mpv.Utils
@@ -63,12 +64,25 @@ fun BoxScope.PersistentMpvWindow(
     // Compute the parent Box modifier from mode. The AndroidView is at
     // the SAME composable position regardless of mode so Compose treats
     // it as a single, persistent slot -- no detach / reattach cycles.
+    //
+    // zIndex note: MainActivity places PersistentMpvWindow FIRST and the
+    // NavHost SECOND inside the root Box. Compose draw order = declaration
+    // order, so by default the NavHost paints OVER the video. That's the
+    // behaviour we want in Fullscreen (PlayerScreen renders its own
+    // transparent chrome above the video underneath). In Mini mode the
+    // NavHost is sitting on GuideScreen / Live TV, both of which paint
+    // an opaque dark background fillMaxSize -- which buries the 210x118
+    // mini tile. zIndex(1f) lifts the mini tile above the NavHost layer
+    // so the user actually sees it. The hint chip from TvMiniPlayerOverlay
+    // sits BELOW the tile (y=282+ in our test, tile ends at y=260) so no
+    // overlap collision.
     val containerModifier = when (mode) {
         MpvWindowState.Mode.Hidden -> Modifier.size(0.dp)
         MpvWindowState.Mode.Fullscreen -> Modifier
             .fillMaxSize()
             .background(Color.Black)
         MpvWindowState.Mode.Mini -> Modifier
+            .zIndex(1f)
             .align(Alignment.TopEnd)
             .padding(end = 24.dp, top = 12.dp)
             .size(width = 210.dp, height = 118.dp)

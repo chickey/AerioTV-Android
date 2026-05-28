@@ -191,14 +191,11 @@ class MPVPlayerView @JvmOverloads constructor(
         // Black-flash mitigation. iOS 3422-3423.
         m.setOptionString("demuxer-lavf-o", "fflags=+discardcorrupt")
 
-        // HDR -> SDR tone-map. The gpu-next/libplacebo path rendering into the
-        // SurfaceView can't reliably emit HDR, so pin the render target to SDR
-        // (bt.709) and let mpv tone-map (bt.2390). This makes UHD HEVC HDR (e.g.
-        // Sky Sports UHD) render with correct, non-washed-out colors instead of
-        // a green/grey cast. Unconditional: a no-op for SDR content. iOS 3495-3497.
-        m.setOptionString("target-prim", "bt.709")
-        m.setOptionString("target-trc", "bt.709")
-        m.setOptionString("tone-mapping", "bt.2390")
+        // (HDR -> SDR tone-map is set unconditionally up at lines 114-116
+        // with target-trc=bt.1886. An earlier copy of this block lived
+        // here with target-trc=bt.709, which mpv silently rejects -- the
+        // doubled-up call was a no-op at best and a regression risk if a
+        // future mpv accepted it. Single source of truth above.)
 
         // ──────────────────────────────────────────────────────────────
         // Audio output buffering. mpv's default audio-buffer of 200 ms is
