@@ -3,6 +3,13 @@ package com.aeriotv.android
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.disk.directory
+import coil3.memory.MemoryCache
+import coil3.request.crossfade
 import com.aeriotv.android.core.debug.DebugLogger
 import com.aeriotv.android.core.debug.ResourceTelemetry
 import com.aeriotv.android.core.network.DispatcharrWarmupCoordinator
@@ -31,7 +38,7 @@ import kotlinx.coroutines.launch
  * flips on/off the moment the user toggles it in Settings -> Developer.
  */
 @HiltAndroidApp
-class AerioTVApplication : Application(), Configuration.Provider {
+class AerioTVApplication : Application(), Configuration.Provider, SingletonImageLoader.Factory {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var dispatcharrWarmup: DispatcharrWarmupCoordinator
@@ -46,6 +53,37 @@ class AerioTVApplication : Application(), Configuration.Provider {
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
+            .build()
+
+    /**
+     * Custom Coil ImageLoader with explicit cache caps. Coil's defaults are
+     * 25% of app heap for the memory cache and 2% of free disk for the disk
+     * cache, which on a 4GB Android TV with 384MB heap works out to ~96MB
+     * resident bitmaps + potentially hundreds of MB on disk. With ~700 channel
+     * logos cached as users scroll the guide, this fills fast and pushes the
+     * system into swap-thrash (Archie reported the Streamer staying slow even
+     * after uninstalling AerioTV; matches the swap-pressure signature).
+     *
+     * Trimmed to 32MB memory + 100MB disk. The memory cap is more than enough
+     * for ~50 channel logos worth of bitmap pixels - LazyColumn / LazyVerticalGrid
+     * recycle off-screen views, so we don't need a giant cache to keep the
+     * visible row smooth. The disk cap keeps repeat-visit cold-starts fast
+     * without filling /data/data/com.aeriotv.android over time.
+     */
+    override fun newImageLoader(context: PlatformContext): ImageLoader =
+        ImageLoader.Builder(context)
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizeBytes(32L * 1024L * 1024L)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("coil_disk_cache"))
+                    .maxSizeBytes(100L * 1024L * 1024L)
+                    .build()
+            }
+            .crossfade(true)
             .build()
 
     override fun onCreate() {
