@@ -89,11 +89,6 @@
             android:foregroundServiceType="mediaPlayback" />
 
         <service
-            android:name=".core.playback.PlaybackService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
-
-        <service
             android:name=".core.playback.AerioMediaPlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback">

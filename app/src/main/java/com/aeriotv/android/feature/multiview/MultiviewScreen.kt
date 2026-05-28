@@ -66,10 +66,8 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.aeriotv.android.feature.player.MPVPlayerView
 import com.aeriotv.android.feature.settings.SettingsViewModel
 import com.aeriotv.android.feature.settings.bufferMillisFor
-import `is`.xyz.mpv.Utils
 
 private const val TAG = "MultiviewScreen"
 

@@ -10,7 +10,6 @@ navigationCompose = "2.9.8"
 hilt = "2.59.2"
 hiltNavigationCompose = "1.3.0"
 tvMaterial = "1.1.0"
-mpvAndroidLib = "0.1.12"
 ktor = "3.4.3"
 coroutines = "1.11.0"
 room = "2.8.4"
@@ -44,7 +43,6 @@ hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
 hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
 androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
-mpv-android-lib = { group = "io.github.abdallahmehiz", name = "mpv-android-lib", version.ref = "mpvAndroidLib" }
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-logging = { group = "io.ktor", name = "ktor-client-logging", version.ref = "ktor" }
