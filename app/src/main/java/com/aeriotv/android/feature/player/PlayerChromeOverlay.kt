@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -117,6 +118,13 @@ fun PlayerChromeOverlay(
     val inPip by PipState.inPictureInPicture
     val pipAvailable = remember { context.supportsPip() }
 
+    // Phase 170: one outer Box at root so both AnimatedVisibilities live
+    // in the same BoxScope (Modifier.align works) AND so neither one
+    // intercepts focus / hit-testing from siblings. Each
+    // AnimatedVisibility sizes itself to its content (the info-pill
+    // AnimatedVisibility uses wrapContentSize so it doesn't overlap the
+    // chrome's top button row).
+    Box(modifier = Modifier.fillMaxSize()) {
     AnimatedVisibility(
         visible = chromeVisible && !inPip,
         enter = fadeIn(),
@@ -285,28 +293,32 @@ fun PlayerChromeOverlay(
     // pillVisible to true for a few seconds after the channel launches
     // (a "what am I watching" hint) AND whenever chromeVisible is true
     // (so it reads alongside the rest of the chrome on a back press).
+    //
+    // wrapContentSize + align(TopStart) so the pill OCCUPIES ONLY the
+    // top-left corner -- not the full screen. Without this the
+    // AnimatedVisibility's content Box was fillMaxSize, which both
+    // visually centered the InfoCard's intrinsic content (looking like
+    // it spanned the screen) AND drew over the chrome's top-right
+    // button row, intercepting focus searches that needed to reach the
+    // close / more / multiview buttons.
     AnimatedVisibility(
         visible = pillVisible && !inPip,
         enter = fadeIn(),
         exit = fadeOut(),
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .statusBarsPadding()
+            .padding(top = 84.dp, start = 16.dp),
     ) {
         channel?.let {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(top = 84.dp, start = 16.dp, end = 16.dp),
-            ) {
-                Box(modifier = Modifier.align(Alignment.TopStart)) {
-                    InfoCard(
-                        channel = it,
-                        programme = nowProgramme,
-                        sleepRemainingMillis = sleepRemainingMillis,
-                    )
-                }
-            }
+            InfoCard(
+                channel = it,
+                programme = nowProgramme,
+                sleepRemainingMillis = sleepRemainingMillis,
+            )
         }
     }
+    }  // close the outer Box added in Phase 170
 
     if (sleepOpen) {
         SleepTimerSheet(
@@ -517,7 +529,13 @@ private fun InfoCard(
                 }
             }
             Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                // Cap the column at a sane width so the pill stays compact
+                // (tvOS reference proportions). Without this cap, weight(1f)
+                // -> Column would stretch the entire pill to fit any width
+                // Compose hands it from the parent.
+                modifier = Modifier.widthIn(max = 320.dp),
+            ) {
                 val nameLine = channel.channelNumber?.let { "$it  ${channel.name}" }
                     ?: channel.name
                 Text(
