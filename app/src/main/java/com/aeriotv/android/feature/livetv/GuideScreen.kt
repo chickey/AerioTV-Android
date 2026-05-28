@@ -264,6 +264,41 @@ fun GuideScreen(
     // row so they pan together.
     val horizontalScrollState = rememberScrollState()
 
+    // Active reminder keys, collected ONCE here instead of per-cell. Each
+    // ProgrammeCell checks membership in this set rather than subscribing its
+    // own observeIsSet() flow -- with hundreds of cells those per-cell flows +
+    // collectAsState were a real recompose/scroll cost (iOS reads
+    // ReminderManager.shared directly for the same reason).
+    val remindersVm: RemindersViewModel = hiltViewModel()
+    val reminders by remindersVm.all.collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeReminderKeys = remember(reminders) {
+        reminders.mapTo(HashSet<String>()) { it.reminderKey }
+    }
+
+    // Horizontal viewport clipping (iOS EPGGuideView.programRow viewport filter):
+    // each row composes ONLY the programme cells overlapping the visible time
+    // window (+/- 30 min pad), not every programme across the whole 6-72h window.
+    // The visible window is derived from the shared horizontal scroll offset +
+    // the strip viewport width, snapped to a 5-min bucket so rows re-filter only
+    // occasionally (not every scroll frame); the 30-min pad pre-renders cells
+    // just off-screen so scrolling never reveals a gap before the next refilter.
+    val density = LocalDensity.current
+    val hourWidthPx = with(density) { scaledHourWidth.toPx() }.coerceAtLeast(1f)
+    val stripViewportPx = with(density) {
+        (screenWidthDp.dp - railWidth).coerceAtLeast(1.dp).toPx()
+    }
+    val visibleWindow by remember(windowStart, hourWidthPx, stripViewportPx) {
+        derivedStateOf {
+            val bucketMs = 5L * 60_000L
+            val padMs = 30L * 60_000L
+            val scrollPx = horizontalScrollState.value.toFloat()
+            val startMs = windowStart + (scrollPx / hourWidthPx * 3_600_000f).toLong()
+            val snappedStart = (startMs / bucketMs) * bucketMs
+            val spanMs = (stripViewportPx / hourWidthPx * 3_600_000f).toLong()
+            (snappedStart - padMs) to (snappedStart + spanMs + padMs)
+        }
+    }
+
     // The host Scaffold sets contentWindowInsets = WindowInsets(0,0,0,0), so each
     // tab owns its own status-bar top inset (the List view gets it free from
     // CenterAlignedTopAppBar). The Guide's header is a bare control Row, so apply
@@ -465,10 +500,14 @@ fun GuideScreen(
                     windowDurationMs = windowDurationMs,
                     hourWidth = scaledHourWidth,
                     nowMillis = nowMillis,
+                    visibleStartMs = visibleWindow.first,
+                    visibleEndMs = visibleWindow.second,
                     isTv = isTv,
                     railWidth = railWidth,
                     rowHeight = rowHeight,
                     horizontalScrollState = horizontalScrollState,
+                    activeReminderKeys = activeReminderKeys,
+                    remindersVm = remindersVm,
                     onChannelClick = { onChannelClick(channel) },
                     onProgrammeClick = { programme ->
                         programInfoTarget = programme.toInfoTarget(channel.name, channel.dispatcharrChannelId)
@@ -531,10 +570,14 @@ private fun ChannelGuideRow(
     windowDurationMs: Long,
     hourWidth: androidx.compose.ui.unit.Dp,
     nowMillis: Long,
+    visibleStartMs: Long,
+    visibleEndMs: Long,
     isTv: Boolean,
     railWidth: androidx.compose.ui.unit.Dp,
     rowHeight: androidx.compose.ui.unit.Dp,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
+    activeReminderKeys: Set<String>,
+    remindersVm: RemindersViewModel,
     onChannelClick: () -> Unit,
     onProgrammeClick: (EPGProgramme) -> Unit,
     onProgrammeRecord: (EPGProgramme) -> Unit,
@@ -681,17 +724,29 @@ private fun ChannelGuideRow(
             val totalWidth = hourWidth * (windowDurationMs / 3_600_000L).toInt()
             Box(modifier = Modifier.width(totalWidth).fillMaxHeight()) {
                 // Programme cells, positioned by offset.
-                programmes.forEach { programme ->
-                    // Clip to the window so off-screen programmes don't bloat the layout.
+                val windowEnd = windowStart + windowDurationMs
+                programmes.forEachIndexed { index, programme ->
                     val rawStart = programme.startMillis
                     val rawEnd = programme.endMillis
-                    if (rawEnd <= windowStart) return@forEach
-                    val windowEnd = windowStart + windowDurationMs
-                    if (rawStart >= windowEnd) return@forEach
+                    // Window clip: skip programmes entirely outside the guide span.
+                    if (rawEnd <= windowStart) return@forEachIndexed
+                    if (rawStart >= windowEnd) return@forEachIndexed
+                    // Viewport clip: skip programmes outside the visible scroll
+                    // window (+/- pad). Keeps each row to a handful of composed
+                    // cells instead of all-in-window; the parent Box stays
+                    // totalWidth so the scroll range is unchanged.
+                    if (rawEnd <= visibleStartMs || rawStart >= visibleEndMs) return@forEachIndexed
                     val clippedStart = rawStart.coerceAtLeast(windowStart)
+                    // Anti-overlap: clamp the cell end to the next programme's start
+                    // so a feed with overlapping entries doesn't paint cells on top
+                    // of each other (iOS clamps to nextProgramStart).
+                    val nextStart = programmes.getOrNull(index + 1)?.startMillis
                     val clippedEnd = rawEnd.coerceAtMost(windowEnd)
+                        .let { e -> if (nextStart != null) minOf(e, maxOf(nextStart, clippedStart)) else e }
                     val xDp = msToDp(clippedStart - windowStart, hourWidth)
-                    val wDp = msToDp(clippedEnd - clippedStart, hourWidth)
+                    // Floor the width so a malformed ~1-min programme still renders a
+                    // tappable sliver instead of a zero-width cell (iOS max(20,...)).
+                    val wDp = msToDp(clippedEnd - clippedStart, hourWidth).coerceAtLeast(6.dp)
                     val isLive = programme.startMillis <= nowMillis && programme.endMillis > nowMillis
                     ProgrammeCell(
                         programme = programme,
@@ -700,6 +755,8 @@ private fun ChannelGuideRow(
                         widthDp = wDp,
                         isLive = isLive,
                         isTv = isTv,
+                        activeReminderKeys = activeReminderKeys,
+                        remindersVm = remindersVm,
                         // Dispatcharr bulk grid drops <category>; fall back
                         // to the channel's group title so guide cells still
                         // tint even before any per-program lazy enrichment
@@ -747,6 +804,8 @@ private fun ProgrammeCell(
     widthDp: androidx.compose.ui.unit.Dp,
     isLive: Boolean,
     isTv: Boolean,
+    activeReminderKeys: Set<String>,
+    remindersVm: RemindersViewModel,
     categoryTint: androidx.compose.ui.graphics.Color?,
     modifier: Modifier,
     onPlay: () -> Unit,
@@ -755,15 +814,14 @@ private fun ProgrammeCell(
     canAddToMultiview: Boolean,
     inMultiview: Boolean,
     onToggleMultiview: () -> Unit,
-    remindersVm: RemindersViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     val key = remember(programme, channelName) {
         reminderKey(channelName, programme.title, programme.startMillis)
     }
-    val isReminderSet by remindersVm.observeIsSet(key)
-        .collectAsStateWithLifecycle(initialValue = false)
+    // Membership check against the set hoisted in GuideScreen -- no per-cell flow.
+    val isReminderSet = key in activeReminderKeys
     var focused by remember { mutableStateOf(false) }
     // Short time-range label ("7:00 - 7:30"), shown on the TV guide cell beneath
     // the title to match the tvOS Emby-style cell (title + time range).
