@@ -95,6 +95,17 @@ fun BoxScope.PersistentExoWindow(
                     // we don't want to crop. ZOOM is a Settings-level toggle
                     // we'll port from MPV later.
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    // Critical on Android TV: PlayerView is focusable by
+                    // default. With our Compose chrome layered above it via
+                    // NavHost, a focused PlayerView swallows BACK before
+                    // PlayerScreen's BackHandler ever sees the event -- the
+                    // user ends up at the launcher on first BACK rather than
+                    // surfacing chrome (the tvOS-style 3-press flow). Lock
+                    // focus traversal out of this View; the chrome controls
+                    // are the only focusable surface in the activity.
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     // Surface mode is set via the bundled layout
                     // exo_player_view.xml's surface_type=surface_view default.
                     setPlayer(player)
