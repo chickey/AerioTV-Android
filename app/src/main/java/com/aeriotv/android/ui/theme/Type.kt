@@ -24,13 +24,17 @@ import androidx.compose.ui.unit.isSpecified
  *    panel. So Material default is ~17% bigger than tvOS on-screen, NOT smaller.
  *
  * An earlier 1.5x multiplier here made bodyMedium 21sp = 3.9% of height (~1.75x
- * tvOS) - the "TERRIBLY scaled / 350x zoom" regression. The fix is factor 1.0:
- * Material's own scale is already proportionally on par with (slightly larger
- * than) tvOS once the half-size dp canvas is accounted for. Per-surface sizing
- * (guide rows / posters) is handled with explicit tvOS-proportion dp values at
- * each call site, not a global type multiplier.
+ * tvOS) - the "TERRIBLY scaled / 350x zoom" regression. Material's own default
+ * (factor 1.0) is already proportionally on par with (slightly larger than)
+ * tvOS once the half-size dp canvas is accounted for; the measured tvOS-EXACT
+ * ratio is ~0.85 (Material bodyMedium 14sp * 0.857 = 12sp = tvOS 24pt/1080). We
+ * sit at 0.9 - a deliberate small step DOWN from Material default toward tvOS so
+ * 10-ft text is a touch tighter (Archie: "decrease the font size a bit
+ * everywhere"), without going all the way to the 0.85 tvOS floor. Per-surface
+ * sizing (guide rows / posters) is handled with explicit tvOS-proportion dp
+ * values at each call site, not via this multiplier.
  */
-private const val TV_TYPE_SCALE = 1.0f
+private const val TV_TYPE_SCALE = 0.9f
 
 private val PhoneTypography = Typography()
 

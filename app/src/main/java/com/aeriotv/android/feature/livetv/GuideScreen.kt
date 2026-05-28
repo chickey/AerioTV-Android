@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -164,7 +165,11 @@ fun GuideScreen(
     // (phones, and the Fold cover screen at ~344dp). Clamp to a narrow rail there;
     // reserve the wider rail for tablets / the unfolded Fold.
     val railWidth = when {
-        isTv -> 140.dp
+        // Wider on TV so the channel name shows in full on one line under the
+        // logo (tvOS channelLabel parity). At the 0.9x TV type scale the name is
+        // ~12.6sp, so a ~92dp name column fits ~14-15 chars; longer names
+        // truncate like tvOS lineLimit(1).
+        isTv -> 150.dp
         screenWidthDp < 600 -> 118.dp
         else -> GuideMetrics.RAIL_WIDTH
     }
@@ -602,12 +607,14 @@ private fun ChannelGuideRow(
     // Compact rail sizing. On TV we keep it tight (narrow rail, small logo) so
     // more channels fit; legibility comes from the name/cell text, not bulk.
     val numberStyle = if (isTv) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall
-    // TV rail sizing for default (non-inflated) type + the 56dp row: a 3-4 digit
-    // number fits ~30dp at labelMedium, and a 36dp logo leaves breathing room in
-    // the row instead of filling it. Phone unchanged.
+    // A 3-4 digit number fits ~30dp at labelMedium on TV (right-aligned, tvOS
+    // minWidth 38pt parity); phone keeps the compact 22dp.
     val numberWidth = if (isTv) 30.dp else 22.dp
-    val logoBox = if (isTv) 36.dp else 36.dp
-    val logoImage = if (isTv) 32.dp else 32.dp
+    // logoBox/logoImage are the PHONE rail's square logo. TV uses a landscape
+    // logo-over-name VStack (the isTv branch below) so the channel name gets its
+    // own full-width line and shows in full, mirroring tvOS channelLabel.
+    val logoBox = 36.dp
+    val logoImage = 32.dp
     val nameStyle = if (isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium
     Row(
         modifier = Modifier
@@ -639,45 +646,106 @@ private fun ChannelGuideRow(
                 .padding(horizontal = if (isTv) 10.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            channel.channelNumber?.let { num ->
-                Text(
-                    text = num.toString(),
-                    style = numberStyle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(numberWidth),
-                )
-            }
-            Spacer(Modifier.width(if (isTv) 6.dp else 4.dp))
-            Box(
-                modifier = Modifier
-                    .size(logoBox)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.background),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (channel.tvgLogo.isNotBlank()) {
-                    AsyncImage(
-                        model = channel.tvgLogo,
-                        contentDescription = null,
-                        modifier = Modifier.size(logoImage),
-                    )
-                } else {
+            if (isTv) {
+                // tvOS GuideChannelButton.channelLabel (EPGGuideView.swift:3018):
+                // channel number on the left, then a Column with the logo over the
+                // name. The name sits on its OWN line spanning the full remaining
+                // column width (single line, like tvOS lineLimit(1)) so it reads in
+                // full instead of being squeezed in beside the number + logo. Names
+                // longer than the column truncate, exactly like tvOS.
+                channel.channelNumber?.let { num ->
                     Text(
-                        text = channel.name.take(2).uppercase(),
-                        style = if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
+                        text = num.toString(),
+                        style = numberStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        maxLines = 1,
+                        modifier = Modifier.width(numberWidth),
                     )
                 }
+                Spacer(Modifier.width(8.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    // Landscape logo box (tvOS uses 72x48), proportional to the row.
+                    Box(
+                        modifier = Modifier
+                            .size(width = 46.dp, height = 28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (channel.tvgLogo.isNotBlank()) {
+                            AsyncImage(
+                                model = channel.tvgLogo,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(3.dp),
+                            )
+                        } else {
+                            Text(
+                                text = channel.name.take(2).uppercase(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = channel.name,
+                        style = nameStyle,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            } else {
+                channel.channelNumber?.let { num ->
+                    Text(
+                        text = num.toString(),
+                        style = numberStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(numberWidth),
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .size(logoBox)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.background),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (channel.tvgLogo.isNotBlank()) {
+                        AsyncImage(
+                            model = channel.tvgLogo,
+                            contentDescription = null,
+                            modifier = Modifier.size(logoImage),
+                        )
+                    } else {
+                        Text(
+                            text = channel.name.take(2).uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = channel.name,
+                    style = nameStyle,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Spacer(Modifier.width(if (isTv) 8.dp else 6.dp))
-            Text(
-                text = channel.name,
-                style = nameStyle,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
             DropdownMenu(
                 expanded = railMenuOpen,
                 onDismissRequest = { railMenuOpen = false },
@@ -758,12 +826,29 @@ private fun ChannelGuideRow(
                     // tappable sliver instead of a zero-width cell (iOS max(20,...)).
                     val wDp = msToDp(clippedEnd - clippedStart, hourWidth).coerceAtLeast(6.dp)
                     val isLive = programme.startMillis <= nowMillis && programme.endMillis > nowMillis
+                    // Elapsed fraction (0..1) for the now-airing cell's progress
+                    // bar, recomputed only on the 30s nowMillis tick. Null for
+                    // non-live cells so they don't recompose on the tick (the
+                    // Phase 125 now-tick isolation still holds: only the one live
+                    // cell per row gets a changing value). Measured against the
+                    // CLIPPED (visible) span, not the full program, so the fill
+                    // edge tracks the now-line and never overfills a left-clipped
+                    // cell (a program that began before the visible window). For a
+                    // fully-visible cell clippedStart == programme.start, so this
+                    // equals the true program progress.
+                    val liveProgress: Float? = if (isLive) {
+                        val span = (clippedEnd - clippedStart).toFloat()
+                        if (span > 0f) {
+                            ((nowMillis - clippedStart) / span).coerceIn(0f, 1f)
+                        } else null
+                    } else null
                     ProgrammeCell(
                         programme = programme,
                         channelName = channel.name,
                         channelId = channel.id,
                         widthDp = wDp,
                         isLive = isLive,
+                        liveProgress = liveProgress,
                         isTv = isTv,
                         activeReminderKeys = activeReminderKeys,
                         remindersVm = remindersVm,
@@ -813,6 +898,9 @@ private fun ProgrammeCell(
     channelId: String,
     widthDp: androidx.compose.ui.unit.Dp,
     isLive: Boolean,
+    /** Elapsed fraction (0..1) of the now-airing program, or null if not live.
+     * Drives the bottom progress bar that marks the currently-airing cell. */
+    liveProgress: Float?,
     isTv: Boolean,
     activeReminderKeys: Set<String>,
     remindersVm: RemindersViewModel,
@@ -996,6 +1084,27 @@ private fun ProgrammeCell(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // Currently-airing progress bar: a thin elapsed-time track pinned to the
+        // bottom edge of the live cell. The weighted spacer pushes it down; non-
+        // live cells pass liveProgress == null and render nothing here.
+        liveProgress?.let { frac ->
+            Spacer(Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(frac.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary),
                 )
             }
         }
