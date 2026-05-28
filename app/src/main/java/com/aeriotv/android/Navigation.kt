@@ -39,6 +39,7 @@ import com.aeriotv.android.feature.ondemand.SeriesDetailScreen
 import com.aeriotv.android.feature.player.PlayerScreen
 import com.aeriotv.android.feature.player.VODPlayerScreen
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
+import com.aeriotv.android.feature.whatsnew.WhatsNewGate
 import com.aeriotv.android.feature.reminders.ReminderBannerHost
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -588,6 +589,11 @@ fun AerioTVNavHost(
             onOpenChannel = { channelId -> navController.navigate(Routes.player(channelId)) },
             modifier = Modifier.align(Alignment.TopCenter),
         )
+        // What's New sheet (Phase 137 / audit #46). Decides internally
+        // whether to show based on BuildConfig.VERSION_NAME vs the user's
+        // last-dismissed value; first-ever install is seeded silently so
+        // the onboarding flow isn't interrupted.
+        WhatsNewGate()
     }
 }
 

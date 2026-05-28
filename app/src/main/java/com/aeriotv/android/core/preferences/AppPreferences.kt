@@ -177,6 +177,23 @@ class AppPreferences @Inject constructor(
     }
 
     /**
+     * Last app version the user dismissed the What's New sheet for. Compared
+     * against [com.aeriotv.android.BuildConfig.VERSION_NAME] on cold launch;
+     * a mismatch means the user just upgraded and the WhatsNewSheet pops once.
+     * Blank = never seen, treated as "first-ever install" - we seed the value
+     * silently and don't show the sheet (the onboarding flow is the more
+     * relevant first-launch surface).
+     */
+    val lastSeenWhatsNewVersion: Flow<String> = store.data.map {
+        it[KEY_LAST_SEEN_WHATSNEW_VERSION] ?: ""
+    }
+    suspend fun setLastSeenWhatsNewVersion(value: String) {
+        store.edit { prefs -> prefs[KEY_LAST_SEEN_WHATSNEW_VERSION] = value }
+    }
+    suspend fun lastSeenWhatsNewVersionOnce(): String =
+        store.data.first()[KEY_LAST_SEEN_WHATSNEW_VERSION].orEmpty()
+
+    /**
      * LRU list of recently-played channel ids, most-recent first. Mirrors iOS
      * RecentChannelsStore (@AppStorage `recentChannelIDs`). Stored newline-
      * delimited to preserve order (a Preferences string Set would not).
@@ -569,6 +586,7 @@ class AppPreferences @Inject constructor(
         val KEY_APPLE_TV_CHANNEL_FLIP = booleanPreferencesKey("app_behaviors_apple_tv_channel_flip")
         val KEY_AUTO_RESUME_LAST_CHANNEL = booleanPreferencesKey("app_behaviors_auto_resume_last_channel")
         val KEY_LAST_WATCHED_CHANNEL_ID = stringPreferencesKey("last_watched_channel_id")
+        val KEY_LAST_SEEN_WHATSNEW_VERSION = stringPreferencesKey("last_seen_whatsnew_version")
         val KEY_HIDDEN_GROUPS = stringPreferencesKey("hidden_groups")
         val KEY_HOME_SSIDS = stringPreferencesKey("home_ssids")
         val KEY_DISPLAY_SCALE_MOVIES = doublePreferencesKey("display_scale_movies")
