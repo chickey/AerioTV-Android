@@ -78,12 +78,19 @@ class DebugLogger @Inject constructor(
             Level.ERROR -> Log.e(tag, message, throwable)
         }
         if (!enabled.get()) return
+        // Audit task #53: scrub credentials before the line hits the
+        // persistent file. The logcat echo above intentionally keeps the
+        // raw text so live `adb logcat` debugging is unchanged; only the
+        // bug-report file -- the surface a user might share -- is sanitized.
+        val safeMessage = LogSanitizer.redact(message)
         val ts = TIMESTAMP_FMT.format(Date())
         val combined = buildString {
-            append(ts).append(' ').append(level.tag).append('/').append(tag).append(": ").append(message)
+            append(ts).append(' ').append(level.tag).append('/').append(tag).append(": ").append(safeMessage)
             if (throwable != null) {
                 appendLine()
-                throwable.stackTraceToString().lines().forEach { appendLine("    $it") }
+                throwable.stackTraceToString().lines().forEach {
+                    appendLine("    " + LogSanitizer.redact(it))
+                }
             }
         }
         queue.trySend(combined)
