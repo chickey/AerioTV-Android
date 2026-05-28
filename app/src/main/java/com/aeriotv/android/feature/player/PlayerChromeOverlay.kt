@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -103,6 +104,7 @@ fun PlayerChromeOverlay(
     onShowStreamInfo: () -> Unit,
     onShowSubtitles: () -> Unit,
     onShowAudioTracks: () -> Unit,
+    onShowPlaybackSpeed: () -> Unit,
     onToggleAudioOnly: () -> Unit,
     audioOnly: Boolean,
     onSetSleepMinutes: (Int) -> Unit,
@@ -176,6 +178,10 @@ fun PlayerChromeOverlay(
                         onAudioTracks = {
                             moreOpen = false
                             onShowAudioTracks()
+                        },
+                        onPlaybackSpeed = {
+                            moreOpen = false
+                            onShowPlaybackSpeed()
                         },
                         onRecord = {
                             moreOpen = false
@@ -328,6 +334,7 @@ private fun PlayerMoreMenu(
     sleepActive: Boolean,
     onSubtitles: () -> Unit,
     onAudioTracks: () -> Unit,
+    onPlaybackSpeed: () -> Unit,
     onRecord: () -> Unit,
     onSleepTimer: () -> Unit,
     onStreamInfo: () -> Unit,
@@ -364,6 +371,17 @@ private fun PlayerMoreMenu(
             },
             text = { Text("Audio Track") },
             onClick = onAudioTracks,
+        )
+        DropdownMenuItem(
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Outlined.Speed,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            },
+            text = { Text("Playback Speed") },
+            onClick = onPlaybackSpeed,
         )
         if (canRecord) {
             DropdownMenuItem(
@@ -759,6 +777,55 @@ fun AudioTracksSheet(
         }
     }
 }
+
+/**
+ * Bottom-sheet picker for the mpv `speed` property. Discrete options
+ * matching the iOS player (0.5x .. 2.0x). For live streams: faster speeds
+ * eventually drain the demuxer buffer and the stream falls behind / catches
+ * up to the live edge, which mpv handles automatically. The 1.0 default
+ * stays the dominant choice.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlaybackSpeedSheet(
+    currentSpeed: Float,
+    onSelect: (Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+            Text(
+                text = "Playback Speed",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(12.dp))
+            PLAYBACK_SPEEDS.forEach { (value, label) ->
+                SubtitleRow(
+                    label = label,
+                    selected = kotlin.math.abs(currentSpeed - value) < 0.01f,
+                    onClick = { onSelect(value) },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+private val PLAYBACK_SPEEDS = listOf(
+    0.5f to "0.5x",
+    0.75f to "0.75x",
+    1.0f to "Normal (1.0x)",
+    1.25f to "1.25x",
+    1.5f to "1.5x",
+    2.0f to "2.0x",
+)
 
 @Composable
 private fun SubtitleRow(label: String, selected: Boolean, onClick: () -> Unit) {

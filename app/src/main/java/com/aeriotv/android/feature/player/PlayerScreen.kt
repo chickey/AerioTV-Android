@@ -155,6 +155,7 @@ fun PlayerScreen(
     var streamInfo by remember { mutableStateOf<StreamInfoSnapshot?>(null) }
     var subtitles by remember { mutableStateOf<SubtitlesState?>(null) }
     var audioTracks by remember { mutableStateOf<AudioTracksState?>(null) }
+    var playbackSpeedSheet by remember { mutableStateOf<Float?>(null) }
     var multiviewPickerOpen by remember { mutableStateOf(false) }
 
     // Sleep timer: stores the wall-clock millis at which the player should close.
@@ -375,6 +376,10 @@ fun PlayerScreen(
                     currentAid = view.readCurrentAid(),
                 )
             },
+            onShowPlaybackSpeed = {
+                val view = mpvView ?: return@PlayerChromeOverlay
+                playbackSpeedSheet = view.readSpeed()
+            },
             onToggleAudioOnly = {
                 audioOnly = !audioOnly
                 val view = mpvView
@@ -464,6 +469,16 @@ fun PlayerScreen(
                 audioTracks = null
             },
             onDismiss = { audioTracks = null },
+        )
+    }
+    playbackSpeedSheet?.let { current ->
+        PlaybackSpeedSheet(
+            currentSpeed = current,
+            onSelect = { speed ->
+                mpvView?.mpv?.setPropertyString("speed", speed.toString())
+                playbackSpeedSheet = null
+            },
+            onDismiss = { playbackSpeedSheet = null },
         )
     }
 
@@ -603,6 +618,12 @@ private fun MPVPlayerView.readCurrentAid(): Int? {
     if (raw == "no" || raw == "auto") return null
     return raw.toIntOrNull()
 }
+
+/** mpv `speed` property as a Float. Defaults to 1.0 if the property is
+ *  unavailable (e.g. handle not fully attached yet) so the picker shows
+ *  Normal as selected rather than no selection. */
+private fun MPVPlayerView.readSpeed(): Float =
+    mpv.getPropertyString("speed")?.toFloatOrNull() ?: 1.0f
 
 private fun String?.orZero(): String = if (this.isNullOrBlank()) "" else this
 private fun Double.roundToOneDecimal(): String = String.format(Locale.US, "%.1f", this)
