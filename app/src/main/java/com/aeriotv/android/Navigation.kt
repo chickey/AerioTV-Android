@@ -36,6 +36,9 @@ import com.aeriotv.android.feature.onboarding.WelcomeScreen
 import com.aeriotv.android.feature.multiview.MultiviewScreen
 import com.aeriotv.android.feature.ondemand.OnDemandViewModel
 import com.aeriotv.android.feature.ondemand.SeriesDetailScreen
+import com.aeriotv.android.core.playback.PlaybackService
+import com.aeriotv.android.feature.main.MainScaffoldEntryPoint
+import com.aeriotv.android.feature.miniplayer.MiniPlayerSession
 import com.aeriotv.android.feature.miniplayer.MiniPlayerViewModel
 import com.aeriotv.android.feature.miniplayer.TvMiniPlayerOverlay
 import com.aeriotv.android.feature.player.PlayerScreen
@@ -605,6 +608,22 @@ fun AerioTVNavHost(
         // MainScaffold as a row above the bottom nav.
         val miniPlayerVm: MiniPlayerViewModel = androidx.hilt.navigation.compose.hiltViewModel()
         val miniState by miniPlayerVm.state.collectAsStateWithLifecycle()
+        val miniContext = androidx.compose.ui.platform.LocalContext.current
+        val miniMpvHolder = remember {
+            dagger.hilt.android.EntryPointAccessors
+                .fromApplication(
+                    miniContext.applicationContext,
+                    MainScaffoldEntryPoint::class.java,
+                )
+                .mpvPlayerHolder()
+        }
+        // The TV mini is a static card (channel logo + name + double-press
+        // hint), not a video window - re-parenting the SurfaceView between
+        // composables fights libmpv's render path. Audio continues via the
+        // PlayerScreen-installed PlaybackService; resume re-pushes the route
+        // and PlayerScreen's AndroidView factory restores video on the held
+        // MPV via mpvHolder.acquireOrCreate (vid="auto", first frame is
+        // instant because the decoder never tore down).
         TvMiniPlayerOverlay(
             state = miniState,
             onResume = {
@@ -613,7 +632,14 @@ fun AerioTVNavHost(
                     navController.navigate(Routes.player(resumed.id))
                 }
             },
-            onDismiss = { miniPlayerVm.dismiss() },
+            onDismiss = {
+                // Match MainScaffold's phone-row dismiss: tear MPV down and
+                // stop the background audio service so the user gets a clean
+                // exit, not just a hidden mini-player still consuming RAM.
+                miniPlayerVm.dismiss()
+                miniMpvHolder.destroy()
+                PlaybackService.stop(miniContext)
+            },
         )
         // Double-press D-pad Select event - MainActivity emits into the
         // session's resumeRequests flow; this collects and re-pushes the

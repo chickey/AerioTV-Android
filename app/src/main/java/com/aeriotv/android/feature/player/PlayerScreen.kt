@@ -129,21 +129,40 @@ fun PlayerScreen(
         mpvHolder.setVideoEnabled(true)
     }
 
-    // System back intercept: promote to the mini-player row above the bottom
-    // nav, start the foreground PlaybackService so audio survives the activity
-    // backgrounding, and switch MPV to audio-only to free the GPU. The held
-    // MPV instance keeps running; AndroidView.onRelease below just detaches
-    // the SurfaceView. Tap the mini-player row to resume.
+    // System back intercept. Two flavours:
+    //   - Phone: promote to the bottom MiniPlayerRow above the nav, kill
+    //     video output (vid=no -> mpv folds vo=null) to free the GPU, and
+    //     start the foreground PlaybackService so audio survives the
+    //     activity going to background. The held MPV stays running.
+    //   - TV: keep video enabled (the TvMiniPlayerOverlay shows the live
+    //     stream in a top-right window, tvOS PlayerSession parity). Toggling
+    //     vid off here would force vo=null and the mini would be black even
+    //     after re-attaching the surface. PlaybackService isn't needed
+    //     either because the app stays foregrounded behind the mini.
+    val isTvForm = (
+        context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_TYPE_MASK
+        ) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
     androidx.activity.compose.BackHandler {
         miniPlayerVm.showMiniPlayer()
-        currentChannel?.let { ch ->
-            mpvHolder.setVideoEnabled(false)
-            PlaybackService.startBackground(
-                context = context,
-                title = ch.name,
-                subtitle = nowProgramme?.title.orEmpty(),
-                logoUrl = ch.tvgLogo.takeIf { it.isNotBlank() },
-            )
+        if (isTvForm) {
+            // Clean handoff to the TvMiniPlayerOverlay's fresh mpv handle so
+            // we don't have two libmpv instances decoding the same URL.
+            // The mini will play the URL again - brief buffer gap on
+            // entering mini, but stable and avoids the BaseMPVView
+            // surfaceDestroyed -> vo=null trap that breaks the
+            // re-parenting path.
+            mpvHolder.destroy()
+        } else {
+            currentChannel?.let { ch ->
+                mpvHolder.setVideoEnabled(false)
+                PlaybackService.startBackground(
+                    context = context,
+                    title = ch.name,
+                    subtitle = nowProgramme?.title.orEmpty(),
+                    logoUrl = ch.tvgLogo.takeIf { it.isNotBlank() },
+                )
+            }
         }
         onClose()
     }
