@@ -105,10 +105,23 @@ class MPVPlayerHolder @Inject constructor() {
         return fresh
     }
 
-    /** Composable-unmount hook. Does NOT destroy MPV; PlaybackService is
-     * responsible for keeping the process alive while audio continues. */
+    /**
+     * Composable-unmount hook. Does NOT destroy MPV; PlaybackService is
+     * responsible for keeping the process alive while audio continues.
+     *
+     * Phase 163.1 fix: removeView() fires SurfaceHolder.surfaceDestroyed
+     * synchronously, and mpv-android-lib's BaseMPVView blocks the calling
+     * thread waiting for libmpv's render thread to release the surface. On
+     * the main thread that's a >5s wait while a live stream is actively
+     * decoding -> ANR. Set vid=no FIRST so the render path is shut down
+     * before the surface is asked to release (identical shield to the
+     * Phase 96 destroy fix). The next acquireOrCreate consumer restores
+     * vid=auto in a view.post {} once the new surface is up.
+     */
     fun detach() {
         val v = view ?: return
+        runCatching { v.mpv.setPropertyString("vid", "no") }
+            .onFailure { Log.w(TAG, "detach: vid=no failed", it) }
         (v.parent as? ViewGroup)?.removeView(v)
     }
 
