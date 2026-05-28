@@ -505,6 +505,15 @@ class AppPreferences @Inject constructor(
         data[KEY_AUTO_RESUME_LAST_CHANNEL]?.let { out["autoResumeLastChannel"] = it.toString() }
         data[KEY_CATEGORY_MASTER_ENABLE]?.let { out["enableCategoryColors"] = it.toString() }
         data[KEY_CATEGORY_CUSTOM_JSON]?.let { out["customCategoryColors.v1"] = it }
+        // Audit task #52: broaden Drive sync to match iOS coverage. iOS
+        // syncs hidden groups, accent color choice, and the custom accent
+        // hex string as part of the Preferences snapshot. Network /
+        // device-local prefs (homeSsids, buffer size, DVR folder, network
+        // timeout) intentionally stay un-synced because they're device
+        // specific.
+        data[KEY_HIDDEN_GROUPS]?.let { out["hiddenGroups.v1"] = it }
+        data[KEY_USE_CUSTOM_ACCENT]?.let { out["useCustomAccent"] = it.toString() }
+        data[KEY_CUSTOM_ACCENT_HEX]?.let { out["customAccentHex"] = it }
         ProgramCategory.entries.forEach { bucket ->
             data[stringPreferencesKey(bucket.hexStorageKey)]?.let { out[bucket.hexStorageKey] = it }
             data[booleanPreferencesKey(bucket.enabledStorageKey)]?.let { out[bucket.enabledStorageKey] = it.toString() }
@@ -523,6 +532,10 @@ class AppPreferences @Inject constructor(
             keys["autoResumeLastChannel"]?.toBooleanStrictOrNull()?.let { prefs[KEY_AUTO_RESUME_LAST_CHANNEL] = it }
             keys["enableCategoryColors"]?.toBooleanStrictOrNull()?.let { prefs[KEY_CATEGORY_MASTER_ENABLE] = it }
             keys["customCategoryColors.v1"]?.let { prefs[KEY_CATEGORY_CUSTOM_JSON] = it }
+            // Audit task #52: receive the broadened keys.
+            keys["hiddenGroups.v1"]?.let { prefs[KEY_HIDDEN_GROUPS] = it }
+            keys["useCustomAccent"]?.toBooleanStrictOrNull()?.let { prefs[KEY_USE_CUSTOM_ACCENT] = it }
+            keys["customAccentHex"]?.let { prefs[KEY_CUSTOM_ACCENT_HEX] = it }
             ProgramCategory.entries.forEach { bucket ->
                 keys[bucket.hexStorageKey]?.let { prefs[stringPreferencesKey(bucket.hexStorageKey)] = it }
                 keys[bucket.enabledStorageKey]?.toBooleanStrictOrNull()?.let {
