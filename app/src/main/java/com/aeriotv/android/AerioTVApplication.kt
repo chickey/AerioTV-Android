@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.aeriotv.android.core.debug.DebugLogger
+import com.aeriotv.android.core.debug.ResourceTelemetry
 import com.aeriotv.android.core.network.DispatcharrWarmupCoordinator
 import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.feature.player.MpvLibraryWarmup
@@ -36,6 +37,7 @@ class AerioTVApplication : Application(), Configuration.Provider {
     @Inject lateinit var debugLogger: DebugLogger
     @Inject lateinit var appPreferences: AppPreferences
     @Inject lateinit var reminderBannerBus: ReminderBannerBus
+    @Inject lateinit var resourceTelemetry: ResourceTelemetry
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -59,10 +61,28 @@ class AerioTVApplication : Application(), Configuration.Provider {
         // registrations + JNI globals stay resident and the first channel tap
         // hits libmpv's warm path. See MpvLibraryWarmup.warmHandle.
         MpvLibraryWarmup.start(this)
+        // Audit task #37: periodic resource snapshots (PSS, FD count, thermal,
+        // sys memory) into logcat, debug builds only. Diagnostic trail for the
+        // "AerioTV crashes on the Google TV Streamer" reports - by the time a
+        // crash hits we have a recent timeline of memory + thermal pressure.
+        resourceTelemetry.start()
         appScope.launch {
             appPreferences.debugLoggingEnabled.collectLatest { enabled ->
                 debugLogger.setEnabled(enabled)
             }
         }
+    }
+
+    /**
+     * Forward system memory-pressure callbacks to the telemetry so a
+     * TRIM_MEMORY_RUNNING_CRITICAL / TRIM_MEMORY_COMPLETE is logged
+     * immediately before the system kills us (best diagnostic signal we have
+     * for OOM-class TV crashes). Future phases can react here to shed memory
+     * proactively - drop the in-memory EPG cache, close multiview tiles past
+     * the soft limit, etc.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        resourceTelemetry.onTrimMemory(level)
     }
 }
