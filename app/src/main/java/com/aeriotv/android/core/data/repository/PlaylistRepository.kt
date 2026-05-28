@@ -3,7 +3,9 @@ package com.aeriotv.android.core.data.repository
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.SourceType
+import com.aeriotv.android.core.data.db.dao.EpgProgrammeDao
 import com.aeriotv.android.core.data.db.dao.PlaylistDao
+import com.aeriotv.android.core.data.db.entity.EpgProgrammeEntity
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
 import android.content.Context
 import com.aeriotv.android.core.network.DispatcharrAuthBroker
@@ -51,6 +53,7 @@ class PlaylistRepository @Inject constructor(
     private val dispatcharrAuth: DispatcharrAuthBroker,
     private val dispatcharrTokenStore: DispatcharrTokenStore,
     private val appPreferences: AppPreferences,
+    private val epgProgrammeDao: EpgProgrammeDao,
 ) {
 
     /**
@@ -306,6 +309,30 @@ class PlaylistRepository @Inject constructor(
     }
 
     /**
+     * Disk-cached EPG (iOS GuideStore parity). [loadCachedEpg] returns the last
+     * persisted guide for a source so the UI can paint now-playing + the guide
+     * instantly on relaunch; [newestEpgFetch] drives the freshness check; and
+     * [saveEpgToCache] replaces the source's rows after a network fetch, pruning
+     * programmes that have already ended.
+     */
+    suspend fun loadCachedEpg(playlistId: String): List<EPGProgramme> =
+        epgProgrammeDao.forPlaylist(playlistId).map { it.toProgramme() }
+
+    suspend fun newestEpgFetch(playlistId: String): Long? =
+        epgProgrammeDao.newestFetchedAt(playlistId)
+
+    suspend fun saveEpgToCache(playlistId: String, programmes: List<EPGProgramme>) {
+        val now = System.currentTimeMillis()
+        epgProgrammeDao.replaceForPlaylist(
+            playlistId,
+            programmes.map { it.toCacheEntity(playlistId, now) },
+        )
+        // Hygiene: drop programmes that ended over an hour ago across all sources
+        // (mirrors GuideStore.saveToCache's stale-row delete).
+        epgProgrammeDao.deleteEndedBefore(now - 60L * 60L * 1000L)
+    }
+
+    /**
      * Fetch the Dispatcharr channel profiles available for [playlist] so the
      * Edit Playlist screen can offer them as scoping options. Returns an empty
      * list for non-Dispatcharr sources. Routed through the AuthBroker so a
@@ -499,6 +526,30 @@ private fun List<DispatcharrEpgEntry>.toProgrammes(): List<EPGProgramme> =
             dispatcharrProgramId = entry.programIdInt,
         )
     }
+
+/** EPG disk-cache row <-> domain model mapping. */
+private fun EpgProgrammeEntity.toProgramme(): EPGProgramme = EPGProgramme(
+    channelId = channelId,
+    title = title,
+    description = description,
+    startMillis = startMillis,
+    endMillis = endMillis,
+    category = category,
+    dispatcharrProgramId = dispatcharrProgramId,
+)
+
+private fun EPGProgramme.toCacheEntity(playlistId: String, fetchedAt: Long): EpgProgrammeEntity =
+    EpgProgrammeEntity(
+        playlistId = playlistId,
+        channelId = channelId,
+        title = title,
+        description = description,
+        startMillis = startMillis,
+        endMillis = endMillis,
+        category = category,
+        dispatcharrProgramId = dispatcharrProgramId,
+        fetchedAt = fetchedAt,
+    )
 
 /**
  * Format a Dispatcharr-API channel-number Double back to a display string,

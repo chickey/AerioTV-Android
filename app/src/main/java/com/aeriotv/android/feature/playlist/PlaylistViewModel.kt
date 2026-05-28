@@ -72,6 +72,15 @@ class PlaylistViewModel @Inject constructor(
     companion object {
         const val ALL_GROUPS = "All"
         private const val TAG = "PlaylistViewModel"
+
+        /**
+         * How long a disk-cached EPG is treated as fresh before a relaunch also
+         * hits the network. Within this window the cache is used as-is (instant,
+         * no network); past it the cache is still painted instantly but a
+         * background refresh runs. 30 minutes keeps now-playing accurate while
+         * making quick app revisits zero-network.
+         */
+        private const val EPG_CACHE_TTL_MS = 30L * 60L * 1000L
     }
 
     private val _state = MutableStateFlow(UiState())
@@ -263,7 +272,7 @@ class PlaylistViewModel @Inject constructor(
         }
     }
 
-    private fun loadEpgIfConfigured(playlist: PlaylistEntity) {
+    private fun loadEpgIfConfigured(playlist: PlaylistEntity, forceRefresh: Boolean = false) {
         val sourceType = SourceType.entries.firstOrNull { it.name == playlist.sourceType }
             ?: SourceType.M3uUrl
         // M3uUrl only loads EPG when user provided an XMLTV URL. Dispatcharr derives one
@@ -278,19 +287,43 @@ class PlaylistViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            Log.i(TAG, "loadEpgIfConfigured: fetching EPG for ${playlist.sourceType}")
-            _state.update { it.copy(isEpgLoading = true) }
+            // 1. Paint the disk cache immediately (iOS GuideStore parity) so the
+            // guide + now-playing are never blank on relaunch while the network
+            // fetch runs. Cache is keyed per source (playlist id).
+            val cached = runCatching { repository.loadCachedEpg(playlist.id) }
+                .getOrDefault(emptyList())
+            val hasCache = cached.isNotEmpty()
+            if (hasCache) {
+                Log.i(TAG, "loadEpgIfConfigured: painted ${cached.size} cached programmes")
+                _state.update { it.copy(epgByChannel = groupByChannel(cached), isEpgLoading = false) }
+            }
+            // 2. Freshness: skip the network entirely when the cache is recent,
+            // unless the caller forced a refresh (e.g. Refresh Playlist).
+            if (!forceRefresh) {
+                val newest = runCatching { repository.newestEpgFetch(playlist.id) }.getOrNull()
+                val fresh = newest != null &&
+                    (System.currentTimeMillis() - newest) < EPG_CACHE_TTL_MS
+                if (fresh) {
+                    Log.i(TAG, "loadEpgIfConfigured: cache fresh, skipping network")
+                    _state.update { it.copy(isEpgLoading = false) }
+                    return@launch
+                }
+            }
+            // 3. Stale / forced / first-ever launch -> network. Only show the
+            // spinner when there is nothing cached to display yet.
+            Log.i(TAG, "loadEpgIfConfigured: fetching EPG for ${playlist.sourceType} (force=$forceRefresh, hadCache=$hasCache)")
+            if (!hasCache) _state.update { it.copy(isEpgLoading = true) }
             repository.loadEpg(playlist).fold(
                 onSuccess = { programmes ->
                     Log.i(TAG, "EPG loaded: ${programmes.size} programmes across ${programmes.map { it.channelId }.toSet().size} channels")
-                    val byChannel: Map<String, List<EPGProgramme>> = programmes
-                        .groupBy { it.channelId }
-                        .mapValues { (_, list) -> list.sortedBy { it.startMillis } }
-                    _state.update { it.copy(epgByChannel = byChannel, isEpgLoading = false) }
+                    _state.update { it.copy(epgByChannel = groupByChannel(programmes), isEpgLoading = false) }
+                    // Persist the fresh guide so the next launch is instant.
+                    runCatching { repository.saveEpgToCache(playlist.id, programmes) }
+                        .onFailure { Log.w(TAG, "saveEpgToCache failed", it) }
                     // iOS parity: fire-and-forget category enrichment for
-                    // Dispatcharr's bulk grid (which strips <category>).
+                    // Dispatcharr's bulk grid (which strips the category).
                     // Categories tint in progressively as detail responses
-                    // land — Live TV cards + Guide cells stay interactive
+                    // land; Live TV cards + Guide cells stay interactive
                     // throughout. Mirrors EPGGuideView.swift line 848
                     // `Task { await self.enrichDispatcharrCategories(...) }`.
                     launch {
@@ -298,26 +331,30 @@ class PlaylistViewModel @Inject constructor(
                             repository.enrichNowPlayingCategories(playlist, programmes)
                         }.onFailure { Log.w(TAG, "category enrichment failed", it) }
                             .getOrDefault(programmes)
-                        // Only push an update when enrichment actually
-                        // changed something — short-circuits the recompose
-                        // when the source already had categories baked in
-                        // (XMLTV path) or no nominees existed.
+                        // Only push an update when enrichment actually changed
+                        // something; short-circuits the recompose when the source
+                        // already had categories baked in (XMLTV path).
                         if (enriched !== programmes) {
-                            val enrichedByChannel: Map<String, List<EPGProgramme>> = enriched
-                                .groupBy { it.channelId }
-                                .mapValues { (_, list) -> list.sortedBy { it.startMillis } }
-                            _state.update { it.copy(epgByChannel = enrichedByChannel) }
+                            _state.update { it.copy(epgByChannel = groupByChannel(enriched)) }
+                            // Keep the cache enriched too so tints survive a relaunch.
+                            runCatching { repository.saveEpgToCache(playlist.id, enriched) }
                             Log.i(TAG, "EPG enriched: categories backfilled for now-playing programmes")
                         }
                     }
                 },
                 onFailure = { t ->
                     Log.w(TAG, "EPG load failed", t)
+                    // Keep whatever cache we already painted on screen.
                     _state.update { it.copy(isEpgLoading = false) }
                 },
             )
         }
     }
+
+    /** Group + time-sort programmes into the per-channel map the UI consumes. */
+    private fun groupByChannel(programmes: List<EPGProgramme>): Map<String, List<EPGProgramme>> =
+        programmes.groupBy { it.channelId }
+            .mapValues { (_, list) -> list.sortedBy { it.startMillis } }
 
     /**
      * Re-fetch the active playlist (channels) and follow with EPG. Used by
@@ -337,7 +374,7 @@ class PlaylistViewModel @Inject constructor(
                             error = if (channels.isEmpty()) "No channels found." else null,
                         )
                     }
-                    loadEpgIfConfigured(active)
+                    loadEpgIfConfigured(active, forceRefresh = true)
                 },
                 onFailure = { t ->
                     Log.w(TAG, "refreshPlaylist failed", t)
@@ -356,7 +393,7 @@ class PlaylistViewModel @Inject constructor(
     fun refreshEpg() {
         viewModelScope.launch {
             val active = repository.activePlaylist() ?: return@launch
-            loadEpgIfConfigured(active)
+            loadEpgIfConfigured(active, forceRefresh = true)
         }
     }
 
