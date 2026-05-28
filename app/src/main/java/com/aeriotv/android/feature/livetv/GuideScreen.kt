@@ -967,11 +967,16 @@ private fun ProgrammeCell(
     else
         MaterialTheme.colorScheme.surface.copy(alpha = 0.35f)
     val cellBg = if (isTv) {
+        // Archie: only the currently-airing cell gets a different color from
+        // the rail background; past + future cells blend with the channel-name
+        // background so a single row reads as one calm surface with a single
+        // accent. Category tint deliberately suppressed on TV - the "three
+        // different blues per row" busyness was from past/future picking up
+        // category colors that competed with the live highlight + the rail.
         when {
             focused -> MaterialTheme.colorScheme.primary.copy(alpha = 0.40f)
-            categoryTint != null -> categoryTint
-            isLive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-            else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.30f)
+            isLive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+            else -> MaterialTheme.colorScheme.surface
         }
     } else {
         if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.32f) else phoneBaseBg
@@ -1081,8 +1086,10 @@ private fun ProgrammeCell(
             }
         }
         if (isTv) {
-            // tvOS cell: bold title + a time-range line. Title turns white on
-            // focus (over the bright fill); the time line dims to match.
+            // tvOS cell: bold title + 1-line program description + a time-range
+            // line, matching EPGGuideView.swift:3146 cellContent. Title turns
+            // white on focus (over the bright fill); description dims to a
+            // soft white, time-range dims further.
             Text(
                 text = programme.title.ifBlank { "No info" },
                 style = MaterialTheme.typography.titleSmall,
@@ -1091,11 +1098,21 @@ private fun ProgrammeCell(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (programme.description.isNotBlank()) {
+                Text(
+                    text = programme.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (focused) Color.White.copy(alpha = 0.85f)
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
                 text = timeRange,
                 style = MaterialTheme.typography.labelSmall,
                 color = if (focused) Color.White.copy(alpha = 0.7f)
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
