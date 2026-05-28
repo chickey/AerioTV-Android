@@ -458,27 +458,27 @@ private fun InfoCard(
     programme: EPGProgramme?,
     sleepRemainingMillis: Long?,
 ) {
+    // tvOS-parity info pill (Archie 2026-05-28 reference shot).
+    // Layout:
+    //   [ LOGO ]  <number> <name>                       [SLEEP]
+    //             <programme title>
+    //             <time range>  ·  <duration>
+    //
+    // The logo sits on the left; channel number is inline with the channel
+    // name on the first line (not a separate column). All three text rows
+    // are white -- programme name doesn't use the accent tint that the
+    // earlier Android pass added.
     Surface(
         color = Color.Black.copy(alpha = 0.55f),
         shape = RoundedCornerShape(12.dp),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            channel.channelNumber?.let { num ->
-                Text(
-                    text = num.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.width(28.dp),
-                )
-            }
-            Spacer(Modifier.width(4.dp))
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(44.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(Color.Black.copy(alpha = 0.6f)),
                 contentAlignment = Alignment.Center,
@@ -487,7 +487,7 @@ private fun InfoCard(
                     AsyncImage(
                         model = channel.tvgLogo,
                         contentDescription = null,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(40.dp),
                     )
                 } else {
                     Text(
@@ -498,10 +498,12 @@ private fun InfoCard(
                     )
                 }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
+                val nameLine = channel.channelNumber?.let { "$it  ${channel.name}" }
+                    ?: channel.name
                 Text(
-                    text = channel.name,
+                    text = nameLine,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
@@ -511,7 +513,7 @@ private fun InfoCard(
                     Text(
                         text = programme.title,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                         maxLines = 1,
                     )
                     val timeRange = formatTimeRange(programme)
@@ -525,6 +527,7 @@ private fun InfoCard(
             }
             sleepRemainingMillis?.let { remaining ->
                 val mins = (remaining / 60_000L).coerceAtLeast(0L)
+                Spacer(Modifier.width(10.dp))
                 Surface(
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                     shape = RoundedCornerShape(50),
