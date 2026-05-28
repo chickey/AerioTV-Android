@@ -31,11 +31,17 @@ fun LiveTVTabContent(
     val stored by settingsVm.defaultLiveTVView.collectAsStateWithLifecycle(initialValue = "")
     val scale by settingsVm.displayScaleLiveTV.collectAsStateWithLifecycle(initialValue = 1.0f)
 
-    val mode = when (stored.lowercase()) {
+    // The List view is disabled on Android TV: the 10-foot Live TV experience is
+    // Guide-only (the List's now-playing rows are a phone / tablet affordance).
+    // Force Guide regardless of any saved "list" preference, and hide the toggle.
+    val mode = if (formFactor.isTv) {
+        LiveTVViewMode.Guide
+    } else when (stored.lowercase()) {
         "list" -> LiveTVViewMode.List
         "guide" -> LiveTVViewMode.Guide
         else -> formFactor.defaultMode
     }
+    val canToggle = formFactor.supportsToggle && !formFactor.isTv
     val toggleMode: () -> Unit = {
         val next = if (mode == LiveTVViewMode.List) LiveTVViewMode.Guide else LiveTVViewMode.List
         settingsVm.setDefaultLiveTVView(next.storageKey())
@@ -51,7 +57,7 @@ fun LiveTVTabContent(
                 viewModel = viewModel,
                 modifierWrap = modifier,
                 viewMode = mode,
-                canToggleViewMode = formFactor.supportsToggle,
+                canToggleViewMode = canToggle,
                 onToggleViewMode = toggleMode,
             )
         }
@@ -60,7 +66,7 @@ fun LiveTVTabContent(
             viewModel = viewModel,
             modifier = modifier,
             viewMode = mode,
-            canToggleViewMode = formFactor.supportsToggle,
+            canToggleViewMode = canToggle,
             onToggleViewMode = toggleMode,
         )
     }
