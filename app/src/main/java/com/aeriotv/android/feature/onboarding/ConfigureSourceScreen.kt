@@ -579,16 +579,25 @@ private fun validate(
     val missing = mutableListOf<String>()
     if (state.url.isBlank()) missing += "Server URL"
     when (sourceType) {
-        SourceType.DispatcharrApiKey -> {
-            if (authMode == DispatcharrAuthMode.ApiKey && state.apiKey.isBlank()) missing += "API key"
-            if (authMode == DispatcharrAuthMode.UsernamePassword) {
-                if (state.username.isBlank()) missing += "Username"
-                if (state.password.isBlank()) missing += "Password"
+        // Dispatcharr accepts EITHER an admin API key OR a username +
+        // password -- they're alternatives, never both. Validate against
+        // whichever the user has actually filled rather than forcing the
+        // segmented toggle's mode: a filled API key is accepted even if the
+        // control still reads "Username & Password" (and vice versa), so a
+        // stuck/mis-set toggle can't demand the other set of fields. Only
+        // when NEITHER credential is present do we prompt -- for the field(s)
+        // of the currently-selected mode.
+        SourceType.DispatcharrApiKey, SourceType.DispatcharrUserPass -> {
+            val hasApiKey = state.apiKey.isNotBlank()
+            val hasUserPass = state.username.isNotBlank() && state.password.isNotBlank()
+            if (!hasApiKey && !hasUserPass) {
+                if (authMode == DispatcharrAuthMode.ApiKey) {
+                    missing += "API key"
+                } else {
+                    if (state.username.isBlank()) missing += "Username"
+                    if (state.password.isBlank()) missing += "Password"
+                }
             }
-        }
-        SourceType.DispatcharrUserPass -> {
-            if (state.username.isBlank()) missing += "Username"
-            if (state.password.isBlank()) missing += "Password"
         }
         SourceType.XtreamCodes -> {
             if (state.username.isBlank()) missing += "Username"

@@ -306,14 +306,25 @@ class PlaylistViewModel @Inject constructor(
             }
             return
         }
-        if (s.sourceType == SourceType.DispatcharrApiKey && s.apiKey.isBlank()) {
-            _state.update { it.copy(error = "API key is required") }
-            return
-        }
-        if (s.sourceType == SourceType.DispatcharrUserPass &&
-            (s.username.isBlank() || s.password.isBlank())) {
-            _state.update { it.copy(error = "Username and password are required") }
-            return
+        // Dispatcharr takes EITHER an API key OR a username + password.
+        // Derive the effective source type from whichever the user actually
+        // supplied, so a stale/mis-set auth toggle can't reject a valid
+        // credential (the "2 fields need attention" + "had to use user/pass"
+        // bug). Whichever is present wins; API key takes precedence if both.
+        val effectiveSourceType: SourceType = when (s.sourceType) {
+            SourceType.DispatcharrApiKey, SourceType.DispatcharrUserPass -> {
+                val hasApiKey = s.apiKey.isNotBlank()
+                val hasUserPass = s.username.isNotBlank() && s.password.isNotBlank()
+                when {
+                    hasApiKey -> SourceType.DispatcharrApiKey
+                    hasUserPass -> SourceType.DispatcharrUserPass
+                    else -> {
+                        _state.update { it.copy(error = "Enter an API key, or a username and password.") }
+                        return
+                    }
+                }
+            }
+            else -> s.sourceType
         }
         if (s.sourceType == SourceType.XtreamCodes &&
             (s.username.isBlank() || s.password.isBlank())) {
@@ -329,7 +340,7 @@ class PlaylistViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             val request = PlaylistRepository.SaveRequest(
-                sourceType = s.sourceType,
+                sourceType = effectiveSourceType,
                 name = s.name.trim().ifBlank { null },
                 url = url,
                 lanUrl = lanUrl,

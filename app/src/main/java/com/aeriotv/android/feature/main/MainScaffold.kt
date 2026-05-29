@@ -1,6 +1,7 @@
 package com.aeriotv.android.feature.main
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -514,6 +515,31 @@ private fun SettingsTabContent() {
             else -> section = null
         }
     }
+    // TV focus retention. The top nav uses selection-follows-focus (focusing
+    // the Live TV pill switches to the guide). When the user clicks a settings
+    // row, the sub-screen replaces the list and the focused row is removed --
+    // Compose then falls focus back to the first focusable in the tree, the
+    // nav pill row, whose Live TV pill grabs focus and bounces the user to the
+    // guide (the "clicking any setting goes back to the guide" bug). Fix: pull
+    // focus INTO the settings content whenever a sub-screen appears so it never
+    // lands on the nav. Keyed on the visible sub-screen; the root list (key
+    // null) is left alone so the pill -> DOWN -> list traversal is unchanged.
+    val settingsContentFocus = remember { FocusRequester() }
+    val subScreenKey: String? = when {
+        addPlaylistStep is AddPlaylistStep.Configure -> "configure"
+        addPlaylistStep is AddPlaylistStep.ChooseType -> "choosetype"
+        playlistsOpen -> "playlists"
+        editPlaylistOpen -> "edit"
+        playlistDetailOpen -> "detail"
+        addMoreOpen -> "addmore"
+        logViewerOpen -> "log"
+        section != null -> "section-$section"
+        else -> null
+    }
+    LaunchedEffect(subScreenKey) {
+        if (subScreenKey != null) runCatching { settingsContentFocus.requestFocus() }
+    }
+    Box(modifier = Modifier.focusRequester(settingsContentFocus).focusGroup()) {
     when {
         addPlaylistStep is AddPlaylistStep.Configure -> ConfigureSourceScreen(
             sourceType = (addPlaylistStep as AddPlaylistStep.Configure).sourceType,
@@ -569,6 +595,7 @@ private fun SettingsTabContent() {
             onBack = { section = null },
             onOpenLogViewer = { logViewerOpen = true },
         )
+    }
     }
 }
 
