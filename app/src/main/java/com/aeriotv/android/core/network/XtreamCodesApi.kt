@@ -58,12 +58,16 @@ class XtreamCodesApi @Inject constructor() {
         }
         engine {
             config {
-                // Same concurrency gate as DispatcharrClient -- IPTV panels
-                // behind a home reverse proxy shed bursty parallel load.
+                // Concurrency gate. Dispatcharr's XC bridge needs per-category
+                // enumeration (hundreds of small JSON requests for a full VOD +
+                // series library), so allow a few more in flight than the
+                // ultra-conservative 2 -- self-hosted panels handle 4/host fine,
+                // and it roughly halves the full-library fill time. Movie and
+                // series fetches are interleaved by the caller so neither starves.
                 dispatcher(
                     Dispatcher().apply {
-                        maxRequests = 4
-                        maxRequestsPerHost = 2
+                        maxRequests = 8
+                        maxRequestsPerHost = 4
                     },
                 )
             }
