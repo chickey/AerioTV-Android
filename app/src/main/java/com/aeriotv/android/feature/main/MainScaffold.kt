@@ -400,6 +400,36 @@ private fun TvTopTabBar(
     onSelect: (AppTab) -> Unit,
     focusRequester: FocusRequester,
 ) {
+    // Selection-follows-focus, but committed ONLY for focus moves BETWEEN pills
+    // (real D-pad traversal of the bar), never for focus ENTERING the bar from
+    // outside. That entry case is exactly how the focus fallback used to bounce
+    // the user to Live TV: drilling into a Settings sub-screen removes the
+    // focused row, Compose hands focus to the first focusable in the tree (the
+    // leftmost Live TV pill), and a straight onFocus -> onSelect switched the
+    // tab, unmounting the sub-screen. We "arm" on the first pill focus after the
+    // bar gains focus and only commit on subsequent in-bar moves; the
+    // post-composition requestFocus that pulls focus back into the content can't
+    // win that race on its own, so the guard lives here where it is deterministic.
+    var navHasFocus by remember { mutableStateOf(false) }
+    var focusedTab by remember { mutableStateOf<AppTab?>(null) }
+    var armed by remember { mutableStateOf(false) }
+    // Arm one frame AFTER the bar gains focus, so the focus that ENTERS the bar
+    // (the same-frame pill focus, including the involuntary fallback) is never
+    // treated as a deliberate selection. Deferring a frame makes this order
+    // independent of whether the Row's or the pill's onFocusChanged fires first.
+    LaunchedEffect(navHasFocus) {
+        if (navHasFocus) {
+            androidx.compose.runtime.withFrameNanos { }
+            armed = true
+        } else {
+            armed = false
+        }
+    }
+    LaunchedEffect(focusedTab) {
+        val cur = focusedTab ?: return@LaunchedEffect
+        if (armed && cur != selected) onSelect(cur)
+    }
+
     // tvOS-style floating nav: the tabs are grouped into one centered, rounded
     // "segmented" capsule over the app background (no full-width surface toolbar
     // strip), so the bar reads as a polished pill group rather than a heavy bar.
@@ -413,6 +443,10 @@ private fun TvTopTabBar(
             modifier = Modifier
                 .focusRequester(focusRequester)
                 .focusRestorer()
+                // Row-level hasFocus stays true while focus moves between pills
+                // and only flips false when focus leaves the bar entirely, so it
+                // is the reliable "is the user in the bar" signal for [armed].
+                .onFocusChanged { navHasFocus = it.hasFocus }
                 .clip(RoundedCornerShape(30.dp))
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
                 .padding(horizontal = 6.dp, vertical = 6.dp),
@@ -423,7 +457,7 @@ private fun TvTopTabBar(
                 TvTab(
                     tab = tab,
                     selected = tab == selected,
-                    onFocused = { onSelect(tab) },
+                    onFocused = { focusedTab = tab },
                 )
             }
         }
@@ -536,8 +570,17 @@ private fun SettingsTabContent() {
         section != null -> "section-$section"
         else -> null
     }
+    var prevSubScreenKey by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(subScreenKey) {
-        if (subScreenKey != null) runCatching { settingsContentFocus.requestFocus() }
+        // Pull focus into the content both when a sub-screen OPENS and when it
+        // CLOSES back to the root list, so focus never lingers on a nav pill
+        // (where the involuntary fallback parks it). Skip the very first
+        // composition (prev == cur == null) so switching INTO Settings still
+        // lands on the Settings pill, preserving the pill -> DOWN -> list flow.
+        val entering = subScreenKey != null
+        val exitingToRoot = subScreenKey == null && prevSubScreenKey != null
+        if (entering || exitingToRoot) runCatching { settingsContentFocus.requestFocus() }
+        prevSubScreenKey = subScreenKey
     }
     Box(modifier = Modifier.focusRequester(settingsContentFocus).focusGroup()) {
     when {
