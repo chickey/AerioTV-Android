@@ -11,6 +11,8 @@ import com.aeriotv.android.core.data.repository.ChannelProfileOption
 import com.aeriotv.android.core.data.repository.PlaylistRepository
 import com.aeriotv.android.core.debug.MemoryPressureBus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -398,7 +400,8 @@ class PlaylistViewModel @Inject constructor(
             val hasCache = cached.isNotEmpty()
             if (hasCache) {
                 Log.i(TAG, "loadEpgIfConfigured: painted ${cached.size} cached programmes")
-                _state.update { it.copy(epgByChannel = groupByChannel(cached), isEpgLoading = false) }
+                val groupedCached = groupByChannel(cached)
+                _state.update { it.copy(epgByChannel = groupedCached, isEpgLoading = false) }
             }
             // 2. Freshness: skip the network entirely when the cache is recent,
             // unless the caller forced a refresh (e.g. Refresh Playlist).
@@ -419,7 +422,8 @@ class PlaylistViewModel @Inject constructor(
             repository.loadEpg(playlist).fold(
                 onSuccess = { programmes ->
                     Log.i(TAG, "EPG loaded: ${programmes.size} programmes across ${programmes.map { it.channelId }.toSet().size} channels")
-                    _state.update { it.copy(epgByChannel = groupByChannel(programmes), isEpgLoading = false) }
+                    val grouped = groupByChannel(programmes)
+                    _state.update { it.copy(epgByChannel = grouped, isEpgLoading = false) }
                     // Persist the fresh guide so the next launch is instant.
                     runCatching { repository.saveEpgToCache(playlist.id, programmes) }
                         .onFailure { Log.w(TAG, "saveEpgToCache failed", it) }
@@ -438,7 +442,8 @@ class PlaylistViewModel @Inject constructor(
                         // something; short-circuits the recompose when the source
                         // already had categories baked in (XMLTV path).
                         if (enriched !== programmes) {
-                            _state.update { it.copy(epgByChannel = groupByChannel(enriched)) }
+                            val groupedEnriched = groupByChannel(enriched)
+                            _state.update { it.copy(epgByChannel = groupedEnriched) }
                             // Keep the cache enriched too so tints survive a relaunch.
                             runCatching { repository.saveEpgToCache(playlist.id, enriched) }
                             Log.i(TAG, "EPG enriched: categories backfilled for now-playing programmes")
@@ -455,9 +460,14 @@ class PlaylistViewModel @Inject constructor(
     }
 
     /** Group + time-sort programmes into the per-channel map the UI consumes. */
-    private fun groupByChannel(programmes: List<EPGProgramme>): Map<String, List<EPGProgramme>> =
-        programmes.groupBy { it.channelId }
-            .mapValues { (_, list) -> list.sortedBy { it.startMillis } }
+    // Grouping hundreds of thousands of programmes by channel + sorting each
+    // bucket is O(n log n); run it off the Main dispatcher so a large EPG
+    // doesn't stall the UI between fetch and paint.
+    private suspend fun groupByChannel(programmes: List<EPGProgramme>): Map<String, List<EPGProgramme>> =
+        withContext(Dispatchers.Default) {
+            programmes.groupBy { it.channelId }
+                .mapValues { (_, list) -> list.sortedBy { it.startMillis } }
+        }
 
     /**
      * Re-fetch the active playlist (channels) and follow with EPG. Used by

@@ -24,9 +24,11 @@ import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -325,7 +327,12 @@ class PlaylistRepository @Inject constructor(
         }
     }
 
-    suspend fun loadEpg(playlist: PlaylistEntity): Result<List<EPGProgramme>> = runCatching {
+    suspend fun loadEpg(playlist: PlaylistEntity): Result<List<EPGProgramme>> =
+        // Parse + grid-mapping run on Default, NOT the caller's (Main) dispatcher.
+        // A large provider EPG is hundreds of thousands of programmes; parsing
+        // that XMLTV / mapping the Dispatcharr grid on Main froze the UI for
+        // minutes before the guide could paint.
+        withContext(Dispatchers.Default) { runCatching {
         val sourceType = playlist.resolvedSourceType()
         val base = effectiveBaseUrl(playlist)
         val programmes = when (sourceType) {
@@ -364,7 +371,7 @@ class PlaylistRepository @Inject constructor(
         }
         dao.update(playlist.copy(lastEpgRefreshedAt = System.currentTimeMillis()))
         programmes
-    }
+    } }
 
     /**
      * Disk-cached EPG (iOS GuideStore parity). [loadCachedEpg] returns the last
@@ -374,17 +381,19 @@ class PlaylistRepository @Inject constructor(
      * programmes that have already ended.
      */
     suspend fun loadCachedEpg(playlistId: String): List<EPGProgramme> =
-        epgProgrammeDao.forPlaylist(playlistId).map { it.toProgramme() }
+        withContext(Dispatchers.Default) {
+            epgProgrammeDao.forPlaylist(playlistId).map { it.toProgramme() }
+        }
 
     suspend fun newestEpgFetch(playlistId: String): Long? =
         epgProgrammeDao.newestFetchedAt(playlistId)
 
     suspend fun saveEpgToCache(playlistId: String, programmes: List<EPGProgramme>) {
         val now = System.currentTimeMillis()
-        epgProgrammeDao.replaceForPlaylist(
-            playlistId,
-            programmes.map { it.toCacheEntity(playlistId, now) },
-        )
+        val entities = withContext(Dispatchers.Default) {
+            programmes.map { it.toCacheEntity(playlistId, now) }
+        }
+        epgProgrammeDao.replaceForPlaylist(playlistId, entities)
         // Hygiene: drop programmes that ended over an hour ago across all sources
         // (mirrors GuideStore.saveToCache's stale-row delete).
         epgProgrammeDao.deleteEndedBefore(now - 60L * 60L * 1000L)
