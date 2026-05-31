@@ -742,7 +742,7 @@ enum class SettingsSection(
 ) {
     Appearance(
         title = "Appearance",
-        subtitle = "Theme, scale & category colors",
+        subtitle = "Theme, scale & category colours",
         icon = Icons.Filled.Palette,
     ),
     AppBehaviors(

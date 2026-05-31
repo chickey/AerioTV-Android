@@ -86,6 +86,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import java.net.UnknownHostException
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.delay
@@ -153,6 +154,7 @@ fun VODPlayerScreen(
     var isPaused by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
+    var playbackWarning by remember { mutableStateOf<String?>(null) }
 
     // Saved progress lookup. Null while loading; -1L after a confirmed "no
     // saved progress" read. Drives the resume-seek LaunchedEffect.
@@ -161,6 +163,11 @@ fun VODPlayerScreen(
         if (videoId.isNullOrBlank()) return@LaunchedEffect
         val existing = watchVm.get(videoId)
         savedPositionMs = existing?.positionMs ?: -1L
+    }
+    LaunchedEffect(streamUrl) { playbackWarning = null }
+    LaunchedEffect(playbackWarning) {
+        val msg = playbackWarning ?: return@LaunchedEffect
+        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
     }
 
     // Black player background -- not the navy app-background -- so the
@@ -323,6 +330,7 @@ fun VODPlayerScreen(
                                 val httpDetail = (root as? HttpDataSource.InvalidResponseCodeException)?.let {
                                     " http=${it.responseCode}"
                                 }.orEmpty()
+                                playbackWarning = playbackWarningFor(root)
                                 debugLogError(
                                     context,
                                     TAG,
@@ -546,6 +554,22 @@ fun VODPlayerScreen(
     DisposableEffect(Unit) {
         onDispose { /* AndroidView.onRelease handles native cleanup. */ }
     }
+}
+
+private fun playbackWarningFor(root: Throwable?): String? {
+    val msg = root?.message.orEmpty()
+    if (root is UnknownHostException || msg.contains("Unable to resolve host", ignoreCase = true)) {
+        val host = Regex("Unable to resolve host \"([^\"]+)\"")
+            .find(msg)
+            ?.groupValues
+            ?.getOrNull(1)
+        return if (!host.isNullOrBlank()) {
+            "Cannot connect to server '$host' from this Fire TV."
+        } else {
+            "Cannot resolve server hostname from this Fire TV."
+        }
+    }
+    return null
 }
 
 @Composable

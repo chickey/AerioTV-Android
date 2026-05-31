@@ -45,6 +45,10 @@ fun GuideOptionsSettingsScreen(
     val showChannelNumber by viewModel.guideShowChannelNumber.collectAsStateWithLifecycle(initialValue = true)
     val transparentLogoBackground by viewModel.guideTransparentLogoBackground.collectAsStateWithLifecycle(initialValue = true)
     val logoScaleMode by viewModel.guideLogoScaleMode.collectAsStateWithLifecycle(initialValue = "fit")
+    val fixedHourAnchor by viewModel.guideFixedHourAnchor.collectAsStateWithLifecycle(initialValue = true)
+    val showDetailsPanel by viewModel.guideShowDetailsPanel.collectAsStateWithLifecycle(initialValue = false)
+    val miniPlayerEnabled by viewModel.guideMiniPlayerEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val miniPlayerPosition by viewModel.guideMiniPlayerPosition.collectAsStateWithLifecycle(initialValue = "top_right")
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -128,6 +132,61 @@ fun GuideOptionsSettingsScreen(
                         label = "Crop",
                         selected = logoScaleMode == "crop",
                         onClick = { viewModel.setGuideLogoScaleMode("crop") },
+                    )
+                }
+
+                GuideGroup(
+                    header = "Navigation",
+                    footer = "Fixed-hour anchor keeps UP/DOWN movement stable. Details panel reserves space for focused show info.",
+                ) {
+                    GuideToggleRow(
+                        title = "Fixed-hour vertical anchor",
+                        subtitle = "Lock UP/DOWN focus to the left-hour column to prevent horizontal guide drift.",
+                        checked = fixedHourAnchor,
+                        onCheckedChange = viewModel::setGuideFixedHourAnchor,
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    GuideToggleRow(
+                        title = "Show focused programme details panel",
+                        subtitle = "Reserve space above the grid for focused programme title/time/description.",
+                        checked = showDetailsPanel,
+                        onCheckedChange = viewModel::setGuideShowDetailsPanel,
+                    )
+                }
+
+                GuideGroup(
+                    header = "Mini Player",
+                    footer = "When enabled, backing out of fullscreen live TV keeps playback in a small overlay window.",
+                ) {
+                    GuideToggleRow(
+                        title = "Enable mini-player on Back",
+                        subtitle = "Back from fullscreen keeps the channel playing in mini-player mode.",
+                        checked = miniPlayerEnabled,
+                        onCheckedChange = viewModel::setGuideMiniPlayerEnabled,
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    GuideScaleRow(
+                        label = "Top right",
+                        selected = miniPlayerPosition == "top_right",
+                        onClick = { viewModel.setGuideMiniPlayerPosition("top_right") },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    GuideScaleRow(
+                        label = "Top left",
+                        selected = miniPlayerPosition == "top_left",
+                        onClick = { viewModel.setGuideMiniPlayerPosition("top_left") },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    GuideScaleRow(
+                        label = "Bottom right",
+                        selected = miniPlayerPosition == "bottom_right",
+                        onClick = { viewModel.setGuideMiniPlayerPosition("bottom_right") },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    GuideScaleRow(
+                        label = "Bottom left",
+                        selected = miniPlayerPosition == "bottom_left",
+                        onClick = { viewModel.setGuideMiniPlayerPosition("bottom_left") },
                     )
                 }
             }

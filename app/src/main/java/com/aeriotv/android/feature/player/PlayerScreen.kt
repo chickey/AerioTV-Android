@@ -43,6 +43,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.delay
+import java.net.UnknownHostException
 import kotlin.math.abs
 
 private const val TAG = "PlayerScreen"
@@ -77,6 +78,7 @@ fun PlayerScreen(
 
     val context = LocalContext.current
     val settingsVm: SettingsViewModel = hiltViewModel()
+    val miniPlayerEnabled by settingsVm.guideMiniPlayerEnabled.collectAsStateWithLifecycle(initialValue = true)
     val miniPlayerVm: MiniPlayerViewModel = hiltViewModel()
     val appleTVChannelFlip by settingsVm.appleTVChannelFlip.collectAsStateWithLifecycle(initialValue = true)
     val streamBufferSize by settingsVm.streamBufferSize.collectAsStateWithLifecycle(initialValue = "default")
@@ -198,24 +200,18 @@ fun PlayerScreen(
     var lastInteractionAt by remember { mutableStateOf(0L) }
     androidx.activity.compose.BackHandler {
         if (isTvForm) {
-            // tvOS-style 3-press back flow (Archie spec 2026-05-28):
-            //   1st Back from fullscreen, chrome hidden  -> show chrome
-            //   2nd Back (chrome now visible)            -> exit to mini
-            //   3rd Back (mini Active, see TvMiniPlayerOverlay)  -> close mini
-            //
-            // Phase 165 persistent-SurfaceView mini path: flip the
-            // root-level PersistentMpvWindow into Mini mode (210x118
-            // top-right), promote MiniPlayerSession to Active so the
-            // hint chip renders. The SurfaceView never reparents -- only
-            // its size + position. No reload, no ANR, no fresh-handle
-            // race. The stream just keeps playing.
-            if (!chromeVisible) {
-                chromeVisible = true
-            } else {
+            if (miniPlayerEnabled) {
+                // Fire TV flow: Back from fullscreen parks playback in mini-player.
                 exoWindowState.requestMini()
                 miniPlayerVm.showMiniPlayer()
-                onClose()
+            } else {
+                // Mini-player disabled: close player route directly with no
+                // transient mini/nav focus choreography.
+                miniPlayerVm.dismiss()
+                exoWindowState.hide()
+                exoHolder.stop()
             }
+            onClose()
         } else {
             // Phone Back: promote to bottom-bar audio-only mini chip,
             // hide the persistent video window, keep playback going
@@ -258,10 +254,29 @@ fun PlayerScreen(
     var audioTracks by remember { mutableStateOf<AudioTracksState?>(null) }
     var playbackSpeedSheet by remember { mutableStateOf<Float?>(null) }
     var multiviewPickerOpen by remember { mutableStateOf(false) }
+    var lastShownPlaybackWarning by remember { mutableStateOf<String?>(null) }
 
     // Sleep timer: stores the wall-clock millis at which the player should close.
     var sleepEndsAt by remember { mutableStateOf<Long?>(null) }
     var sleepRemainingMillis by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(currentChannel?.id) {
+        lastShownPlaybackWarning = null
+    }
+
+    LaunchedEffect(exoHolder.player, currentChannel?.id) {
+        while (true) {
+            val err = exoHolder.player?.playerError
+            if (err != null) {
+                val warning = playbackWarningFor(err)
+                if (!warning.isNullOrBlank() && warning != lastShownPlaybackWarning) {
+                    Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
+                    lastShownPlaybackWarning = warning
+                }
+            }
+            delay(500L)
+        }
+    }
 
     // Phase 165: mpvView is now derived from mpvHolder.view (single
     // persistent View at root). Kept as a local val inside the chrome
@@ -299,6 +314,28 @@ fun PlayerScreen(
             // onPreviewKeyEvent returns false -> doesn't consume; the
             // event still reaches the chrome buttons below.
             .onPreviewKeyEvent {
+                if (it.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                    when (it.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_MENU -> {
+                            // Fire TV "three lines": toggle overlay/chrome.
+                            chromeVisible = !chromeVisible
+                            lastInteractionAt = android.os.SystemClock.uptimeMillis()
+                            return@onPreviewKeyEvent true
+                        }
+                        android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                        android.view.KeyEvent.KEYCODE_ENTER -> {
+                            // Live TV: Select toggles pause/play when the
+                            // chrome isn't in focus mode.
+                            if (isLive && !chromeVisible) {
+                                exoHolder.player?.let { player ->
+                                    player.playWhenReady = !player.playWhenReady
+                                    lastInteractionAt = android.os.SystemClock.uptimeMillis()
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                        }
+                    }
+                }
                 if (chromeVisible) {
                     lastInteractionAt = android.os.SystemClock.uptimeMillis()
                 }
@@ -504,6 +541,23 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         onDispose { /* AndroidView.onRelease handles native cleanup. */ }
     }
+}
+
+private fun playbackWarningFor(error: androidx.media3.common.PlaybackException): String? {
+    val root = error.cause
+    val msg = root?.message.orEmpty()
+    if (root is UnknownHostException || msg.contains("Unable to resolve host", ignoreCase = true)) {
+        val host = Regex("Unable to resolve host \"([^\"]+)\"")
+            .find(msg)
+            ?.groupValues
+            ?.getOrNull(1)
+        return if (!host.isNullOrBlank()) {
+            "Cannot connect to server '$host' from this Fire TV."
+        } else {
+            "Cannot resolve server hostname from this Fire TV."
+        }
+    }
+    return null
 }
 
 private data class SubtitlesState(

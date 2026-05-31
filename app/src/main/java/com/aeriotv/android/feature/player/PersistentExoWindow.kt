@@ -54,6 +54,7 @@ import com.aeriotv.android.core.playback.AerioExoPlayerHolder
 fun BoxScope.PersistentExoWindow(
     holder: AerioExoPlayerHolder,
     state: ExoWindowState,
+    miniPosition: String = "top_right",
 ) {
     val mode by state.mode.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -67,13 +68,20 @@ fun BoxScope.PersistentExoWindow(
         ExoWindowState.Mode.Fullscreen -> Modifier
             .fillMaxSize()
             .background(Color.Black)
-        ExoWindowState.Mode.Mini -> Modifier
-            .zIndex(1f)
-            .align(Alignment.TopEnd)
-            .padding(end = 24.dp, top = 12.dp)
-            .size(width = 210.dp, height = 118.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black)
+        ExoWindowState.Mode.Mini -> {
+            val anchored = when (miniPosition) {
+                "top_left" -> Modifier.align(Alignment.TopStart).padding(start = 24.dp, top = 12.dp)
+                "bottom_right" -> Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 12.dp)
+                "bottom_left" -> Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 12.dp)
+                else -> Modifier.align(Alignment.TopEnd).padding(end = 24.dp, top = 12.dp)
+            }
+            Modifier
+                .zIndex(1f)
+                .then(anchored)
+                .size(width = 210.dp, height = 118.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black)
+        }
     }
 
     Box(modifier = containerModifier) {

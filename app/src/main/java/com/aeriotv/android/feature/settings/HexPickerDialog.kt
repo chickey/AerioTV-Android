@@ -67,7 +67,7 @@ fun HexPickerDialog(
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
-        title = { Text("${bucket.displayName} Color") },
+        title = { Text("${bucket.displayName} Colour") },
         text = {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -103,7 +103,7 @@ fun HexPickerDialog(
                         val cleaned = raw.removePrefix("#").uppercase().filter { it in HEX_CHARS }.take(6)
                         input = cleaned
                     },
-                    label = { Text("Hex color (e.g. ${bucket.defaultHex})") },
+                    label = { Text("Hex colour (e.g. ${bucket.defaultHex})") },
                     singleLine = true,
                     keyboardOptions = com.aeriotv.android.ui.textfield.aerioTextFieldKeyboardOptions(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Ascii,

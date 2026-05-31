@@ -6,13 +6,16 @@ import androidx.lifecycle.viewModelScope
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.SourceType
+import com.aeriotv.android.core.data.programmesFor
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
 import com.aeriotv.android.core.data.repository.ChannelProfileOption
 import com.aeriotv.android.core.data.repository.PlaylistRepository
 import com.aeriotv.android.core.debug.DebugLogger
 import com.aeriotv.android.core.debug.MemoryPressureBus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,6 +113,7 @@ class PlaylistViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+    private var epgLoadJob: Job? = null
 
     init {
         bootstrap()
@@ -401,7 +405,8 @@ class PlaylistViewModel @Inject constructor(
             logI("loadEpgIfConfigured: no EPG for sourceType=${playlist.sourceType}")
             return
         }
-        viewModelScope.launch {
+        epgLoadJob?.cancel()
+        epgLoadJob = viewModelScope.launch {
             // 1. Paint the disk cache immediately (iOS GuideStore parity) so the
             // guide + now-playing are never blank on relaunch while the network
             // fetch runs. Cache is keyed per source (playlist id).
@@ -431,8 +436,18 @@ class PlaylistViewModel @Inject constructor(
             if (!hasCache) _state.update { it.copy(isEpgLoading = true) }
             repository.loadEpg(playlist).fold(
                 onSuccess = { programmes ->
+                    // Startup reliability guard: Dispatcharr can occasionally
+                    // return an empty grid transiently. Keep a painted cache
+                    // (or any already-loaded guide) instead of blanking the
+                    // UI and replacing disk cache with an empty payload.
+                    if (programmes.isEmpty() && (hasCache || _state.value.epgByChannel.isNotEmpty())) {
+                        logW("EPG load returned 0 programmes; keeping existing guide data")
+                        _state.update { it.copy(isEpgLoading = false) }
+                        return@fold
+                    }
                     logI("EPG loaded: ${programmes.size} programmes across ${programmes.map { it.channelId }.toSet().size} channels")
                     val grouped = groupByChannel(programmes)
+                    logEpgMatchDiagnostics(grouped, _state.value.channels)
                     val refreshedAt = System.currentTimeMillis()
                     _state.update { st ->
                         st.copy(
@@ -473,6 +488,13 @@ class PlaylistViewModel @Inject constructor(
                     _state.update { it.copy(isEpgLoading = false) }
                 },
             )
+        }.also { job ->
+            job.invokeOnCompletion { cause ->
+                if (cause != null && cause !is CancellationException) {
+                    logW("EPG load coroutine failed", cause)
+                }
+                if (epgLoadJob === job) epgLoadJob = null
+            }
         }
     }
 
@@ -485,6 +507,29 @@ class PlaylistViewModel @Inject constructor(
             programmes.groupBy { it.channelId }
                 .mapValues { (_, list) -> list.sortedBy { it.startMillis } }
         }
+
+    /**
+     * Debug aid for Fire TV EPG investigations: surface channels that failed to
+     * match any guide rows after fallback matching (tvg-id -> tvg-name -> name).
+     * This runs once per EPG fetch and logs only a small sample to keep noise low.
+     */
+    private fun logEpgMatchDiagnostics(
+        epgByChannel: Map<String, List<EPGProgramme>>,
+        channels: List<M3UChannel>,
+    ) {
+        if (channels.isEmpty() || epgByChannel.isEmpty()) return
+        val unmatched = channels.filter { epgByChannel.programmesFor(it).isEmpty() }
+        if (unmatched.isEmpty()) return
+
+        val sample = unmatched.take(8).joinToString(" | ") { ch ->
+            "name=${ch.name}, tvgId=${ch.tvgID.ifBlank { "<blank>" }}, tvgName=${ch.tvgName.ifBlank { "<blank>" }}"
+        }
+        val keySample = epgByChannel.keys.take(8).joinToString(",")
+        logW(
+            "EPG match diagnostics: unmatched=${unmatched.size}/${channels.size}; " +
+                "sampleChannels=$sample; sampleEpgKeys=$keySample",
+        )
+    }
 
     /**
      * Re-fetch the active playlist (channels) and follow with EPG. Used by

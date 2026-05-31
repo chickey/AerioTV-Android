@@ -132,6 +132,37 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_GUIDE_LOGO_SCALE_MODE] = safe }
     }
 
+    /** TiViMate-style vertical guide anchor: lock UP/DOWN to the fixed left-hour column. */
+    val guideFixedHourAnchor: Flow<Boolean> =
+        store.data.map { it[KEY_GUIDE_FIXED_HOUR_ANCHOR] ?: true }
+    suspend fun setGuideFixedHourAnchor(value: Boolean) {
+        store.edit { it[KEY_GUIDE_FIXED_HOUR_ANCHOR] = value }
+    }
+
+    /** Optional focused-programme details panel (sacrifices a couple of guide rows). */
+    val guideShowDetailsPanel: Flow<Boolean> =
+        store.data.map { it[KEY_GUIDE_SHOW_DETAILS_PANEL] ?: false }
+    suspend fun setGuideShowDetailsPanel(value: Boolean) {
+        store.edit { it[KEY_GUIDE_SHOW_DETAILS_PANEL] = value }
+    }
+
+    /** Enable mini-player when backing out of fullscreen live playback on TV. */
+    val guideMiniPlayerEnabled: Flow<Boolean> =
+        store.data.map { it[KEY_GUIDE_MINI_PLAYER_ENABLED] ?: true }
+    suspend fun setGuideMiniPlayerEnabled(value: Boolean) {
+        store.edit { it[KEY_GUIDE_MINI_PLAYER_ENABLED] = value }
+    }
+
+    /** Mini-player window position on TV: top_right | top_left | bottom_right | bottom_left. */
+    val guideMiniPlayerPosition: Flow<String> =
+        store.data.map { it[KEY_GUIDE_MINI_PLAYER_POSITION] ?: "top_right" }
+    suspend fun setGuideMiniPlayerPosition(value: String) {
+        val safe = value.lowercase().takeIf {
+            it == "top_right" || it == "top_left" || it == "bottom_right" || it == "bottom_left"
+        } ?: "top_right"
+        store.edit { it[KEY_GUIDE_MINI_PLAYER_POSITION] = safe }
+    }
+
     /**
      * Either "list" or "guide", or empty for "follow form-factor default".
      * Mirrors iOS `@AppStorage("defaultLiveTVView")`. Phase 5 used
@@ -544,6 +575,10 @@ class AppPreferences @Inject constructor(
         data[KEY_GUIDE_SHOW_CHANNEL_NUMBER]?.let { out["guideShowChannelNumber"] = it.toString() }
         data[KEY_GUIDE_TRANSPARENT_LOGO_BACKGROUND]?.let { out["guideTransparentLogoBackground"] = it.toString() }
         data[KEY_GUIDE_LOGO_SCALE_MODE]?.let { out["guideLogoScaleMode"] = it }
+        data[KEY_GUIDE_FIXED_HOUR_ANCHOR]?.let { out["guideFixedHourAnchor"] = it.toString() }
+        data[KEY_GUIDE_SHOW_DETAILS_PANEL]?.let { out["guideShowDetailsPanel"] = it.toString() }
+        data[KEY_GUIDE_MINI_PLAYER_ENABLED]?.let { out["guideMiniPlayerEnabled"] = it.toString() }
+        data[KEY_GUIDE_MINI_PLAYER_POSITION]?.let { out["guideMiniPlayerPosition"] = it }
         data[KEY_CATEGORY_MASTER_ENABLE]?.let { out["enableCategoryColors"] = it.toString() }
         data[KEY_CATEGORY_CUSTOM_JSON]?.let { out["customCategoryColors.v1"] = it }
         // Audit task #52: broaden Drive sync to match iOS coverage. iOS
@@ -579,6 +614,20 @@ class AppPreferences @Inject constructor(
             }
             keys["guideLogoScaleMode"]?.let {
                 prefs[KEY_GUIDE_LOGO_SCALE_MODE] = it.lowercase().takeIf { v -> v == "fit" || v == "fill" || v == "crop" } ?: "fit"
+            }
+            keys["guideFixedHourAnchor"]?.toBooleanStrictOrNull()?.let {
+                prefs[KEY_GUIDE_FIXED_HOUR_ANCHOR] = it
+            }
+            keys["guideShowDetailsPanel"]?.toBooleanStrictOrNull()?.let {
+                prefs[KEY_GUIDE_SHOW_DETAILS_PANEL] = it
+            }
+            keys["guideMiniPlayerEnabled"]?.toBooleanStrictOrNull()?.let {
+                prefs[KEY_GUIDE_MINI_PLAYER_ENABLED] = it
+            }
+            keys["guideMiniPlayerPosition"]?.let {
+                prefs[KEY_GUIDE_MINI_PLAYER_POSITION] = it.lowercase().takeIf { v ->
+                    v == "top_right" || v == "top_left" || v == "bottom_right" || v == "bottom_left"
+                } ?: "top_right"
             }
             keys["enableCategoryColors"]?.toBooleanStrictOrNull()?.let { prefs[KEY_CATEGORY_MASTER_ENABLE] = it }
             keys["customCategoryColors.v1"]?.let { prefs[KEY_CATEGORY_CUSTOM_JSON] = it }
@@ -672,6 +721,10 @@ class AppPreferences @Inject constructor(
         val KEY_GUIDE_SHOW_CHANNEL_NUMBER = booleanPreferencesKey("guide_show_channel_number")
         val KEY_GUIDE_TRANSPARENT_LOGO_BACKGROUND = booleanPreferencesKey("guide_transparent_logo_background")
         val KEY_GUIDE_LOGO_SCALE_MODE = stringPreferencesKey("guide_logo_scale_mode")
+        val KEY_GUIDE_FIXED_HOUR_ANCHOR = booleanPreferencesKey("guide_fixed_hour_anchor")
+        val KEY_GUIDE_SHOW_DETAILS_PANEL = booleanPreferencesKey("guide_show_details_panel")
+        val KEY_GUIDE_MINI_PLAYER_ENABLED = booleanPreferencesKey("guide_mini_player_enabled")
+        val KEY_GUIDE_MINI_PLAYER_POSITION = stringPreferencesKey("guide_mini_player_position")
         val KEY_DEFAULT_TAB = stringPreferencesKey("default_tab")
         val KEY_NETWORK_TIMEOUT = doublePreferencesKey("network_timeout_secs")
         val KEY_MAX_RETRIES = intPreferencesKey("max_retries")

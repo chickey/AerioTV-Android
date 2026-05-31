@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.util.Log
 import android.util.Rational
 import android.view.KeyEvent
@@ -57,55 +56,40 @@ class MainActivity : ComponentActivity() {
      */
     private val deepLinkTarget = androidx.compose.runtime.mutableStateOf<DeepLinkTarget?>(null)
 
-    /** Wall-clock timestamp of the last DPAD_CENTER press (uptimeMillis).
-     *  Reset to 0 after a successful double-press detection so a fast triple
-     *  doesn't trigger twice. */
-    private var lastSelectPressMs = 0L
-
     /**
-     * Audit task #22 mini-player resume. The Google TV Streamer remote has
-     * no dedicated play/pause key, so we repurpose a double-press of D-pad
-     * Select (KEYCODE_DPAD_CENTER, also KEYCODE_ENTER on some remotes) as
-     * the "bring me back to fullscreen" affordance while the mini-player is
-     * Active. We don't consume the FIRST press - it still acts as a normal
-     * Compose click on whatever's focused - and only consume the SECOND
-     * press when it lands inside the double-press window AND the mini-player
-     * is showing. That keeps single-press OK working in all other contexts.
+     * Mini-player resume gesture on TV remotes while mini-player is Active:
+     * long-press Select (DPAD_CENTER / ENTER) restores fullscreen playback.
+     * Single Select is consumed as a no-op so focus/clicks under the mini
+     * overlay aren't accidentally triggered.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN &&
-            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                event.keyCode == KeyEvent.KEYCODE_ENTER)
+        val miniActive = miniPlayerSession.state.value is MiniPlayerSession.State.Active
+        if (miniActive &&
+            event.action == KeyEvent.ACTION_DOWN &&
+            event.keyCode == KeyEvent.KEYCODE_BACK
         ) {
-            val now = SystemClock.uptimeMillis()
-            val sinceLast = now - lastSelectPressMs
-            lastSelectPressMs = now
-            val miniActive = miniPlayerSession.state.value is MiniPlayerSession.State.Active
-            Log.i(
-                "MiniPlayerResume",
-                "OK pressed: sinceLast=${sinceLast}ms miniActive=$miniActive " +
-                    "threshold=${DOUBLE_PRESS_THRESHOLD_MS}ms",
-            )
-            // Audit task #22 + Phase 162 crash fix: while the mini is Active,
-            // consume EVERY OK press, not just the second one. Otherwise the
-            // first press falls through to Compose and clicks whatever's
-            // focused in the guide (a programme cell, group chip, etc.),
-            // navigating to PLAYER -- and then the second press fires the
-            // resume which navigates to PLAYER *again*. Two NavController
-            // navigations within ~350ms of each other against the same
-            // singleTop route was producing the crash. Single OK while
-            // mini-Active is now a deliberate no-op; user knows from the hint
-            // chip that double-press is the resume gesture.
-            if (miniActive) {
-                if (sinceLast in 1L..DOUBLE_PRESS_THRESHOLD_MS) {
-                    Log.i("MiniPlayerResume", "Double-press detected -> requestResume()")
-                    miniPlayerSession.requestResume()
-                    lastSelectPressMs = 0L
-                }
-                return true
-            }
+            // Mini-player should always dismiss first on Back, regardless of
+            // whichever screen currently owns D-pad focus behind the mini.
+            miniPlayerSession.dismiss()
+            exoWindowState.hide()
+            exoHolder.stop()
+            AerioMediaPlaybackService.stop(this)
+            return true
         }
+
         return super.dispatchKeyEvent(event)
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent): Boolean {
+        val miniActive = miniPlayerSession.state.value is MiniPlayerSession.State.Active
+        if (miniActive &&
+            (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)
+        ) {
+            Log.i("MiniPlayerResume", "onKeyLongPress detected -> requestResume()")
+            miniPlayerSession.requestResume()
+            return true
+        }
+        return super.onKeyLongPress(keyCode, event)
     }
 
     override fun onPictureInPictureModeChanged(
@@ -240,6 +224,8 @@ class MainActivity : ComponentActivity() {
             val theme by appPreferences.selectedTheme.collectAsState(initial = AppTheme.Aerio)
             val useCustomAccent by appPreferences.useCustomAccent.collectAsState(initial = false)
             val customAccentHex by appPreferences.customAccentHex.collectAsState(initial = "")
+            val miniPlayerPosition by appPreferences.guideMiniPlayerPosition
+                .collectAsState(initial = "top_right")
             val customAccent = if (useCustomAccent && customAccentHex.length == 6) {
                 runCatching {
                     val n = customAccentHex.toLong(16)
@@ -287,6 +273,7 @@ class MainActivity : ComponentActivity() {
                             PersistentExoWindow(
                                 holder = exoHolder,
                                 state = exoWindowState,
+                                miniPosition = miniPlayerPosition,
                             )
                             AerioTVNavHost(
                                 initialUrl = initialUrl,
@@ -302,11 +289,5 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        /** Max gap between two D-pad Select presses to count as a double-press
-         *  for the mini-player resume action. 350ms is a comfortable but not
-         *  sluggish window that matches typical "double-tap" expectations on
-         *  TV remotes. */
-        const val DOUBLE_PRESS_THRESHOLD_MS = 350L
-    }
+    private companion object
 }

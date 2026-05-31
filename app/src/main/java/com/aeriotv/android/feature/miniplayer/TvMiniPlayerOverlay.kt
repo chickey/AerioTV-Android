@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  *
  * The VIDEO is rendered by the activity-lifetime [com.aeriotv.android
  * .feature.player.PersistentMpvWindow] mounted at MainActivity root.
- * This overlay only contributes the "Double press OK to resume" hint
+ * This overlay only contributes the "Long press OK to resume" hint
  * chip below where the video shows. The chip is positioned right-
  * aligned and offset down past the mini video's bottom edge:
  *   mini top inset (12) + mini height (118) + small gap (8) = 138dp
@@ -57,7 +57,7 @@ fun BoxScope.TvMiniPlayerOverlay(
     // by MainActivity.dispatchKeyEvent's double-press-OK detection so
     // this overlay doesn't trap D-pad focus.
     Text(
-        text = "Double press OK to resume",
+        text = "Long press OK to resume",
         style = MaterialTheme.typography.labelSmall,
         color = Color.White,
         fontWeight = FontWeight.Medium,

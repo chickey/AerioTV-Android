@@ -47,6 +47,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import com.aeriotv.android.feature.main.LocalTvTopNavFocusRequester
 import com.aeriotv.android.feature.main.LocalTvTopNavFocusTab
 import com.aeriotv.android.feature.main.LocalTvTopNavRequesterForTab
@@ -72,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
@@ -156,6 +159,8 @@ fun GuideScreen(
     val guideShowChannelNumber by settingsVm.guideShowChannelNumber.collectAsStateWithLifecycle(initialValue = true)
     val guideTransparentLogoBackground by settingsVm.guideTransparentLogoBackground.collectAsStateWithLifecycle(initialValue = true)
     val guideLogoScaleMode by settingsVm.guideLogoScaleMode.collectAsStateWithLifecycle(initialValue = "fit")
+    val guideFixedHourAnchor by settingsVm.guideFixedHourAnchor.collectAsStateWithLifecycle(initialValue = true)
+    val guideShowDetailsPanel by settingsVm.guideShowDetailsPanel.collectAsStateWithLifecycle(initialValue = false)
     val multiviewStore = rememberMultiviewStoreHandle()
     // Audit task #22: staged-channel banner. When the user has added at
     // least one channel to Multiview (via the row context menu / long
@@ -212,6 +217,8 @@ fun GuideScreen(
 
     var programInfoTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
     var recordTarget by remember { mutableStateOf<ProgramInfoTarget?>(null) }
+    var pendingFocusTarget by remember { mutableStateOf<GuideFocusTarget?>(null) }
+    var focusedProgrammeDetails by remember { mutableStateOf<FocusedProgrammeDetails?>(null) }
 
     // Tick "now" forward every 30s so the indicator + currently-airing tinting stay
     // accurate without forcing the whole tree to recompose on every frame.
@@ -231,17 +238,24 @@ fun GuideScreen(
         val hourMs = 3_600_000L
         (nowMillis / hourMs) * hourMs - hourMs
     }
+    val hourLockedStart = remember(nowMillis) {
+        val hourMs = 3_600_000L
+        (nowMillis / hourMs) * hourMs
+    }
+    val effectiveWindowStart = remember(windowStart, hourLockedStart, guideFixedHourAnchor) {
+        if (guideFixedHourAnchor) hourLockedStart else windowStart
+    }
     // "All available" (sentinel 0) spans from windowStart to the latest loaded
     // programme end, clamped to a 6h floor so a thin EPG still scrolls. A
     // numeric hour value is just that many hours wide.
-    val windowDurationMs = remember(epgWindowHours, state.epgByChannel, windowStart) {
+    val windowDurationMs = remember(epgWindowHours, state.epgByChannel, effectiveWindowStart) {
         if (epgWindowHours > 0) {
             epgWindowHours.toLong() * 3_600_000L
         } else {
             val latestEnd = state.epgByChannel.values.asSequence()
                 .flatten()
-                .maxOfOrNull { it.endMillis } ?: (windowStart + 24L * 3_600_000L)
-            (latestEnd - windowStart).coerceAtLeast(6L * 3_600_000L)
+                .maxOfOrNull { it.endMillis } ?: (effectiveWindowStart + 24L * 3_600_000L)
+            (latestEnd - effectiveWindowStart).coerceAtLeast(6L * 3_600_000L)
         }
     }
 
@@ -326,7 +340,7 @@ fun GuideScreen(
             val bucketMs = 5L * 60_000L
             val padMs = 30L * 60_000L
             val scrollPx = horizontalScrollState.value.toFloat()
-            val startMs = windowStart + (scrollPx / hourWidthPx * 3_600_000f).toLong()
+            val startMs = effectiveWindowStart + (scrollPx / hourWidthPx * 3_600_000f).toLong()
             val snappedStart = (startMs / bucketMs) * bucketMs
             val spanMs = (stripViewportPx / hourWidthPx * 3_600_000f).toLong()
             (snappedStart - padMs) to (snappedStart + spanMs + padMs)
@@ -534,7 +548,7 @@ fun GuideScreen(
                         .height(headerHeight),
                 ) {
                     for (i in 0 until slotCount) {
-                        val slotStart = windowStart + i * slotMs
+                        val slotStart = effectiveWindowStart + i * slotMs
                         Box(
                             modifier = Modifier
                                 .width(slotWidth)
@@ -563,13 +577,33 @@ fun GuideScreen(
         // last-watched channel isn't in the filtered list, indexOfFirst returns
         // -1 and we no-op - the visible filter wins.
         val listState = rememberLazyListState()
+        val guideMoveScope = rememberCoroutineScope()
+        val guideFocusRequester = remember { FocusRequester() }
         val lastWatchedId by settingsVm.lastWatchedChannelId
             .collectAsStateWithLifecycle(initialValue = "")
-        LaunchedEffect(lastWatchedId, filteredChannels.isNotEmpty()) {
+        var lastAutoFocusedWatchId by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(lastWatchedId, filteredChannels, state.epgByChannel) {
             if (lastWatchedId.isBlank() || filteredChannels.isEmpty()) return@LaunchedEffect
+            if (lastAutoFocusedWatchId == lastWatchedId) return@LaunchedEffect
             val idx = filteredChannels.indexOfFirst { it.id == lastWatchedId }
             if (idx >= 0) {
                 listState.animateScrollToItem(idx)
+                val ch = filteredChannels[idx]
+                val rows = state.epgByChannel.programmesFor(ch)
+                    .filter { it.endMillis > visibleWindow.first && it.startMillis < visibleWindow.second }
+                val anchorMs = if (guideFixedHourAnchor) effectiveWindowStart else nowMillis
+                val target = rows.firstOrNull { anchorMs in it.startMillis until it.endMillis }
+                    ?: rows.firstOrNull { nowMillis in it.startMillis until it.endMillis }
+                    ?: rows.minByOrNull { kotlin.math.abs(((it.startMillis + it.endMillis) / 2L) - anchorMs) }
+                if (target != null) {
+                    pendingFocusTarget = GuideFocusTarget(
+                        channelId = ch.id,
+                        startMillis = target.startMillis,
+                        endMillis = target.endMillis,
+                    )
+                    runCatching { guideFocusRequester.requestFocus() }
+                    lastAutoFocusedWatchId = lastWatchedId
+                }
             }
         }
 
@@ -581,8 +615,14 @@ fun GuideScreen(
         val upTarget = requesterForTab?.invoke(AppTab.LiveTV) ?: topNavRequester
         LazyColumn(
             state = listState,
+            contentPadding = PaddingValues(
+                bottom = if (guideShowDetailsPanel) rowHeight * 0.5f else 8.dp,
+            ),
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
+                .graphicsLayer { clip = true }
+                .focusRequester(guideFocusRequester)
                 .onFocusChanged { guideAreaHasFocus = it.hasFocus }
                 // Treat the grid as one focus group so D-pad DOWN from the chips
                 // / top bar reliably descends into the programme cells on TV.
@@ -633,7 +673,7 @@ fun GuideScreen(
                 ChannelGuideRow(
                     channel = channel,
                     programmes = programmes,
-                    windowStart = windowStart,
+                    windowStart = effectiveWindowStart,
                     windowDurationMs = windowDurationMs,
                     hourWidth = scaledHourWidth,
                     nowMillis = nowMillis,
@@ -660,9 +700,106 @@ fun GuideScreen(
                     showChannelNumber = guideShowChannelNumber,
                     transparentLogoBackground = guideTransparentLogoBackground,
                     logoScaleMode = guideLogoScaleMode,
+                    pendingFocusTarget = pendingFocusTarget,
+                    onConsumePendingFocusTarget = { token ->
+                        if (pendingFocusTarget?.token == token) pendingFocusTarget = null
+                    },
+                    onRequestVerticalMove = { fromChannelId, _anchorTimeMs, direction ->
+                        val fromIndex = filteredChannels.indexOfFirst { it.id == fromChannelId }
+                        if (fromIndex < 0) return@ChannelGuideRow false
+                        val targetIndex = (fromIndex + direction).coerceIn(0, filteredChannels.lastIndex)
+                        if (targetIndex == fromIndex) return@ChannelGuideRow false
+                        val targetChannel = filteredChannels[targetIndex]
+                        val viewportAnchorMs = (visibleWindow.first + visibleWindow.second) / 2L
+                        val cursorMs = when {
+                            guideFixedHourAnchor -> effectiveWindowStart
+                            nowMillis in visibleWindow.first until visibleWindow.second -> nowMillis
+                            else -> (visibleWindow.first + 30L * 60L * 1000L)
+                                .coerceAtMost(visibleWindow.second - 1L)
+                        }
+                        val effectiveAnchorMs = if (!guideFixedHourAnchor) viewportAnchorMs else cursorMs
+                        val targetProgrammes = state.epgByChannel.programmesFor(targetChannel)
+                            .asSequence()
+                            .filter { it.endMillis > visibleWindow.first && it.startMillis < visibleWindow.second }
+                            .sortedBy { it.startMillis }
+                            .toList()
+                        if (targetProgrammes.isEmpty()) {
+                            guideMoveScope.launch {
+                                val visible = listState.layoutInfo.visibleItemsInfo
+                                val firstVisible = visible.firstOrNull()?.index ?: listState.firstVisibleItemIndex
+                                val lastVisible = visible.lastOrNull()?.index ?: firstVisible
+                                if (targetIndex < firstVisible || targetIndex > lastVisible) {
+                                    runCatching { listState.scrollToItem(targetIndex) }
+                                }
+                                pendingFocusTarget = GuideFocusTarget(
+                                    channelId = targetChannel.id,
+                                    startMillis = effectiveWindowStart,
+                                    endMillis = effectiveWindowStart + 1L,
+                                )
+                            }
+                            return@ChannelGuideRow true
+                        }
+                        val exact = targetProgrammes.firstOrNull { effectiveAnchorMs in it.startMillis until it.endMillis }
+                        val liveNow = targetProgrammes.firstOrNull { nowMillis in it.startMillis until it.endMillis }
+                        val nearestByMidpoint = targetProgrammes.minByOrNull { p ->
+                            kotlin.math.abs(((p.startMillis + p.endMillis) / 2L) - effectiveAnchorMs)
+                        }
+                        val nextAfterAnchor = targetProgrammes.firstOrNull { it.endMillis > effectiveAnchorMs }
+                        val lastBeforeAnchor = targetProgrammes.lastOrNull { it.startMillis < effectiveAnchorMs }
+                        val selected = if (guideFixedHourAnchor) {
+                            // Fixed-hour mode: stay stable around "now"/anchor.
+                            // Avoid leaping to distant future programmes.
+                            liveNow ?: exact ?: nextAfterAnchor ?: lastBeforeAnchor
+                        } else {
+                            exact ?: nearestByMidpoint
+                        }
+                        guideMoveScope.launch {
+                            val visible = listState.layoutInfo.visibleItemsInfo
+                            val firstVisible = visible.firstOrNull()?.index ?: listState.firstVisibleItemIndex
+                            val lastVisible = visible.lastOrNull()?.index ?: firstVisible
+                            if (targetIndex < firstVisible || targetIndex > lastVisible) {
+                                runCatching { listState.scrollToItem(targetIndex) }
+                            }
+                            if (selected != null) {
+                                pendingFocusTarget = GuideFocusTarget(
+                                    channelId = targetChannel.id,
+                                    startMillis = selected.startMillis,
+                                    endMillis = selected.endMillis,
+                                )
+                            } else {
+                                // Never trap on vertical moves: if no clean cell
+                                // target exists, focus the row-level fallback.
+                                pendingFocusTarget = GuideFocusTarget(
+                                    channelId = targetChannel.id,
+                                    startMillis = effectiveWindowStart,
+                                    endMillis = effectiveWindowStart + 1L,
+                                )
+                            }
+                        }
+                        true
+                    },
+                    onFocusedProgrammeChanged = { programme ->
+                        focusedProgrammeDetails = FocusedProgrammeDetails(
+                            channelName = channel.name,
+                            title = programme.title,
+                            description = programme.description,
+                            startMillis = programme.startMillis,
+                            endMillis = programme.endMillis,
+                        )
+                    },
                 )
                 HorizontalDivider(color = guideDivider, thickness = 0.5.dp)
             }
+        }
+        if (guideShowDetailsPanel && focusedProgrammeDetails != null) {
+            Spacer(Modifier.height(if (isTv) 10.dp else 8.dp))
+            HorizontalDivider(color = guideDivider, thickness = 0.5.dp)
+            FocusedProgrammePanel(
+                details = focusedProgrammeDetails!!,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 8.dp),
+            )
         }
     }
 
@@ -730,6 +867,10 @@ private fun ChannelGuideRow(
     showChannelNumber: Boolean,
     transparentLogoBackground: Boolean,
     logoScaleMode: String,
+    pendingFocusTarget: GuideFocusTarget?,
+    onConsumePendingFocusTarget: (Long) -> Unit,
+    onRequestVerticalMove: (channelId: String, anchorTimeMs: Long, direction: Int) -> Boolean,
+    onFocusedProgrammeChanged: (EPGProgramme) -> Unit,
 ) {
     val multiviewSelected by multiviewStore.selected.collectAsStateWithLifecycle()
     val inMultiview = multiviewSelected.any { it.id == channel.id }
@@ -1013,9 +1154,13 @@ private fun ChannelGuideRow(
         ) {
             val totalWidth = hourWidth * (windowDurationMs / 3_600_000L).toInt()
             Box(modifier = Modifier.width(totalWidth).fillMaxHeight()) {
+                // Normalize ordering once so cell rendering, anti-overlap clamping,
+                // and focus-target matching all operate on the same sequence.
+                val sortedProgrammes = programmes.sortedBy { it.startMillis }
                 // Programme cells, positioned by offset.
                 val windowEnd = windowStart + windowDurationMs
-                programmes.forEachIndexed { index, programme ->
+                var renderedAnyCell = false
+                sortedProgrammes.forEachIndexed { index, programme ->
                     val rawStart = programme.startMillis
                     val rawEnd = programme.endMillis
                     // Window clip: skip programmes entirely outside the guide span.
@@ -1030,13 +1175,17 @@ private fun ChannelGuideRow(
                     // Anti-overlap: clamp the cell end to the next programme's start
                     // so a feed with overlapping entries doesn't paint cells on top
                     // of each other (iOS clamps to nextProgramStart).
-                    val nextStart = programmes.getOrNull(index + 1)?.startMillis
+                    val nextStart = sortedProgrammes.getOrNull(index + 1)?.startMillis
                     val clippedEnd = rawEnd.coerceAtMost(windowEnd)
                         .let { e -> if (nextStart != null) minOf(e, maxOf(nextStart, clippedStart)) else e }
+                    // If clipping + anti-overlap collapse the span to zero/negative,
+                    // don't render a forced min-width ghost cell at the left edge.
+                    val clippedSpanMs = clippedEnd - clippedStart
+                    if (clippedSpanMs <= 0L) return@forEachIndexed
                     val xDp = msToDp(clippedStart - windowStart, hourWidth)
                     // Floor the width so a malformed ~1-min programme still renders a
                     // tappable sliver instead of a zero-width cell (iOS max(20,...)).
-                    val wDp = msToDp(clippedEnd - clippedStart, hourWidth).coerceAtLeast(6.dp)
+                    val wDp = msToDp(clippedSpanMs, hourWidth).coerceAtLeast(6.dp)
                     val isLive = programme.startMillis <= nowMillis && programme.endMillis > nowMillis
                     // Elapsed fraction (0..1) for the now-airing cell's progress
                     // bar, recomputed only on the 30s nowMillis tick. Null for
@@ -1080,6 +1229,41 @@ private fun ChannelGuideRow(
                         canAddToMultiview = channel.url.isNotBlank() && (!atCap || inMultiview),
                         inMultiview = inMultiview,
                         onToggleMultiview = { multiviewStore.toggle(channel) },
+                        isPendingFocusTarget = pendingFocusTarget?.matches(
+                            channel.id,
+                            programme.startMillis,
+                            programme.endMillis,
+                        ) == true,
+                        pendingFocusToken = pendingFocusTarget?.token,
+                        onConsumePendingFocusTarget = onConsumePendingFocusTarget,
+                        onRequestVerticalMove = { _, direction ->
+                            // Strict "now" anchor for vertical guide travel.
+                            // Keeps UP/DOWN navigation locked to what's airing
+                            // now across rows, instead of drifting based on a
+                            // long/future focused cell midpoint.
+                            onRequestVerticalMove(channel.id, nowMillis, direction)
+                        },
+                        onFocused = { onFocusedProgrammeChanged(programme) },
+                    )
+                    renderedAnyCell = true
+                }
+
+                if (!renderedAnyCell) {
+                    NoDataProgrammeCell(
+                        widthDp = totalWidth,
+                        isTv = isTv,
+                        modifier = Modifier.offset(x = 0.dp),
+                        isPendingFocusTarget = pendingFocusTarget?.matches(
+                            channel.id,
+                            windowStart,
+                            windowStart + 1L,
+                        ) == true,
+                        pendingFocusToken = pendingFocusTarget?.token,
+                        onConsumePendingFocusTarget = onConsumePendingFocusTarget,
+                        onPlay = onChannelClick,
+                        onRequestVerticalMove = { direction ->
+                            onRequestVerticalMove(channel.id, nowMillis, direction)
+                        },
                     )
                 }
                 // "Now" indicator vertical line, only drawn when "now" falls
@@ -1099,6 +1283,68 @@ private fun ChannelGuideRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NoDataProgrammeCell(
+    widthDp: androidx.compose.ui.unit.Dp,
+    isTv: Boolean,
+    modifier: Modifier,
+    isPendingFocusTarget: Boolean,
+    pendingFocusToken: Long?,
+    onConsumePendingFocusTarget: (Long) -> Unit,
+    onPlay: () -> Unit,
+    onRequestVerticalMove: (direction: Int) -> Boolean,
+) {
+    val focusRequester = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(isPendingFocusTarget, pendingFocusToken) {
+        val token = pendingFocusToken ?: return@LaunchedEffect
+        if (isPendingFocusTarget) {
+            runCatching { focusRequester.requestFocus() }
+            onConsumePendingFocusTarget(token)
+        }
+    }
+    Box(
+        modifier = modifier
+            .width(widthDp)
+            .fillMaxHeight()
+            .focusRequester(focusRequester)
+            .then(
+                if (isTv) Modifier.padding(end = 1.dp)
+                else Modifier.padding(start = 1.dp, end = 1.dp, top = 4.dp, bottom = 4.dp),
+            )
+            .clip(if (isTv) RectangleShape else RoundedCornerShape(6.dp))
+            .background(
+                if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+                else MaterialTheme.colorScheme.surface.copy(alpha = if (isTv) 1f else 0.35f),
+            )
+            .then(
+                if (focused) Modifier.border(2.dp, MaterialTheme.colorScheme.primary)
+                else Modifier,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .combinedClickable(onClick = onPlay, onLongClick = onPlay)
+            .onPreviewKeyEvent { ev ->
+                val n = ev.nativeKeyEvent
+                if (!isTv || n.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                when (n.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_UP -> onRequestVerticalMove(-1)
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> onRequestVerticalMove(1)
+                    else -> false
+                }
+            }
+            .padding(horizontal = if (isTv) 8.dp else 10.dp, vertical = if (isTv) 4.dp else 6.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text = "No guide data",
+            style = if (isTv) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1124,10 +1370,16 @@ private fun ProgrammeCell(
     canAddToMultiview: Boolean,
     inMultiview: Boolean,
     onToggleMultiview: () -> Unit,
+    isPendingFocusTarget: Boolean,
+    pendingFocusToken: Long?,
+    onConsumePendingFocusTarget: (Long) -> Unit,
+    onRequestVerticalMove: (anchorTimeMs: Long, direction: Int) -> Boolean,
+    onFocused: () -> Unit,
 ) {
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     val menuGuard = com.aeriotv.android.core.tv.rememberTvMenuGuard()
+    val focusRequester = remember { FocusRequester() }
     val key = remember(programme, channelName) {
         reminderKey(channelName, programme.title, programme.startMillis)
     }
@@ -1185,10 +1437,18 @@ private fun ProgrammeCell(
         MaterialTheme.colorScheme.primary
     else
         MaterialTheme.colorScheme.onBackground
+    LaunchedEffect(isPendingFocusTarget, pendingFocusToken) {
+        val token = pendingFocusToken ?: return@LaunchedEffect
+        if (isPendingFocusTarget) {
+            runCatching { focusRequester.requestFocus() }
+            onConsumePendingFocusTarget(token)
+        }
+    }
     Column(
         modifier = modifier
             .width(widthDp)
             .fillMaxHeight()
+            .focusRequester(focusRequester)
             .then(
                 // TV: a 1dp trailing seam so adjacent flat cells stay distinct.
                 // Phone: the original inset that floats the rounded card.
@@ -1202,13 +1462,27 @@ private fun ProgrammeCell(
                     Modifier.border(cellBorderWidth, cellBorderColor, cellShape)
                 else Modifier,
             )
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .combinedClickable(
                 // Single tap/click plays the channel; the program-info sheet +
                 // actions live behind a long press (the menu below). iOS parity.
                 onClick = onPlay,
                 onLongClick = { menuOpen = true; menuGuard.arm() },
             )
+            .onPreviewKeyEvent { ev ->
+                val n = ev.nativeKeyEvent
+                if (!isTv || n.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                when (n.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_UP ->
+                        onRequestVerticalMove((programme.startMillis + programme.endMillis) / 2L, -1)
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN ->
+                        onRequestVerticalMove((programme.startMillis + programme.endMillis) / 2L, 1)
+                    else -> false
+                }
+            }
             // tvOS programCell uses .padding(.horizontal, 8) / .padding(.vertical, 6)
             // on a 110pt row -> proportional 4dp/3dp on the 55dp Android-TV row.
             // Phone keeps the original 8/6 inset.
@@ -1373,3 +1647,78 @@ private const val MS_PER_HOUR_F = 3_600_000f
 /** Convert a millisecond span to its dp width on the (already scaled) time axis. */
 private fun msToDp(ms: Long, hourWidth: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
     (hourWidth.value * (ms.toFloat() / MS_PER_HOUR_F)).dp
+
+private data class GuideFocusTarget(
+    val channelId: String,
+    val startMillis: Long,
+    val endMillis: Long,
+    val token: Long = System.nanoTime(),
+) {
+    fun matches(channelId: String, startMillis: Long, endMillis: Long): Boolean =
+        this.channelId == channelId &&
+            this.startMillis == startMillis &&
+            this.endMillis == endMillis
+}
+
+private data class FocusedProgrammeDetails(
+    val channelName: String,
+    val title: String,
+    val description: String,
+    val startMillis: Long,
+    val endMillis: Long,
+)
+
+@Composable
+private fun FocusedProgrammePanel(
+    details: FocusedProgrammeDetails,
+    modifier: Modifier = Modifier,
+) {
+    val timeFmt = remember { SimpleDateFormat("EEE h:mm a", Locale.getDefault()) }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.60f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = details.channelName,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = details.title.ifBlank { "No programme information" },
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Text(
+            text = "${timeFmt.format(java.util.Date(details.startMillis))} - " +
+                timeFmt.format(java.util.Date(details.endMillis)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (details.description.isNotBlank()) {
+            Text(
+                text = details.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}

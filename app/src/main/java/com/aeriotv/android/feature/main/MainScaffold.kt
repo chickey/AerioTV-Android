@@ -64,6 +64,7 @@ import com.aeriotv.android.feature.ondemand.OnDemandTabContent
 import com.aeriotv.android.feature.ondemand.OnDemandViewModel
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import com.aeriotv.android.feature.playlist.nowPlaying
+import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.feature.settings.AppBehaviorsSettingsScreen
 import com.aeriotv.android.feature.settings.AddMoreCategoriesScreen
 import com.aeriotv.android.feature.settings.AppearanceSettingsScreen
@@ -148,8 +149,12 @@ fun MainScaffold(
     // DVR tab visible while its source check / first fetch is in flight so the
     // nav order doesn't jump (e.g. "On Demand" briefly occupying the DVR slot
     // before recordings state arrives).
-    val hasRecordings = !dvrState.unsupportedSource && (
+    val sourceType = SourceType.entries.firstOrNull { it.name == state.playlist?.sourceType }
+    val dvrCapableSource = sourceType == SourceType.DispatcharrApiKey ||
+        sourceType == SourceType.DispatcharrUserPass
+    val hasRecordings = (!dvrState.unsupportedSource || dvrCapableSource) && (
         dvrState.recordings.isNotEmpty() || dvrState.isLoading
+            || dvrCapableSource
     )
     val tabs = visibleTabs(
         hasFavorites = hasRenderableFavorites,
@@ -263,24 +268,14 @@ fun MainScaffold(
                     requestFocusTab = requestTopNavFocusTab,
                     onRequestFocusTabHandled = { requestTopNavFocusTab = null },
                 )
-                // tvOS layout reference: when the mini-player is active the
-                // group filter pills + guide grid drop DOWN so the
-                // mini-player's right-aligned 210x118 video + hint chip
-                // (~148dp tall starting at y=12) doesn't cover them.
-                // Archie's 2026-05-28 follow-up: pin the chip row
-                // *directly* below the hint chip rather than leaving a
-                // generous buffer. Mini bottom edge ≈ y=160dp; nav row
-                // ends ≈ y=68dp, so a 90dp spacer lands the chip row at
-                // y≈158dp -- effectively flush with the mini's bottom.
-                val miniActive = miniPlayerState is MiniPlayerSession.State.Active
-                if (miniActive) {
-                    androidx.compose.foundation.layout.Spacer(
-                        modifier = Modifier.height(90.dp),
-                    )
-                }
                 MainTabContent(
                     selectedTab = selectedTab,
-                    onChannelClick = onChannelClick,
+                    onChannelClick = { channel ->
+                        // If a mini-player session is active, clear it before
+                        // opening fullscreen playback for a new selection.
+                        miniPlayerVm.dismiss()
+                        onChannelClick(channel)
+                    },
                     onMovieClick = onMovieClick,
                     onSeriesClick = onSeriesClick,
                     onEpisodeResume = onEpisodeResume,
@@ -292,6 +287,24 @@ fun MainScaffold(
                         .fillMaxWidth(),
                 )
             }
+        }
+        if (showExitConfirm) {
+            AlertDialog(
+                onDismissRequest = { showExitConfirm = false },
+                title = { Text("Exit AerioTV?") },
+                text = { Text("Are you sure you want to close the app?") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showExitConfirm = false
+                            context.findActivity()?.finish()
+                        },
+                    ) { Text("Exit") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showExitConfirm = false }) { Text("Cancel") }
+                },
+            )
         }
         return
     }
@@ -367,7 +380,10 @@ fun MainScaffold(
     ) { padding ->
         MainTabContent(
             selectedTab = selectedTab,
-            onChannelClick = onChannelClick,
+            onChannelClick = { channel ->
+                miniPlayerVm.dismiss()
+                onChannelClick(channel)
+            },
             onMovieClick = onMovieClick,
             onSeriesClick = onSeriesClick,
             onEpisodeResume = onEpisodeResume,

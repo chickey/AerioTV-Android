@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.data.db.dao.LocalRecordingDao
+import com.aeriotv.android.core.data.db.dao.WatchProgressDao
 import com.aeriotv.android.core.data.db.entity.LocalRecordingEntity
 import com.aeriotv.android.core.data.repository.PlaylistRepository
 import com.aeriotv.android.core.network.DispatcharrAuthBroker
 import com.aeriotv.android.core.network.DispatcharrClient
 import com.aeriotv.android.core.network.DispatcharrRecording
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.net.UnknownHostException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -37,6 +39,7 @@ class DvrViewModel @Inject constructor(
     private val dispatcharrClient: DispatcharrClient,
     private val dispatcharrAuth: DispatcharrAuthBroker,
     private val localRecordingDao: LocalRecordingDao,
+    private val watchProgressDao: WatchProgressDao,
 ) : ViewModel() {
 
     enum class Filter { Scheduled, Recording, Completed }
@@ -67,6 +70,8 @@ class DvrViewModel @Inject constructor(
          * Recording (in-progress) and this id is non-null.
          */
         val dispatcharrChannelId: Int? = null,
+        /** Percent watched from persisted watch-progress for playbackUrl-based ids. */
+        val watchedPercent: Int? = null,
     ) {
         enum class Status { Scheduled, Recording, Completed, Failed, Stopped, Unknown }
     }
@@ -106,7 +111,9 @@ class DvrViewModel @Inject constructor(
         refresh()
         viewModelScope.launch {
             localRecordingDao.observeAll().collect { rows ->
-                val mapped = rows.map { it.toRecording() }
+                val progress = watchProgressDao.allOnce()
+                    .associateBy { it.videoId }
+                val mapped = rows.map { it.toRecording(progress) }
                 _state.update { st ->
                     val merged = (st.recordings.filter { it.source == Source.Server } + mapped)
                         .sortedBy { it.startMillis }
@@ -148,7 +155,9 @@ class DvrViewModel @Inject constructor(
             }.fold(
                 onSuccess = { remote ->
                     _state.update { st ->
-                        val server = remote.map { it.toRecording(playlist.urlString) }
+                        val progress = runCatching { watchProgressDao.allOnce().associateBy { it.videoId } }
+                            .getOrElse { emptyMap() }
+                        val server = remote.map { it.toRecording(playlist.urlString, progress) }
                         val local = st.recordings.filter { it.source == Source.Local }
                         st.copy(
                             isLoading = false,
@@ -159,7 +168,7 @@ class DvrViewModel @Inject constructor(
                 },
                 onFailure = { t ->
                     Log.w(TAG, "listRecordings failed", t)
-                    _state.update { it.copy(isLoading = false, error = t.message ?: t::class.simpleName) }
+                    _state.update { it.copy(isLoading = false, error = userFriendlyNetworkError(t)) }
                 },
             )
         }
@@ -355,7 +364,10 @@ class DvrViewModel @Inject constructor(
     }
 }
 
-private fun DispatcharrRecording.toRecording(baseUrl: String): DvrViewModel.Recording {
+private fun DispatcharrRecording.toRecording(
+    baseUrl: String,
+    progress: Map<String, com.aeriotv.android.core.data.db.entity.WatchProgressEntity>,
+): DvrViewModel.Recording {
     val start = parseIsoMillis(startTime) ?: 0L
     val end = parseIsoMillis(endTime) ?: start
     val status = when (this.status?.lowercase()) {
@@ -368,7 +380,8 @@ private fun DispatcharrRecording.toRecording(baseUrl: String): DvrViewModel.Reco
     }
     val playback = if (
         status == DvrViewModel.Recording.Status.Completed ||
-        status == DvrViewModel.Recording.Status.Stopped
+        status == DvrViewModel.Recording.Status.Stopped ||
+        status == DvrViewModel.Recording.Status.Recording
     ) {
         "${baseUrl.trimEnd('/')}/api/channels/recordings/$id/file/"
     } else {
@@ -385,10 +398,13 @@ private fun DispatcharrRecording.toRecording(baseUrl: String): DvrViewModel.Reco
         fileSizeBytes = fileSize ?: 0L,
         playbackUrl = playback,
         dispatcharrChannelId = channel,
+        watchedPercent = playback?.let { watchPercentFor(it, progress) },
     )
 }
 
-private fun LocalRecordingEntity.toRecording(): DvrViewModel.Recording {
+private fun LocalRecordingEntity.toRecording(
+    progress: Map<String, com.aeriotv.android.core.data.db.entity.WatchProgressEntity>,
+): DvrViewModel.Recording {
     val status = when (this.status.lowercase()) {
         "completed" -> DvrViewModel.Recording.Status.Completed
         "stopped" -> DvrViewModel.Recording.Status.Stopped
@@ -414,7 +430,20 @@ private fun LocalRecordingEntity.toRecording(): DvrViewModel.Recording {
         status = status,
         fileSizeBytes = byteSize,
         playbackUrl = playable,
+        watchedPercent = playable?.let { watchPercentFor(it, progress) },
     )
+}
+
+private fun watchPercentFor(
+    playbackUrl: String,
+    progress: Map<String, com.aeriotv.android.core.data.db.entity.WatchProgressEntity>,
+): Int? {
+    val row = progress[playbackUrl] ?: return null
+    val duration = row.durationMs
+    if (duration <= 0L) return null
+    return ((row.positionMs.toDouble() / duration.toDouble()) * 100.0)
+        .toInt()
+        .coerceIn(0, 100)
 }
 
 private val ISO_PARSER = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).apply {
@@ -439,3 +468,17 @@ private val ISO_EMIT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).a
 }
 
 internal fun Long.toIsoUtc(): String = ISO_EMIT.format(Date(this))
+
+private fun userFriendlyNetworkError(t: Throwable): String {
+    val msg = t.message.orEmpty()
+    val host = Regex("Unable to resolve host \"([^\"]+)\"").find(msg)?.groupValues?.getOrNull(1)
+    return if (t is UnknownHostException || msg.contains("Unable to resolve host", ignoreCase = true)) {
+        if (!host.isNullOrBlank()) {
+            "Unable to reach server '$host' from this Fire TV. Check DNS/network settings."
+        } else {
+            "Unable to resolve server host from this Fire TV. Check DNS/network settings."
+        }
+    } else {
+        t.message ?: t::class.simpleName ?: "Unknown error"
+    }
+}

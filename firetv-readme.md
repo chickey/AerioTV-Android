@@ -138,6 +138,28 @@ Reinstall and relaunch:
 bash /Users/colinhickey/Projects/AerioTV-Android/install-firetv.sh <FIRE_TV_IP>
 ```
 
+## 5b) Local TV emulator preview (no physical Fire TV required)
+
+After building the Fire debug APK, you can run:
+
+```bash
+bash /Users/colinhickey/Projects/AerioTV-Android/run-tv-emulator-preview.sh
+```
+
+What this script does:
+
+- ensures Android Emulator + Android TV system image exist
+- creates an AVD if missing (`AerioTV_FireTV_API36`)
+- boots emulator
+- installs `app-fire-debug.apk`
+- launches `com.aeriotv.android.fire`
+
+Optional fresh boot:
+
+```bash
+bash /Users/colinhickey/Projects/AerioTV-Android/run-tv-emulator-preview.sh --fresh
+```
+
 ## 6) Remove the setup environment (optional)
 
 If you want to remove dependencies installed by the setup script while leaving the project directory untouched:
@@ -233,3 +255,13 @@ If `gh` reports no default repo:
 ```bash
 gh repo set-default chickey/AerioTV-Android
 ```
+
+If Fire TV shows a placeholder/blank app icon after repeated sideload updates:
+
+1. Use a clean reinstall so Fire OS refreshes launcher metadata:
+
+```bash
+bash /Users/colinhickey/Projects/AerioTV-Android/install-firetv.sh <FIRE_TV_IP> 5555 --clean
+```
+
+2. Restart Fire TV once after reinstall if the old cached tile remains.

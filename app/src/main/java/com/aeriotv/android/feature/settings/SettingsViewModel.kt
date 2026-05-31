@@ -69,6 +69,22 @@ class SettingsViewModel @Inject constructor(
     fun setGuideLogoScaleMode(value: String) {
         viewModelScope.launch { prefs.setGuideLogoScaleMode(value) }
     }
+    val guideFixedHourAnchor: Flow<Boolean> = prefs.guideFixedHourAnchor
+    fun setGuideFixedHourAnchor(value: Boolean) {
+        viewModelScope.launch { prefs.setGuideFixedHourAnchor(value) }
+    }
+    val guideShowDetailsPanel: Flow<Boolean> = prefs.guideShowDetailsPanel
+    fun setGuideShowDetailsPanel(value: Boolean) {
+        viewModelScope.launch { prefs.setGuideShowDetailsPanel(value) }
+    }
+    val guideMiniPlayerEnabled: Flow<Boolean> = prefs.guideMiniPlayerEnabled
+    fun setGuideMiniPlayerEnabled(value: Boolean) {
+        viewModelScope.launch { prefs.setGuideMiniPlayerEnabled(value) }
+    }
+    val guideMiniPlayerPosition: Flow<String> = prefs.guideMiniPlayerPosition
+    fun setGuideMiniPlayerPosition(value: String) {
+        viewModelScope.launch { prefs.setGuideMiniPlayerPosition(value) }
+    }
 
     val hiddenGroups: Flow<Set<String>> = prefs.hiddenGroups
     fun setHiddenGroups(groups: Set<String>) {

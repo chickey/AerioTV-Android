@@ -572,7 +572,8 @@ private fun RecordingRow(
 ) {
     val isCompletedLike = rec.status == DvrViewModel.Recording.Status.Completed ||
         rec.status == DvrViewModel.Recording.Status.Stopped
-    val canPlay = rec.playbackUrl?.isNotBlank() == true && isCompletedLike
+    val isInProgress = rec.status == DvrViewModel.Recording.Status.Recording
+    val canPlay = rec.playbackUrl?.isNotBlank() == true && (isCompletedLike || isInProgress)
 
     val statusColor = when (rec.status) {
         DvrViewModel.Recording.Status.Recording -> Color(0xFFFF4757)
@@ -584,8 +585,8 @@ private fun RecordingRow(
     }
     val statusLabel = when (rec.status) {
         DvrViewModel.Recording.Status.Recording -> "Recording"
-        DvrViewModel.Recording.Status.Completed -> "Completed"
-        DvrViewModel.Recording.Status.Stopped -> "Stopped"
+        DvrViewModel.Recording.Status.Completed -> "Complete Recording"
+        DvrViewModel.Recording.Status.Stopped -> "Partial Recording"
         DvrViewModel.Recording.Status.Failed -> "Failed"
         DvrViewModel.Recording.Status.Scheduled -> "Scheduled"
         DvrViewModel.Recording.Status.Unknown -> "Unknown"
@@ -665,12 +666,21 @@ private fun RecordingRow(
                 DestinationBadge(source = rec.source)
             }
             Spacer(Modifier.size(8.dp))
-            Text(
-                text = statusLabel.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                color = statusColor,
-                fontWeight = FontWeight.Bold,
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = statusLabel.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (isCompletedLike && rec.watchedPercent != null) {
+                    Text(
+                        text = "${rec.watchedPercent}% watched",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         RecordingActionMenu(
             rec = rec,
@@ -771,7 +781,7 @@ private fun RecordingActionMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
     ) {
-        if (isCompleted) {
+        if (isCompleted || (isInProgress && rec.playbackUrl?.isNotBlank() == true)) {
             DropdownMenuItem(
                 text = { Text("Play") },
                 leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },

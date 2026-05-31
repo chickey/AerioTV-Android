@@ -26,7 +26,42 @@ fun Map<String, List<EPGProgramme>>.programmesFor(channel: M3UChannel): List<EPG
         val nk = k.normalizeEpgKey()
         nk.isNotEmpty() && nk in keys
     }
-    return matched?.value.orEmpty()
+    if (matched?.value?.isNotEmpty() == true) return matched.value
+
+    // Extra fallback (mainly for XC/odd XMLTV feeds): try channel-number joins.
+    // Some providers emit guide channel ids like "101", "101.0", or "ch-101"
+    // while M3U names/ids differ. We only use this after tvg-id + name matching
+    // fails, so standard providers stay on the canonical path.
+    val num = channel.channelNumber?.trim().orEmpty()
+    if (num.isEmpty()) return emptyList()
+
+    val numericVariants = buildList {
+        add(num)
+        num.toDoubleOrNull()?.let { d ->
+            val i = d.toInt()
+            if (d == i.toDouble()) {
+                add(i.toString())
+                add("$i.0")
+            }
+        }
+    }.distinct()
+
+    // 1) Exact key hit first.
+    numericVariants.forEach { candidate ->
+        val directNum = this[candidate]
+        if (!directNum.isNullOrEmpty()) return directNum
+    }
+
+    // 2) Normalized textual hit (covers keys like "ch 101").
+    val normalizedCandidates = numericVariants
+        .map { it.normalizeEpgKey() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+    val numericMatched = entries.firstOrNull { (k, _) ->
+        val nk = k.normalizeEpgKey()
+        nk.isNotEmpty() && nk in normalizedCandidates
+    }
+    return numericMatched?.value.orEmpty()
 }
 
 private fun String.normalizeEpgKey(): String =

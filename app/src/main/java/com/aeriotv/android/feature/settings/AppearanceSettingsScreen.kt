@@ -203,11 +203,11 @@ fun AppearanceSettingsScreen(
                 // for the same reason: the master toggle is binary and gets
                 // its own footer, the palette grid is browse-and-tweak.
                 settingsCard(
-                    header = "Category Colors",
+                    header = "Category Colours",
                     footer = "Tint EPG cells and channel cards by programme category. Long-press a swatch below to override its hex.",
                 ) {
                     ToggleRow(
-                        title = "Color Programs by Category",
+                        title = "Colour Programs by Category",
                         subtitle = "Apply category tints to the guide and channel rows.",
                         checked = palette.masterEnabled,
                         onCheckedChange = viewModel::setCategoryColorsEnabled,
@@ -248,7 +248,7 @@ fun AppearanceSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Reset Colors to Defaults",
+                            text = "Reset Colours to Defaults",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFFFB8C00),
                             fontWeight = FontWeight.Medium,
@@ -410,7 +410,7 @@ private fun themeSubtitle(theme: AppTheme): String = when (theme) {
 }
 
 /**
- * Custom accent color row. Mirrors iOS Appearance > "Custom Accent Color"
+ * Custom accent colour row. Mirrors iOS Appearance > "Custom Accent Colour"
  * toggle + color picker (ThemeManager useCustomAccent / customAccentHex).
  * Toggle enables the override; tapping the swatch opens the hex picker.
  */
@@ -431,7 +431,7 @@ private fun CustomAccentRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Custom Accent Color",
+                text = "Custom Accent Colour",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
@@ -788,7 +788,7 @@ private fun AccentPickerDialog(
                     onValueChange = { raw ->
                         input = raw.removePrefix("#").uppercase().filter { it in HEX_CHARS_ACCENT }.take(6)
                     },
-                    label = { Text("Hex color (e.g. 1AC4D8)") },
+                    label = { Text("Hex colour (e.g. 1AC4D8)") },
                     singleLine = true,
                     keyboardOptions = com.aeriotv.android.ui.textfield.aerioTextFieldKeyboardOptions(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Ascii,

@@ -381,7 +381,7 @@ private fun CustomEntryDialog(
                         onValueChange = {
                             hex = it.removePrefix("#").uppercase().filter { c -> c in HEX_CHARS_FOR_CUSTOM }.take(6)
                         },
-                        label = { Text("Hex color") },
+                        label = { Text("Hex colour") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         keyboardOptions = aerioTextFieldKeyboardOptions(
