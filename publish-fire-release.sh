@@ -11,9 +11,9 @@ usage() {
 Usage: $0 <tag> [notes] [repo]
 
 Examples:
-  $0 v0.1.1-fire.1
-  $0 v0.1.1-fire.1 "Fire TV release build"
-  $0 v0.1.1-fire.1 "Fire TV release build" chickey/AerioTV-Android
+  $0 v0.1.1-fire
+  $0 v0.1.1-fire "Fire TV release build"
+  $0 v0.1.1-fire "Fire TV release build" chickey/AerioTV-Android
 USAGE
 }
 

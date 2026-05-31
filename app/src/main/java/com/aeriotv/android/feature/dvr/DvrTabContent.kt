@@ -1,8 +1,10 @@
 package com.aeriotv.android.feature.dvr
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCut
@@ -45,12 +48,21 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import android.widget.Toast
+import android.os.SystemClock
+import android.view.KeyEvent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -62,6 +74,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor
+import com.aeriotv.android.feature.main.AppTab
+import com.aeriotv.android.feature.main.LocalTvTopNavFocusTab
+import com.aeriotv.android.feature.main.LocalTvTopNavFocusRequester
+import com.aeriotv.android.feature.main.LocalTvTopNavRequesterForTab
 import java.text.DateFormat
 import java.util.Date
 
@@ -83,13 +100,19 @@ fun DvrTabContent(
     viewModel: DvrViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val pendingReturnFocusRecordingId by viewModel.pendingReturnFocusRecordingId.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val isTv = rememberLiveTvFormFactor().isTv
+    val topNavRequester = LocalTvTopNavFocusRequester.current
+    val focusTopNavTab = LocalTvTopNavFocusTab.current
+    val requesterForTab = LocalTvTopNavRequesterForTab.current
 
-    // Auto-refresh server-side recordings every 30s while the tab is visible
-    // so a Scheduled -> Recording -> Completed transition lands without the
-    // user manually swiping the tab.
-    LaunchedEffect(Unit) {
+    // Auto-refresh every 30s on phone/tablet only. On TV this periodic refresh
+    // causes visible row flicker and can steal D-pad focus from the list,
+    // especially after returning from playback, so TV refresh is manual.
+    LaunchedEffect(isTv) {
+        if (isTv) return@LaunchedEffect
         while (true) {
             delay(30_000L)
             viewModel.refresh()
@@ -99,6 +122,45 @@ fun DvrTabContent(
     var pendingDelete by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
     var pendingEdit by remember { mutableStateOf<DvrViewModel.Recording?>(null) }
     var pendingClearAll by remember { mutableStateOf(false) }
+    var listHasFocus by remember { mutableStateOf(false) }
+    val listFocusRequester = remember { FocusRequester() }
+    val rowFocusRequesters = remember { mutableStateMapOf<String, FocusRequester>() }
+    val listState = rememberLazyListState()
+
+    BackHandler(enabled = isTv && listHasFocus && (topNavRequester != null || focusTopNavTab != null)) {
+        if (focusTopNavTab != null) focusTopNavTab.invoke(AppTab.DVR)
+        else runCatching { topNavRequester?.requestFocus() }
+        // Prevent a stuck consume-loop where listHasFocus lags one frame and
+        // keeps swallowing Back even after focus moved to the top nav.
+        listHasFocus = false
+    }
+
+    LaunchedEffect(state.visible, pendingReturnFocusRecordingId) {
+        val id = pendingReturnFocusRecordingId
+        if (id.isNullOrBlank()) return@LaunchedEffect
+        val idx = state.visible.indexOfFirst { it.id == id }
+        if (idx < 0) return@LaunchedEffect
+        runCatching { listState.scrollToItem(idx) }
+        // Player->Back can cause a brief nav-focus race on TV. For ~3s, keep
+        // nudging focus back into the DVR list, then onto the intended row.
+        repeat(50) {
+            runCatching { listFocusRequester.requestFocus() }
+            val requester = rowFocusRequesters[id]
+            if (requester != null) {
+                runCatching { requester.requestFocus() }
+                // Focus can be stolen by top-nav on the same return frame.
+                // Only declare success once the DVR list actually reports
+                // focus via .onFocusChanged.
+                delay(40)
+                if (listHasFocus) {
+                    viewModel.clearPendingReturnFocus(id)
+                    return@LaunchedEffect
+                }
+            }
+            delay(40)
+        }
+        // Keep pending id set; a later composition pulse will retry.
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -137,6 +199,7 @@ fun DvrTabContent(
                     FilterPill(
                         label = "Scheduled (${state.scheduledCount})",
                         selected = state.filter == DvrViewModel.Filter.Scheduled,
+                        upTarget = requesterForTab?.invoke(AppTab.DVR) ?: topNavRequester,
                         onClick = { viewModel.setFilter(DvrViewModel.Filter.Scheduled) },
                     )
                 }
@@ -144,6 +207,7 @@ fun DvrTabContent(
                     FilterPill(
                         label = "Recording (${state.recordingCount})",
                         selected = state.filter == DvrViewModel.Filter.Recording,
+                        upTarget = requesterForTab?.invoke(AppTab.DVR) ?: topNavRequester,
                         onClick = { viewModel.setFilter(DvrViewModel.Filter.Recording) },
                     )
                 }
@@ -151,6 +215,7 @@ fun DvrTabContent(
                     FilterPill(
                         label = "Completed (${state.completedCount})",
                         selected = state.filter == DvrViewModel.Filter.Completed,
+                        upTarget = requesterForTab?.invoke(AppTab.DVR) ?: topNavRequester,
                         onClick = { viewModel.setFilter(DvrViewModel.Filter.Completed) },
                     )
                 }
@@ -195,8 +260,29 @@ fun DvrTabContent(
             return@Column
         }
 
+        val upTarget = requesterForTab?.invoke(AppTab.DVR) ?: topNavRequester
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            modifier = Modifier
+                .focusRequester(listFocusRequester)
+                .fillMaxSize()
+                .focusGroup()
+                .then(
+                    if (upTarget != null) Modifier.focusProperties { up = upTarget } else Modifier
+                )
+                .onPreviewKeyEvent { ev ->
+                    val n = ev.nativeKeyEvent
+                    if (!isTv || n.action != KeyEvent.ACTION_DOWN || n.keyCode != KeyEvent.KEYCODE_DPAD_UP) {
+                        return@onPreviewKeyEvent false
+                    }
+                    val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                    if (!atTop) return@onPreviewKeyEvent false
+                    if (focusTopNavTab != null) focusTopNavTab.invoke(AppTab.DVR)
+                    else runCatching { upTarget?.requestFocus() }
+                    listHasFocus = false
+                    true
+                }
+                .onFocusChanged { listHasFocus = it.hasFocus },
             // 104dp bottom clears the MainScaffold NavigationBar so the
             // last recording row stays tappable (otherwise the bottom card
             // sits underneath the Live TV / DVR / On Demand / Settings nav
@@ -210,8 +296,10 @@ fun DvrTabContent(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(items = state.visible, key = { it.id }) { rec ->
+                val rowFocus = rowFocusRequesters.getOrPut(rec.id) { FocusRequester() }
                 RecordingRow(
                     rec = rec,
+                    focusRequester = rowFocus,
                     onEdit = { pendingEdit = rec },
                     onDelete = { pendingDelete = rec },
                     onWatchLive = {
@@ -221,18 +309,17 @@ fun DvrTabContent(
                         rec.dispatcharrChannelId?.let { onWatchLive(it) }
                     },
                     onPlay = {
-                        // Audit task #43: local recordings have a file:// URL
-                        // resolved at toRecording() time; route to the VOD
-                        // player. Server-side recordings still toast because
-                        // the playable URL plumbing on the Dispatcharr side
-                        // (auth + endpoint) lands in a follow-up phase.
+                        // Local rows carry file:// URLs; completed/stopped
+                        // server rows now carry Dispatcharr's /file/ playback
+                        // URL too. Route either through the same player path.
                         val url = rec.playbackUrl
-                        if (rec.source == DvrViewModel.Source.Local && !url.isNullOrBlank()) {
+                        if (!url.isNullOrBlank()) {
+                            viewModel.markPendingReturnFocus(rec.id)
                             onPlayRecording(url, rec.title)
                         } else {
                             Toast.makeText(
                                 context,
-                                "Playback for server recordings lands in the next phase.",
+                                "This recording isn't playable yet.",
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }
@@ -426,9 +513,11 @@ fun DvrTabContent(
 private fun FilterPill(
     label: String,
     selected: Boolean,
+    upTarget: FocusRequester?,
     onClick: () -> Unit,
 ) {
     FilterChip(
+        modifier = if (upTarget != null) Modifier.focusProperties { up = upTarget } else Modifier,
         selected = selected,
         onClick = onClick,
         label = { Text(label) },
@@ -472,6 +561,7 @@ private fun EmptyState(title: String, body: String) {
 @Composable
 private fun RecordingRow(
     rec: DvrViewModel.Recording,
+    focusRequester: FocusRequester,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onPlay: () -> Unit,
@@ -480,6 +570,10 @@ private fun RecordingRow(
     onRemoveCommercials: () -> Unit,
     onStopRecording: () -> Unit,
 ) {
+    val isCompletedLike = rec.status == DvrViewModel.Recording.Status.Completed ||
+        rec.status == DvrViewModel.Recording.Status.Stopped
+    val canPlay = rec.playbackUrl?.isNotBlank() == true && isCompletedLike
+
     val statusColor = when (rec.status) {
         DvrViewModel.Recording.Status.Recording -> Color(0xFFFF4757)
         DvrViewModel.Recording.Status.Completed -> MaterialTheme.colorScheme.primary
@@ -502,17 +596,40 @@ private fun RecordingRow(
             "${timeFmt.format(Date(rec.startMillis))} – ${timeFmt.format(Date(rec.endMillis))}"
 
     var menuOpen by remember { mutableStateOf(false) }
+    var menuOpenedAtMs by remember { mutableStateOf(0L) }
 
     Box {
         Row(
             modifier = Modifier
+                .focusRequester(focusRequester)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
                 .combinedClickable(
-                    onClick = {},
-                    onLongClick = { menuOpen = true },
+                    onClick = {
+                        if (canPlay) {
+                            onPlay()
+                        } else {
+                            menuOpenedAtMs = SystemClock.elapsedRealtime()
+                            menuOpen = true
+                        }
+                    },
+                    onLongClick = {
+                        menuOpenedAtMs = SystemClock.elapsedRealtime()
+                        menuOpen = true
+                    },
                 )
+                .onKeyEvent { ev ->
+                    if (ev.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                        ev.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
+                    ) {
+                        menuOpenedAtMs = SystemClock.elapsedRealtime()
+                        menuOpen = true
+                        true
+                    } else {
+                        false
+                    }
+                }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -566,6 +683,7 @@ private fun RecordingRow(
             onSaveToDevice = onSaveToDevice,
             onRemoveCommercials = onRemoveCommercials,
             onStopRecording = onStopRecording,
+            menuOpenedAtMs = menuOpenedAtMs,
         )
     }
 }
@@ -635,12 +753,19 @@ private fun RecordingActionMenu(
     onSaveToDevice: () -> Unit,
     onRemoveCommercials: () -> Unit,
     onStopRecording: () -> Unit,
+    menuOpenedAtMs: Long,
 ) {
     val isServer = rec.source == DvrViewModel.Source.Server
     val isCompleted = rec.status == DvrViewModel.Recording.Status.Completed ||
         rec.status == DvrViewModel.Recording.Status.Stopped
     val isInProgress = rec.status == DvrViewModel.Recording.Status.Recording
     val isScheduled = rec.status == DvrViewModel.Recording.Status.Scheduled
+
+    val canExecuteNow: () -> Boolean = {
+        // Guard against the same D-pad/OK press event that opened the menu
+        // immediately activating the first item ("Play") on TV remotes.
+        SystemClock.elapsedRealtime() - menuOpenedAtMs > 250L
+    }
 
     DropdownMenu(
         expanded = expanded,
@@ -650,18 +775,18 @@ private fun RecordingActionMenu(
             DropdownMenuItem(
                 text = { Text("Play") },
                 leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { onDismiss(); onPlay() },
+                onClick = { if (canExecuteNow()) { onDismiss(); onPlay() } },
             )
             if (isServer) {
                 DropdownMenuItem(
                     text = { Text("Save to Device") },
                     leadingIcon = { Icon(Icons.Outlined.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { onDismiss(); onSaveToDevice() },
+                    onClick = { if (canExecuteNow()) { onDismiss(); onSaveToDevice() } },
                 )
                 DropdownMenuItem(
                     text = { Text("Remove Commercials") },
                     leadingIcon = { Icon(Icons.Outlined.ContentCut, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { onDismiss(); onRemoveCommercials() },
+                    onClick = { if (canExecuteNow()) { onDismiss(); onRemoveCommercials() } },
                 )
             }
         }
@@ -676,13 +801,13 @@ private fun RecordingActionMenu(
                 DropdownMenuItem(
                     text = { Text("Watch Live") },
                     leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { onDismiss(); onWatchLive() },
+                    onClick = { if (canExecuteNow()) { onDismiss(); onWatchLive() } },
                 )
             }
             DropdownMenuItem(
                 text = { Text("Stop Recording") },
                 leadingIcon = { Icon(Icons.Outlined.Stop, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { onDismiss(); onStopRecording() },
+                onClick = { if (canExecuteNow()) { onDismiss(); onStopRecording() } },
             )
         }
 
@@ -690,7 +815,7 @@ private fun RecordingActionMenu(
             DropdownMenuItem(
                 text = { Text("Edit") },
                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { onDismiss(); onEdit() },
+                onClick = { if (canExecuteNow()) { onDismiss(); onEdit() } },
             )
         }
 
@@ -702,7 +827,7 @@ private fun RecordingActionMenu(
         DropdownMenuItem(
             text = { Text(deleteLabel, color = MaterialTheme.colorScheme.error) },
             leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            onClick = { onDismiss(); onDelete() },
+            onClick = { if (canExecuteNow()) { onDismiss(); onDelete() } },
         )
     }
 }

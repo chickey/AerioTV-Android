@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -54,6 +55,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,9 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
+import com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor
+import com.aeriotv.android.feature.main.AppTab
+import com.aeriotv.android.feature.main.LocalTvTopNavRequesterForTab
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import java.text.DateFormat
 import java.util.Date
@@ -99,6 +105,10 @@ fun SettingsScreen(
     onEditPlaylist: (PlaylistEntity) -> Unit = {},
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
+    val isTv = rememberLiveTvFormFactor().isTv
+    val requesterForTab = LocalTvTopNavRequesterForTab.current
+    val upTarget = if (isTv) requesterForTab?.invoke(AppTab.Settings) else null
+    val listState = rememberLazyListState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val playlists by viewModel.allPlaylists.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -117,6 +127,14 @@ fun SettingsScreen(
     val installedAt = packageInfo?.firstInstallTime ?: 0L
     val updatedAt = packageInfo?.lastUpdateTime ?: 0L
     val versionName = packageInfo?.versionName ?: "0.1.0"
+    val versionCodeLong = packageInfo?.let {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            it.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            it.versionCode.toLong()
+        }
+    } ?: 0L
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -144,7 +162,23 @@ fun SettingsScreen(
             contentAlignment = Alignment.TopCenter,
         ) {
         LazyColumn(
-            modifier = Modifier.adaptiveFormWidth().fillMaxSize(),
+            state = listState,
+            modifier = Modifier
+                .adaptiveFormWidth()
+                .fillMaxSize()
+                .then(
+                    if (upTarget != null) Modifier.focusProperties { up = upTarget } else Modifier
+                )
+                .onPreviewKeyEvent { ev ->
+                    val n = ev.nativeKeyEvent
+                    if (!isTv || n.action != android.view.KeyEvent.ACTION_DOWN || n.keyCode != android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                        return@onPreviewKeyEvent false
+                    }
+                    val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                    if (!atTop) return@onPreviewKeyEvent false
+                    runCatching { upTarget?.requestFocus() }
+                    true
+                },
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
@@ -211,13 +245,13 @@ fun SettingsScreen(
             item("about") {
                 AboutSection(
                     versionName = versionName,
-                    versionCode = packageInfo?.longVersionCode ?: 0L,
+                    versionCode = versionCodeLong,
                     installedAt = installedAt,
                     updatedAt = updatedAt,
                     onCopy = {
                         val text = buildAboutClipboard(
                             versionName,
-                            packageInfo?.longVersionCode ?: 0L,
+                            versionCodeLong,
                             installedAt,
                             updatedAt,
                         )

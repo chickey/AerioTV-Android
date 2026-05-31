@@ -142,6 +142,16 @@ class AppPreferences @Inject constructor(
     }
 
     /**
+     * Playback skip interval (seconds) for +/- seek actions in VOD/recording
+     * playback. iOS parity default is 10s; Android exposes presets in
+     * App Behaviors.
+     */
+    val playbackSkipSeconds: Flow<Int> = store.data.map { it[KEY_PLAYBACK_SKIP_SECONDS] ?: 10 }
+    suspend fun setPlaybackSkipSeconds(value: Int) {
+        store.edit { it[KEY_PLAYBACK_SKIP_SECONDS] = value }
+    }
+
+    /**
      * iOS `debugLoggingEnabled` parity (DeveloperSettingsView line 14). The
      * Settings -> Developer screen flips this on/off; the DebugLogger
      * singleton reads it on startup and on every change to know whether to
@@ -502,6 +512,7 @@ class AppPreferences @Inject constructor(
         data[KEY_DEFAULT_LIVE_TV_VIEW]?.let { out["defaultLiveTVView"] = it }
         data[KEY_SKIP_LOADING_SCREEN]?.let { out["skipLoadingScreen"] = it.toString() }
         data[KEY_APPLE_TV_CHANNEL_FLIP]?.let { out["appleTVChannelFlip"] = it.toString() }
+        data[KEY_PLAYBACK_SKIP_SECONDS]?.let { out["playbackSkipSeconds"] = it.toString() }
         data[KEY_AUTO_RESUME_LAST_CHANNEL]?.let { out["autoResumeLastChannel"] = it.toString() }
         data[KEY_CATEGORY_MASTER_ENABLE]?.let { out["enableCategoryColors"] = it.toString() }
         data[KEY_CATEGORY_CUSTOM_JSON]?.let { out["customCategoryColors.v1"] = it }
@@ -529,6 +540,7 @@ class AppPreferences @Inject constructor(
             keys["defaultLiveTVView"]?.let { prefs[KEY_DEFAULT_LIVE_TV_VIEW] = it }
             keys["skipLoadingScreen"]?.toBooleanStrictOrNull()?.let { prefs[KEY_SKIP_LOADING_SCREEN] = it }
             keys["appleTVChannelFlip"]?.toBooleanStrictOrNull()?.let { prefs[KEY_APPLE_TV_CHANNEL_FLIP] = it }
+            keys["playbackSkipSeconds"]?.toIntOrNull()?.let { prefs[KEY_PLAYBACK_SKIP_SECONDS] = it }
             keys["autoResumeLastChannel"]?.toBooleanStrictOrNull()?.let { prefs[KEY_AUTO_RESUME_LAST_CHANNEL] = it }
             keys["enableCategoryColors"]?.toBooleanStrictOrNull()?.let { prefs[KEY_CATEGORY_MASTER_ENABLE] = it }
             keys["customCategoryColors.v1"]?.let { prefs[KEY_CATEGORY_CUSTOM_JSON] = it }
@@ -609,6 +621,7 @@ class AppPreferences @Inject constructor(
         val KEY_SKIP_LOADING_SCREEN = booleanPreferencesKey("app_behaviors_skip_loading_screen")
         val KEY_DEBUG_LOGGING_ENABLED = booleanPreferencesKey("debug_logging_enabled")
         val KEY_APPLE_TV_CHANNEL_FLIP = booleanPreferencesKey("app_behaviors_apple_tv_channel_flip")
+        val KEY_PLAYBACK_SKIP_SECONDS = intPreferencesKey("app_behaviors_playback_skip_seconds")
         val KEY_AUTO_RESUME_LAST_CHANNEL = booleanPreferencesKey("app_behaviors_auto_resume_last_channel")
         val KEY_LAST_WATCHED_CHANNEL_ID = stringPreferencesKey("last_watched_channel_id")
         val KEY_LAST_SEEN_WHATSNEW_VERSION = stringPreferencesKey("last_seen_whatsnew_version")

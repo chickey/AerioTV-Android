@@ -128,9 +128,7 @@ class DebugLogger @Inject constructor(
                     f.renameTo(archiveFile())
                 }
             }
-            PrintWriter(f.outputStream().bufferedWriter().also {
-                f.appendText("")  // ensure file exists for append
-            }).use { /* noop */ }
+            if (!f.exists()) f.createNewFile()
             f.appendText(line + System.lineSeparator())
         }.onFailure { t ->
             Log.w(TAG, "Failed to append log line: ${t.message}")

@@ -1,5 +1,6 @@
 package com.aeriotv.android.feature.main
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
@@ -19,8 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
@@ -43,7 +47,9 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.M3UChannel
+import com.aeriotv.android.core.data.programmesFor
 import com.aeriotv.android.core.playback.AerioExoPlayerHolder
+import com.aeriotv.android.core.pip.findActivity
 import com.aeriotv.android.feature.dvr.DvrTabContent
 import com.aeriotv.android.feature.dvr.DvrViewModel
 import com.aeriotv.android.feature.favorites.FavoritesTabContent
@@ -83,6 +89,8 @@ import com.aeriotv.android.feature.settings.SettingsViewModel
  * `null` on phone shell — the CompositionLocal is only filled on TV.
  */
 val LocalTvTopNavFocusRequester = staticCompositionLocalOf<FocusRequester?> { null }
+val LocalTvTopNavFocusTab = staticCompositionLocalOf<((AppTab) -> Unit)?> { null }
+val LocalTvTopNavRequesterForTab = staticCompositionLocalOf<((AppTab) -> FocusRequester?)?> { null }
 
 /**
  * Top-level scaffold once a playlist is loaded. Mirrors iOS MainTabView with the
@@ -135,10 +143,13 @@ fun MainScaffold(
         )
     val dvrVm: DvrViewModel = hiltViewModel()
     val dvrState by dvrVm.state.collectAsStateWithLifecycle()
-    // hasRecordings: at least one recording (scheduled / recording / completed,
-    // server or local) for the active source. Scheduling from the guide makes the
-    // tab appear; deleting the last recording makes it disappear.
-    val hasRecordings = dvrState.recordings.isNotEmpty()
+    // DVR loading bridge (same anti-flicker strategy as hasVodContent): keep the
+    // DVR tab visible while its source check / first fetch is in flight so the
+    // nav order doesn't jump (e.g. "On Demand" briefly occupying the DVR slot
+    // before recordings state arrives).
+    val hasRecordings = !dvrState.unsupportedSource && (
+        dvrState.recordings.isNotEmpty() || dvrState.isLoading
+    )
     val tabs = visibleTabs(
         hasFavorites = hasRenderableFavorites,
         hasVod = hasVodContent,
@@ -170,6 +181,11 @@ fun MainScaffold(
 
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.LiveTV) }
     var initialTabApplied by rememberSaveable { mutableStateOf(false) }
+    var showExitConfirm by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler(enabled = true) {
+        showExitConfirm = true
+    }
 
     // Honour the saved defaultTab once its tab is actually available. On Demand /
     // DVR now materialise a beat after launch (their content loads async), so we
@@ -219,7 +235,19 @@ fun MainScaffold(
         // Section composables read it via LocalTvTopNavFocusRequester and
         // route D-pad UP from their topmost focusable here.
         val topNavRequester = remember { FocusRequester() }
-        CompositionLocalProvider(LocalTvTopNavFocusRequester provides topNavRequester) {
+        val tabFocusRequesters = remember {
+            AppTab.entries.associateWith { FocusRequester() }
+        }
+        var requestTopNavFocusTab by remember { mutableStateOf<AppTab?>(null) }
+        CompositionLocalProvider(
+            LocalTvTopNavFocusRequester provides topNavRequester,
+            LocalTvTopNavFocusTab provides { tab ->
+                selectedTab = tab
+                initialTabApplied = true
+                requestTopNavFocusTab = tab
+            },
+            LocalTvTopNavRequesterForTab provides { tab -> tabFocusRequesters[tab] },
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -230,6 +258,9 @@ fun MainScaffold(
                     selected = selectedTab,
                     onSelect = { selectedTab = it; initialTabApplied = true },
                     focusRequester = topNavRequester,
+                    tabFocusRequesters = tabFocusRequesters,
+                    requestFocusTab = requestTopNavFocusTab,
+                    onRequestFocusTabHandled = { requestTopNavFocusTab = null },
                 )
                 // tvOS layout reference: when the mini-player is active the
                 // group filter pills + guide grid drop DOWN so the
@@ -283,7 +314,7 @@ fun MainScaffold(
                 // don't double-render the same session.
                 if (miniState is MiniPlayerSession.State.Active && !isTv) {
                     val channel = miniState.channel
-                    val nowProgramme = state.epgByChannel[channel.tvgID]?.nowPlaying()
+                    val nowProgramme = state.epgByChannel.programmesFor(channel).nowPlaying()
                     MiniPlayerRow(
                         channel = channel,
                         nowProgramme = nowProgramme,
@@ -345,6 +376,25 @@ fun MainScaffold(
             modifier = Modifier.padding(padding),
         )
     }
+
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("Exit AerioTV?") },
+            text = { Text("Are you sure you want to close the app?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExitConfirm = false
+                        context.findActivity()?.finish()
+                    },
+                ) { Text("Exit") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 /**
@@ -402,6 +452,9 @@ private fun TvTopTabBar(
     selected: AppTab,
     onSelect: (AppTab) -> Unit,
     focusRequester: FocusRequester,
+    tabFocusRequesters: Map<AppTab, FocusRequester>,
+    requestFocusTab: AppTab?,
+    onRequestFocusTabHandled: () -> Unit,
 ) {
     // Selection-follows-focus, but committed ONLY for focus moves BETWEEN pills
     // (real D-pad traversal of the bar), never for focus ENTERING the bar from
@@ -432,6 +485,12 @@ private fun TvTopTabBar(
         val cur = focusedTab ?: return@LaunchedEffect
         if (armed && cur != selected) onSelect(cur)
     }
+    LaunchedEffect(requestFocusTab, tabs) {
+        val target = requestFocusTab ?: return@LaunchedEffect
+        if (target !in tabs) return@LaunchedEffect
+        runCatching { tabFocusRequesters[target]?.requestFocus() }
+        onRequestFocusTabHandled()
+    }
 
     // tvOS-style floating nav: the tabs are grouped into one centered, rounded
     // "segmented" capsule over the app background (no full-width surface toolbar
@@ -445,7 +504,6 @@ private fun TvTopTabBar(
         Row(
             modifier = Modifier
                 .focusRequester(focusRequester)
-                .focusRestorer()
                 // Row-level hasFocus stays true while focus moves between pills
                 // and only flips false when focus leaves the bar entirely, so it
                 // is the reliable "is the user in the bar" signal for [armed].
@@ -461,10 +519,12 @@ private fun TvTopTabBar(
                     tab = tab,
                     selected = tab == selected,
                     onFocused = { focusedTab = tab },
+                    focusRequester = tabFocusRequesters.getValue(tab),
                 )
             }
         }
     }
+
 }
 
 @Composable
@@ -472,6 +532,7 @@ private fun TvTab(
     tab: AppTab,
     selected: Boolean,
     onFocused: () -> Unit,
+    focusRequester: FocusRequester,
 ) {
     var focused by remember { mutableStateOf(false) }
     val background = when {
@@ -486,6 +547,7 @@ private fun TvTab(
     }
     Row(
         modifier = Modifier
+            .focusRequester(focusRequester)
             .clip(RoundedCornerShape(26.dp))
             .background(background)
             .onFocusChanged {
@@ -513,6 +575,10 @@ private fun TvTab(
 
 @Composable
 private fun SettingsTabContent() {
+    val isTv = rememberLiveTvFormFactor().isTv
+    val topNavRequester = LocalTvTopNavFocusRequester.current
+    val focusTopNavTab = LocalTvTopNavFocusTab.current
+    val requesterForTab = LocalTvTopNavRequesterForTab.current
     var section by remember { mutableStateOf<SettingsSection?>(null) }
     var addMoreOpen by remember { mutableStateOf(false) }
     var playlistDetailOpen by remember { mutableStateOf(false) }
@@ -520,6 +586,7 @@ private fun SettingsTabContent() {
     var playlistsOpen by remember { mutableStateOf(false) }
     var logViewerOpen by remember { mutableStateOf(false) }
     var addPlaylistStep by remember { mutableStateOf<AddPlaylistStep>(AddPlaylistStep.None) }
+    var settingsRootHasFocus by remember { mutableStateOf(false) }
     val playlistVm: PlaylistViewModel = hiltViewModel()
     val playlistState by playlistVm.state.collectAsStateWithLifecycle()
     // Watch for a playlist id flip while we're inside the Add Playlist flow;
@@ -551,6 +618,19 @@ private fun SettingsTabContent() {
             logViewerOpen -> logViewerOpen = false
             else -> section = null
         }
+    }
+    androidx.activity.compose.BackHandler(
+        enabled = isTv &&
+            section == null &&
+            !addMoreOpen && !playlistDetailOpen && !editPlaylistOpen &&
+            !playlistsOpen && !logViewerOpen &&
+            addPlaylistStep == AddPlaylistStep.None &&
+            settingsRootHasFocus &&
+            (topNavRequester != null || focusTopNavTab != null),
+    ) {
+        if (focusTopNavTab != null) focusTopNavTab.invoke(AppTab.Settings)
+        else runCatching { topNavRequester?.requestFocus() }
+        settingsRootHasFocus = false
     }
     // TV focus retention. The top nav uses selection-follows-focus (focusing
     // the Live TV pill switches to the guide). When the user clicks a settings
@@ -585,7 +665,16 @@ private fun SettingsTabContent() {
         if (entering || exitingToRoot) runCatching { settingsContentFocus.requestFocus() }
         prevSubScreenKey = subScreenKey
     }
-    Box(modifier = Modifier.focusRequester(settingsContentFocus).focusGroup()) {
+    val upTarget = requesterForTab?.invoke(AppTab.Settings) ?: topNavRequester
+    Box(
+        modifier = Modifier
+            .focusRequester(settingsContentFocus)
+            .focusGroup()
+            .then(
+                if (upTarget != null) Modifier.focusProperties { up = upTarget } else Modifier
+            )
+            .onFocusChanged { settingsRootHasFocus = it.hasFocus },
+    ) {
     when {
         addPlaylistStep is AddPlaylistStep.Configure -> ConfigureSourceScreen(
             sourceType = (addPlaylistStep as AddPlaylistStep.Configure).sourceType,

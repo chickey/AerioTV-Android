@@ -9,6 +9,7 @@ import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
 import com.aeriotv.android.core.data.repository.ChannelProfileOption
 import com.aeriotv.android.core.data.repository.PlaylistRepository
+import com.aeriotv.android.core.debug.DebugLogger
 import com.aeriotv.android.core.debug.MemoryPressureBus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ import javax.inject.Inject
 class PlaylistViewModel @Inject constructor(
     private val repository: PlaylistRepository,
     private val memoryPressureBus: MemoryPressureBus,
+    private val debugLogger: DebugLogger,
 ) : ViewModel() {
 
     enum class Phase { Bootstrapping, NeedsUrl, ChannelsReady }
@@ -98,6 +100,14 @@ class PlaylistViewModel @Inject constructor(
         private const val CHANNEL_CACHE_TTL_MS = 24L * 60L * 60L * 1000L
     }
 
+    private fun logI(msg: String) {
+        debugLogger.log(TAG, DebugLogger.Level.INFO, msg)
+    }
+
+    private fun logW(msg: String, t: Throwable? = null) {
+        debugLogger.log(TAG, DebugLogger.Level.WARN, msg, t)
+    }
+
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -123,7 +133,7 @@ class PlaylistViewModel @Inject constructor(
                 if (MemoryPressureBus.isCritical(level)) {
                     val cleared = _state.value.epgByChannel.isNotEmpty()
                     if (cleared) {
-                        Log.i(TAG, "onTrimMemory=$level: shedding in-memory EPG map")
+                        logI("onTrimMemory=$level: shedding in-memory EPG map")
                         _state.update { it.copy(epgByChannel = emptyMap()) }
                     }
                 }
@@ -170,7 +180,7 @@ class PlaylistViewModel @Inject constructor(
                 )
             }
             if (hasChannelCache) {
-                Log.i(TAG, "bootstrap: painted ${cachedChannels.size} cached channels")
+                logI("bootstrap: painted ${cachedChannels.size} cached channels")
                 // Start the EPG cache-first paint in parallel so the guide
                 // cells light up immediately too, instead of waiting on the
                 // channel network refresh.
@@ -184,11 +194,11 @@ class PlaylistViewModel @Inject constructor(
             val freshChannels = hasChannelCache && newest != null &&
                 (System.currentTimeMillis() - newest) < CHANNEL_CACHE_TTL_MS
             if (freshChannels) {
-                Log.i(TAG, "bootstrap: channel cache fresh, skipping network refresh")
+                logI("bootstrap: channel cache fresh, skipping network refresh")
                 return@launch
             }
 
-            Log.i(TAG, "bootstrap: refreshing channels (hadCache=$hasChannelCache)")
+            logI("bootstrap: refreshing channels (hadCache=$hasChannelCache)")
             repository.refresh(saved).fold(
                 onSuccess = { channels ->
                     _state.update {
@@ -211,7 +221,7 @@ class PlaylistViewModel @Inject constructor(
                         // don't bounce the user to NeedsUrl - they had a
                         // working playlist yesterday, the server is just
                         // unreachable right now.
-                        Log.w(TAG, "channel refresh failed; cached rail still visible", t)
+                        logW("channel refresh failed; cached rail still visible", t)
                         _state.update { it.copy(isLoading = false) }
                     } else {
                         _state.update {
@@ -388,7 +398,7 @@ class PlaylistViewModel @Inject constructor(
             SourceType.XtreamCodes -> !playlist.username.isNullOrBlank()
         }
         if (!willHaveEpg) {
-            Log.i(TAG, "loadEpgIfConfigured: no EPG for sourceType=${playlist.sourceType}")
+            logI("loadEpgIfConfigured: no EPG for sourceType=${playlist.sourceType}")
             return
         }
         viewModelScope.launch {
@@ -399,7 +409,7 @@ class PlaylistViewModel @Inject constructor(
                 .getOrDefault(emptyList())
             val hasCache = cached.isNotEmpty()
             if (hasCache) {
-                Log.i(TAG, "loadEpgIfConfigured: painted ${cached.size} cached programmes")
+                logI("loadEpgIfConfigured: painted ${cached.size} cached programmes")
                 val groupedCached = groupByChannel(cached)
                 _state.update { it.copy(epgByChannel = groupedCached, isEpgLoading = false) }
             }
@@ -410,23 +420,30 @@ class PlaylistViewModel @Inject constructor(
                 val fresh = newest != null &&
                     (System.currentTimeMillis() - newest) < EPG_CACHE_TTL_MS
                 if (fresh) {
-                    Log.i(TAG, "loadEpgIfConfigured: cache fresh, skipping network")
+                    logI("loadEpgIfConfigured: cache fresh, skipping network")
                     _state.update { it.copy(isEpgLoading = false) }
                     return@launch
                 }
             }
             // 3. Stale / forced / first-ever launch -> network. Only show the
             // spinner when there is nothing cached to display yet.
-            Log.i(TAG, "loadEpgIfConfigured: fetching EPG for ${playlist.sourceType} (force=$forceRefresh, hadCache=$hasCache)")
+            logI("loadEpgIfConfigured: fetching EPG for ${playlist.sourceType} (force=$forceRefresh, hadCache=$hasCache)")
             if (!hasCache) _state.update { it.copy(isEpgLoading = true) }
             repository.loadEpg(playlist).fold(
                 onSuccess = { programmes ->
-                    Log.i(TAG, "EPG loaded: ${programmes.size} programmes across ${programmes.map { it.channelId }.toSet().size} channels")
+                    logI("EPG loaded: ${programmes.size} programmes across ${programmes.map { it.channelId }.toSet().size} channels")
                     val grouped = groupByChannel(programmes)
-                    _state.update { it.copy(epgByChannel = grouped, isEpgLoading = false) }
+                    val refreshedAt = System.currentTimeMillis()
+                    _state.update { st ->
+                        st.copy(
+                            epgByChannel = grouped,
+                            isEpgLoading = false,
+                            playlist = st.playlist?.copy(lastEpgRefreshedAt = refreshedAt),
+                        )
+                    }
                     // Persist the fresh guide so the next launch is instant.
                     runCatching { repository.saveEpgToCache(playlist.id, programmes) }
-                        .onFailure { Log.w(TAG, "saveEpgToCache failed", it) }
+                        .onFailure { logW("saveEpgToCache failed", it) }
                     // iOS parity: fire-and-forget category enrichment for
                     // Dispatcharr's bulk grid (which strips the category).
                     // Categories tint in progressively as detail responses
@@ -436,7 +453,7 @@ class PlaylistViewModel @Inject constructor(
                     launch {
                         val enriched = runCatching {
                             repository.enrichNowPlayingCategories(playlist, programmes)
-                        }.onFailure { Log.w(TAG, "category enrichment failed", it) }
+                        }.onFailure { logW("category enrichment failed", it) }
                             .getOrDefault(programmes)
                         // Only push an update when enrichment actually changed
                         // something; short-circuits the recompose when the source
@@ -446,12 +463,12 @@ class PlaylistViewModel @Inject constructor(
                             _state.update { it.copy(epgByChannel = groupedEnriched) }
                             // Keep the cache enriched too so tints survive a relaunch.
                             runCatching { repository.saveEpgToCache(playlist.id, enriched) }
-                            Log.i(TAG, "EPG enriched: categories backfilled for now-playing programmes")
+                            logI("EPG enriched: categories backfilled for now-playing programmes")
                         }
                     }
                 },
                 onFailure = { t ->
-                    Log.w(TAG, "EPG load failed", t)
+                    logW("EPG load failed", t)
                     // Keep whatever cache we already painted on screen.
                     _state.update { it.copy(isEpgLoading = false) }
                 },
@@ -476,7 +493,7 @@ class PlaylistViewModel @Inject constructor(
     fun refreshPlaylist() {
         viewModelScope.launch {
             val active = repository.activePlaylist() ?: return@launch
-            Log.i(TAG, "refreshPlaylist: re-loading ${active.name}")
+            logI("refreshPlaylist: re-loading ${active.name}")
             _state.update { it.copy(isLoading = true, error = null) }
             repository.refresh(active).fold(
                 onSuccess = { channels ->
@@ -490,7 +507,7 @@ class PlaylistViewModel @Inject constructor(
                     loadEpgIfConfigured(active, forceRefresh = true)
                 },
                 onFailure = { t ->
-                    Log.w(TAG, "refreshPlaylist failed", t)
+                    logW("refreshPlaylist failed", t)
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -506,6 +523,7 @@ class PlaylistViewModel @Inject constructor(
     fun refreshEpg() {
         viewModelScope.launch {
             val active = repository.activePlaylist() ?: return@launch
+            _state.update { it.copy(error = null) }
             loadEpgIfConfigured(active, forceRefresh = true)
         }
     }
@@ -535,7 +553,7 @@ class PlaylistViewModel @Inject constructor(
             }
             _state.update { it.copy(profilesLoading = true) }
             val profiles = runCatching { repository.listChannelProfiles(active) }
-                .onFailure { Log.w(TAG, "loadDispatcharrProfiles failed", it) }
+                .onFailure { logW("loadDispatcharrProfiles failed", it) }
                 .getOrDefault(emptyList())
             _state.update { it.copy(availableProfiles = profiles, profilesLoading = false) }
         }
@@ -583,7 +601,7 @@ class PlaylistViewModel @Inject constructor(
                     loadEpgIfConfigured(entity)
                 },
                 onFailure = { t ->
-                    Log.w(TAG, "saveEdits failed", t)
+                    logW("saveEdits failed", t)
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -603,10 +621,27 @@ class PlaylistViewModel @Inject constructor(
     fun testConnection() {
         viewModelScope.launch {
             val active = repository.activePlaylist() ?: return@launch
-            Log.i(TAG, "testConnection: probing ${active.urlString}")
+            logI("testConnection: probing ${active.urlString}")
+            _state.update { it.copy(isLoading = true, error = null) }
             repository.refresh(active)
-                .onSuccess { Log.i(TAG, "testConnection: ok (${it.size} channels)") }
-                .onFailure { Log.w(TAG, "testConnection failed", it) }
+                .onSuccess {
+                    logI("testConnection: ok (${it.size} channels)")
+                    _state.update { st ->
+                        st.copy(
+                            isLoading = false,
+                            error = "Connection OK (${it.size} channels).",
+                        )
+                    }
+                }
+                .onFailure {
+                    logW("testConnection failed", it)
+                    _state.update { st ->
+                        st.copy(
+                            isLoading = false,
+                            error = "Connection failed: ${it.message ?: it::class.simpleName}",
+                        )
+                    }
+                }
         }
     }
 
@@ -636,7 +671,7 @@ class PlaylistViewModel @Inject constructor(
                     loadEpgIfConfigured(entity)
                 },
                 onFailure = { t ->
-                    Log.w(TAG, "switchToPlaylist failed", t)
+                    logW("switchToPlaylist failed", t)
                     _state.update {
                         it.copy(
                             isLoading = false,

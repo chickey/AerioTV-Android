@@ -9,6 +9,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.zip.GZIPInputStream
+import java.time.Instant
 
 /**
  * XMLTV parser ported from iOS Aerio/Networking/PlaylistParsers.swift
@@ -29,8 +30,20 @@ object XMLTVParser {
     private val xmltvFmtTz: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
         SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
     }
+    private val xmltvFmtTzCompact: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyyMMddHHmmssZ", Locale.US)
+    }
+    private val xmltvFmtShortTz: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyyMMddHHmm Z", Locale.US)
+    }
+    private val xmltvFmtShortTzCompact: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyyMMddHHmmZ", Locale.US)
+    }
     private val xmltvFmtUtc: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
         SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    }
+    private val xmltvFmtUtcShort: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyyMMddHHmm", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
     }
 
     fun parseBytes(bytes: ByteArray): List<EPGProgramme> {
@@ -155,8 +168,18 @@ object XMLTVParser {
     private fun parseXMLTVDate(raw: String): Long? {
         val s = raw.trim()
         if (s.isEmpty()) return null
+        // ISO-8601 variant seen in some provider exports.
+        runCatching { return Instant.parse(s).toEpochMilli() }
+        // Canonical XMLTV: "yyyyMMddHHmmss +HHMM"
         runCatching { return xmltvFmtTz.get()!!.parse(s)?.time }
+        // Variant: no separating space before timezone.
+        runCatching { return xmltvFmtTzCompact.get()!!.parse(s)?.time }
+        // Variant: no seconds.
+        runCatching { return xmltvFmtShortTz.get()!!.parse(s)?.time }
+        runCatching { return xmltvFmtShortTzCompact.get()!!.parse(s)?.time }
+        // UTC variants without explicit offset.
         runCatching { return xmltvFmtUtc.get()!!.parse(s)?.time }
+        runCatching { return xmltvFmtUtcShort.get()!!.parse(s)?.time }
         return null
     }
 }

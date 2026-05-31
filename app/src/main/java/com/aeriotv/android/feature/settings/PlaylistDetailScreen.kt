@@ -3,6 +3,7 @@ package com.aeriotv.android.feature.settings
 import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,10 +31,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -57,6 +60,12 @@ fun PlaylistDetailScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val playlist = state.playlist
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(state.error) {
+        val msg = state.error ?: return@LaunchedEffect
+        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -156,6 +165,17 @@ fun PlaylistDetailScreen(
                         icon = Icons.Filled.Refresh,
                         label = "Refresh Playlist",
                         onClick = { viewModel.refreshPlaylist() },
+                    )
+                }
+            }
+
+            if (state.isLoading || state.isEpgLoading) {
+                item {
+                    Text(
+                        text = if (state.isLoading) "Working..." else "Refreshing guide...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp),
                     )
                 }
             }
@@ -266,7 +286,10 @@ private fun ActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -275,8 +298,6 @@ private fun ActionRow(
             tint = MaterialTheme.colorScheme.primary,
         )
         Spacer(Modifier.size(12.dp))
-        TextButton(onClick = onClick) {
-            Text(label, color = MaterialTheme.colorScheme.primary)
-        }
+        Text(text = label, color = MaterialTheme.colorScheme.primary)
     }
 }

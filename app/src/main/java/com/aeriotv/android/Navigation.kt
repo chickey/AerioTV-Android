@@ -659,10 +659,27 @@ fun AerioTVNavHost(
             ) { entry ->
                 val playbackUrl = Uri.decode(entry.arguments?.getString("playbackUrl").orEmpty())
                 val title = Uri.decode(entry.arguments?.getString("title").orEmpty())
+                val parent = remember(entry) {
+                    navController.getBackStackEntry(Routes.PLAYLIST_GRAPH)
+                }
+                val playlistVm: PlaylistViewModel = hiltViewModel(parent)
+                val playlistState by playlistVm.state.collectAsStateWithLifecycle()
+                val headers = remember(playlistState.playlist?.apiKey, playlistState.playlist?.sourceType) {
+                    val pl = playlistState.playlist
+                    val key = pl?.apiKey?.takeIf { it.isNotBlank() }
+                    val isDispatcharr = pl?.sourceType == SourceType.DispatcharrApiKey.name ||
+                            pl?.sourceType == SourceType.DispatcharrUserPass.name
+                    if (isDispatcharr && key != null) {
+                        mapOf(
+                            "X-API-Key" to key,
+                            "Authorization" to "ApiKey $key",
+                        )
+                    } else emptyMap()
+                }
                 VODPlayerScreen(
                     streamUrl = playbackUrl,
                     title = title.ifBlank { "Recording" },
-                    httpHeaders = emptyMap(),
+                    httpHeaders = headers,
                     onClose = { navController.popBackStack() },
                     loadingMessage = null,
                     videoId = playbackUrl,

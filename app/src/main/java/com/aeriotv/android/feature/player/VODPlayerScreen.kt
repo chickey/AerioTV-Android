@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -27,11 +28,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,14 +52,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.BuildConfig
+import com.aeriotv.android.core.debug.debugLogError
 import com.aeriotv.android.core.pip.PipState
 import com.aeriotv.android.core.pip.enterPip16x9
 import com.aeriotv.android.core.pip.findActivity
@@ -71,6 +79,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -116,6 +125,8 @@ fun VODPlayerScreen(
 
     val settingsVm: SettingsViewModel = hiltViewModel()
     val streamBufferSize by settingsVm.streamBufferSize.collectAsStateWithLifecycle(initialValue = "default")
+    val playbackSkipSeconds by settingsVm.playbackSkipSeconds.collectAsStateWithLifecycle(initialValue = 10)
+    val playbackSkipMs = playbackSkipSeconds * 1_000L
     val watchVm: WatchProgressViewModel = hiltViewModel()
 
     val context = LocalContext.current
@@ -159,7 +170,70 @@ fun VODPlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Black)
+            .focusable()
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val player = exoPlayer
+                when (keyEvent.key) {
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                        if (player != null) {
+                            val nowPaused = !player.playWhenReady
+                            player.playWhenReady = nowPaused
+                            isPaused = !nowPaused
+                            chromeVisible = true
+                        } else {
+                            chromeVisible = !chromeVisible
+                        }
+                        true
+                    }
+                    Key.MediaPlayPause -> {
+                        if (player != null) {
+                            val nowPaused = !player.playWhenReady
+                            player.playWhenReady = nowPaused
+                            isPaused = !nowPaused
+                            chromeVisible = true
+                        }
+                        true
+                    }
+                    Key.MediaPlay -> {
+                        if (player != null) {
+                            player.playWhenReady = true
+                            isPaused = false
+                            chromeVisible = true
+                        }
+                        true
+                    }
+                    Key.MediaPause -> {
+                        if (player != null) {
+                            player.playWhenReady = false
+                            isPaused = true
+                            chromeVisible = true
+                        }
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        if (player != null) {
+                            val target = max(0L, player.contentPosition - playbackSkipMs)
+                            player.seekTo(target)
+                            positionMs = target
+                            chromeVisible = true
+                        }
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        if (player != null) {
+                            val maxPos = if (durationMs > 0L) durationMs else Long.MAX_VALUE
+                            val target = min(maxPos, player.contentPosition + playbackSkipMs)
+                            player.seekTo(target)
+                            positionMs = target
+                            chromeVisible = true
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            },
     ) {
         // Don't mount MPV until the proxy redirect has been resolved into a
         // session URL - otherwise libmpv hits the 301 path that strips our
@@ -245,6 +319,15 @@ fun VODPlayerScreen(
                         addListener(object : Player.Listener {
                             override fun onPlayerError(error: PlaybackException) {
                                 Log.e(TAG, "VOD ExoPlayer error: ${error.errorCodeName}", error)
+                                val root = error.cause
+                                val httpDetail = (root as? HttpDataSource.InvalidResponseCodeException)?.let {
+                                    " http=${it.responseCode}"
+                                }.orEmpty()
+                                debugLogError(
+                                    context,
+                                    TAG,
+                                    "Playback failed for title=\"$title\" url=\"$streamUrl\" code=${error.errorCodeName}$httpDetail cause=${root?.javaClass?.simpleName ?: "unknown"}",
+                                )
                             }
                         })
                         playWhenReady = true
@@ -433,17 +516,18 @@ fun VODPlayerScreen(
                     },
                     onSkipBack = {
                         val player = exoPlayer ?: return@BottomChrome
-                        val target = max(0L, positionMs - 10_000L)
+                        val target = max(0L, positionMs - playbackSkipMs)
                         player.seekTo(target)
                         positionMs = target
                     },
                     onSkipForward = {
                         val player = exoPlayer ?: return@BottomChrome
                         val maxPos = if (durationMs > 0) durationMs else Long.MAX_VALUE
-                        val target = min(maxPos, positionMs + 10_000L)
+                        val target = min(maxPos, positionMs + playbackSkipMs)
                         player.seekTo(target)
                         positionMs = target
                     },
+                    skipSeconds = playbackSkipSeconds,
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter),
@@ -477,6 +561,7 @@ private fun BottomChrome(
     onTogglePlay: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
+    skipSeconds: Int,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -508,12 +593,17 @@ private fun BottomChrome(
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onSkipBack) {
                 Icon(
-                    imageVector = Icons.Filled.Replay10,
-                    contentDescription = "Back 10 seconds",
+                    imageVector = Icons.Filled.FastRewind,
+                    contentDescription = "Back $skipSeconds seconds",
                     tint = Color.White,
                     modifier = Modifier.size(28.dp),
                 )
             }
+            Text(
+                text = "${skipSeconds}s",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.9f),
+            )
             Spacer(Modifier.width(8.dp))
             Box(
                 modifier = Modifier
@@ -533,10 +623,15 @@ private fun BottomChrome(
                 )
             }
             Spacer(Modifier.width(8.dp))
+            Text(
+                text = "${skipSeconds}s",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.9f),
+            )
             IconButton(onClick = onSkipForward) {
                 Icon(
-                    imageVector = Icons.Filled.Forward10,
-                    contentDescription = "Forward 10 seconds",
+                    imageVector = Icons.Filled.FastForward,
+                    contentDescription = "Forward $skipSeconds seconds",
                     tint = Color.White,
                     modifier = Modifier.size(28.dp),
                 )
@@ -603,9 +698,9 @@ private fun ScrubberBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(28.dp)
+                .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
                 .pointerInput(durationMs) {
                     if (durationMs <= 0L) return@pointerInput
-                    widthPx = size.width.toFloat()
                     detectDragGestures(
                         onDragStart = { offset: Offset ->
                             onDragStart()
@@ -625,7 +720,6 @@ private fun ScrubberBar(
                 }
                 .pointerInput(durationMs) {
                     if (durationMs <= 0L) return@pointerInput
-                    widthPx = size.width.toFloat()
                     detectTapGestures(onTap = { offset ->
                         val f = (offset.x / widthPx).coerceIn(0f, 1f)
                         onDragStart()

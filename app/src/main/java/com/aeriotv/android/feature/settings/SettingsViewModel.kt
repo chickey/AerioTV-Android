@@ -75,6 +75,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { prefs.setAppleTVChannelFlip(value) }
     }
 
+    val playbackSkipSeconds: Flow<Int> = prefs.playbackSkipSeconds
+    fun setPlaybackSkipSeconds(value: Int) {
+        viewModelScope.launch { prefs.setPlaybackSkipSeconds(value) }
+    }
+
     // Developer
     val debugLoggingEnabled: Flow<Boolean> = prefs.debugLoggingEnabled
     fun setDebugLoggingEnabled(value: Boolean) {

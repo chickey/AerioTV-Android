@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.category.CategoryPaletteState
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
+import com.aeriotv.android.core.data.programmesFor
 import com.aeriotv.android.feature.channels.ChannelRow
 import com.aeriotv.android.feature.livetv.ProgramInfoSheet
 import com.aeriotv.android.feature.livetv.RecordProgramSheet
@@ -157,7 +158,7 @@ fun FavoritesTabContent(
         ) {
             items(items = workingOrder, key = { it.id }) { channel ->
                 ReorderableItem(reorderState, key = channel.id) { _ ->
-                    val programmes = playlistState.epgByChannel[channel.tvgID].orEmpty()
+                    val programmes = playlistState.epgByChannel.programmesFor(channel)
                     val nowProgramme = programmes.nowPlaying()
                     ChannelRow(
                         channel = channel,

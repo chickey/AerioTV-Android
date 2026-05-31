@@ -21,7 +21,10 @@ import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.core.wifi.WifiSsidProbe
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Instant
+import java.text.SimpleDateFormat
 import java.util.UUID
+import java.util.Locale
+import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -359,14 +362,28 @@ class PlaylistRepository @Inject constructor(
                 // depend on. Fall back to xmltv.php only when no override
                 // is set.
                 val override = playlist.epgUrl?.takeIf { it.isNotBlank() }
-                val xmltvUrl = override ?: run {
-                    val user = playlist.username?.takeIf { it.isNotBlank() }
-                        ?: return@runCatching emptyList()
-                    val b = base.trimEnd('/')
-                    "$b/xmltv.php?username=${xtreamEncode(user)}" +
-                        "&password=${xtreamEncode(playlist.password.orEmpty())}"
+                val user = playlist.username?.takeIf { it.isNotBlank() }
+                    ?: return@runCatching emptyList()
+                val b = base.trimEnd('/')
+                val pass = xtreamEncode(playlist.password.orEmpty())
+                val userEnc = xtreamEncode(user)
+                val candidates = buildList {
+                    if (override != null) add(override)
+                    add("$b/xmltv.php?username=$userEnc&password=$pass")
+                    // Some Dispatcharr/XC deployments expose guide data here.
+                    add("$b/output/epg")
+                    add("$b/output/epg?username=$userEnc&password=$pass")
+                }.distinct()
+
+                var lastError: Throwable? = null
+                for (url in candidates) {
+                    val parsed = runCatching { XMLTVParser.parseBytes(fetcher.fetchBytes(url)) }
+                        .onFailure { lastError = it }
+                        .getOrNull()
+                    if (!parsed.isNullOrEmpty()) return@runCatching parsed
                 }
-                XMLTVParser.parseBytes(fetcher.fetchBytes(xmltvUrl))
+                if (lastError != null) throw lastError
+                emptyList()
             }
         }
         dao.update(playlist.copy(lastEpgRefreshedAt = System.currentTimeMillis()))
@@ -607,9 +624,9 @@ data class ChannelProfileOption(
 private fun List<DispatcharrEpgEntry>.toProgrammes(): List<EPGProgramme> =
     mapNotNull { entry ->
         val channelId = entry.tvgId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        val start = runCatching { Instant.parse(entry.startTime).toEpochMilli() }.getOrNull()
+        val start = parseDispatcharrTimeMillis(entry.startTime)
             ?: return@mapNotNull null
-        val end = runCatching { Instant.parse(entry.endTime).toEpochMilli() }.getOrNull()
+        val end = parseDispatcharrTimeMillis(entry.endTime)
             ?: return@mapNotNull null
         val title = entry.title.takeIf { it.isNotBlank() } ?: return@mapNotNull null
         EPGProgramme(
@@ -625,6 +642,30 @@ private fun List<DispatcharrEpgEntry>.toProgrammes(): List<EPGProgramme> =
             dispatcharrProgramId = entry.programIdInt,
         )
     }
+
+private val DISP_ISO_FMT_Z_MILLIS = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+    timeZone = TimeZone.getTimeZone("UTC")
+}
+private val DISP_ISO_FMT_Z = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+    timeZone = TimeZone.getTimeZone("UTC")
+}
+private val DISP_ISO_FMT_TZ_MILLIS = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).apply {
+    timeZone = TimeZone.getTimeZone("UTC")
+}
+private val DISP_ISO_FMT_TZ = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).apply {
+    timeZone = TimeZone.getTimeZone("UTC")
+}
+
+private fun parseDispatcharrTimeMillis(raw: String): Long? {
+    val s = raw.trim()
+    if (s.isEmpty()) return null
+    runCatching { return Instant.parse(s).toEpochMilli() }
+    runCatching { return DISP_ISO_FMT_Z_MILLIS.parse(s)?.time }
+    runCatching { return DISP_ISO_FMT_Z.parse(s)?.time }
+    runCatching { return DISP_ISO_FMT_TZ_MILLIS.parse(s)?.time }
+    runCatching { return DISP_ISO_FMT_TZ.parse(s)?.time }
+    return null
+}
 
 /** EPG disk-cache row <-> domain model mapping. */
 private fun EpgProgrammeEntity.toProgramme(): EPGProgramme = EPGProgramme(

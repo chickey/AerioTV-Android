@@ -1,6 +1,7 @@
 package com.aeriotv.android.feature.livetv
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,10 +43,14 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import com.aeriotv.android.feature.main.LocalTvTopNavFocusRequester
+import com.aeriotv.android.feature.main.LocalTvTopNavFocusTab
+import com.aeriotv.android.feature.main.LocalTvTopNavRequesterForTab
+import com.aeriotv.android.feature.main.AppTab
 import com.aeriotv.android.core.preferences.GUIDE_SCALE_MAX
 import com.aeriotv.android.core.preferences.GUIDE_SCALE_MIN
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -81,6 +86,7 @@ import com.aeriotv.android.core.category.CategoryPaletteState
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
+import com.aeriotv.android.core.data.programmesFor
 import com.aeriotv.android.core.data.db.entity.reminderKey
 import com.aeriotv.android.core.data.toInfoTarget
 import com.aeriotv.android.feature.favorites.FavoritesViewModel
@@ -135,6 +141,9 @@ fun GuideScreen(
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val topNavRequester = LocalTvTopNavFocusRequester.current
+    val focusTopNavTab = LocalTvTopNavFocusTab.current
+    val requesterForTab = LocalTvTopNavRequesterForTab.current
     val favoritesVm: FavoritesViewModel = hiltViewModel()
     val favoritesList by favoritesVm.all.collectAsStateWithLifecycle(initialValue = emptyList())
     val favoriteIds = remember(favoritesList) { favoritesList.map { it.channelId }.toSet() }
@@ -324,6 +333,15 @@ fun GuideScreen(
     // the inset here or the controls + group pills render UNDER the status bar
     // (clock/battery overlap the All/Sports pills). No-op on Android TV (no status
     // bar). Matches ChannelListScreen's top-inset behaviour.
+    var guideAreaHasFocus by remember { mutableStateOf(false) }
+    BackHandler(enabled = isTv && guideAreaHasFocus && (topNavRequester != null || focusTopNavTab != null)) {
+        if (focusTopNavTab != null) focusTopNavTab.invoke(AppTab.LiveTV)
+        else runCatching { topNavRequester?.requestFocus() }
+        // Avoid consuming Back again on the next press if focus state
+        // propagation lags a frame after moving to the top nav.
+        guideAreaHasFocus = false
+    }
+
     Column(modifier = modifier.fillMaxSize().statusBarsPadding()) {
         // Audit task #22: multiview staging banner. Visible only when at
         // least one channel has been added to Multiview. Tapping the Play
@@ -377,6 +395,12 @@ fun GuideScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(if (isTv) 52.dp else 56.dp)
+                .then(
+                    if (isTv) {
+                        val t = requesterForTab?.invoke(AppTab.LiveTV) ?: topNavRequester
+                        if (t != null) Modifier.focusProperties { up = t } else Modifier
+                    } else Modifier
+                )
                 .padding(horizontal = if (isTv) 24.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -452,7 +476,11 @@ fun GuideScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     items(groups, key = { it }) { group ->
+                        val chipUpTarget = requesterForTab?.invoke(AppTab.LiveTV) ?: topNavRequester
                         FilterChip(
+                            modifier = if (chipUpTarget != null) {
+                                Modifier.focusProperties { up = chipUpTarget }
+                            } else Modifier,
                             selected = state.selectedGroup == group,
                             onClick = { viewModel.onGroupSelected(group) },
                             label = {
@@ -544,19 +572,32 @@ fun GuideScreen(
         // rather than letting the `focusGroup` below trap focus inside the
         // grid. `null` on phone (the CompositionLocal is unset off-TV) so
         // the .then(...) call is a no-op.
-        val topNavRequester = LocalTvTopNavFocusRequester.current
+        val upTarget = requesterForTab?.invoke(AppTab.LiveTV) ?: topNavRequester
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                .onFocusChanged { guideAreaHasFocus = it.hasFocus }
                 // Treat the grid as one focus group so D-pad DOWN from the chips
                 // / top bar reliably descends into the programme cells on TV.
                 .focusGroup()
                 .then(
-                    if (topNavRequester != null) {
-                        Modifier.focusProperties { up = topNavRequester }
+                    if (upTarget != null) {
+                        Modifier.focusProperties { up = upTarget }
                     } else Modifier
                 )
+                .onPreviewKeyEvent { ev ->
+                    val n = ev.nativeKeyEvent
+                    if (!isTv || n.action != android.view.KeyEvent.ACTION_DOWN || n.keyCode != android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                        return@onPreviewKeyEvent false
+                    }
+                    val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                    if (!atTop) return@onPreviewKeyEvent false
+                    if (focusTopNavTab != null) focusTopNavTab.invoke(AppTab.LiveTV)
+                    else runCatching { upTarget?.requestFocus() }
+                    guideAreaHasFocus = false
+                    true
+                }
                 // Pinch-to-zoom the timeline. Custom detector that only acts on
                 // two-or-more pointers so single-finger pans still reach the
                 // LazyColumn's vertical scroll + the rows' horizontal scroll.
@@ -582,7 +623,7 @@ fun GuideScreen(
                 },
         ) {
             items(items = filteredChannels, key = { it.id }) { channel ->
-                val programmes = state.epgByChannel[channel.tvgID].orEmpty()
+                val programmes = state.epgByChannel.programmesFor(channel)
                 ChannelGuideRow(
                     channel = channel,
                     programmes = programmes,

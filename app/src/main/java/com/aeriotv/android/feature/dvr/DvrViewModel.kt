@@ -75,7 +75,7 @@ class DvrViewModel @Inject constructor(
         val isLoading: Boolean = false,
         val error: String? = null,
         val recordings: List<Recording> = emptyList(),
-        val filter: Filter = Filter.Scheduled,
+        val filter: Filter = Filter.Completed,
         /** True when the active playlist is NOT Dispatcharr-backed (no DVR available). */
         val unsupportedSource: Boolean = false,
     ) {
@@ -99,6 +99,8 @@ class DvrViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+    private val _pendingReturnFocusRecordingId = MutableStateFlow<String?>(null)
+    val pendingReturnFocusRecordingId: StateFlow<String?> = _pendingReturnFocusRecordingId.asStateFlow()
 
     init {
         refresh()
@@ -116,6 +118,16 @@ class DvrViewModel @Inject constructor(
 
     fun setFilter(filter: Filter) {
         _state.update { it.copy(filter = filter) }
+    }
+
+    fun markPendingReturnFocus(recordingId: String) {
+        _pendingReturnFocusRecordingId.value = recordingId
+    }
+
+    fun clearPendingReturnFocus(recordingId: String) {
+        if (_pendingReturnFocusRecordingId.value == recordingId) {
+            _pendingReturnFocusRecordingId.value = null
+        }
     }
 
     fun refresh() {
@@ -136,7 +148,7 @@ class DvrViewModel @Inject constructor(
             }.fold(
                 onSuccess = { remote ->
                     _state.update { st ->
-                        val server = remote.map { it.toRecording() }
+                        val server = remote.map { it.toRecording(playlist.urlString) }
                         val local = st.recordings.filter { it.source == Source.Local }
                         st.copy(
                             isLoading = false,
@@ -343,7 +355,7 @@ class DvrViewModel @Inject constructor(
     }
 }
 
-private fun DispatcharrRecording.toRecording(): DvrViewModel.Recording {
+private fun DispatcharrRecording.toRecording(baseUrl: String): DvrViewModel.Recording {
     val start = parseIsoMillis(startTime) ?: 0L
     val end = parseIsoMillis(endTime) ?: start
     val status = when (this.status?.lowercase()) {
@@ -354,6 +366,14 @@ private fun DispatcharrRecording.toRecording(): DvrViewModel.Recording {
         "failed", "error" -> DvrViewModel.Recording.Status.Failed
         else -> DvrViewModel.Recording.Status.Unknown
     }
+    val playback = if (
+        status == DvrViewModel.Recording.Status.Completed ||
+        status == DvrViewModel.Recording.Status.Stopped
+    ) {
+        "${baseUrl.trimEnd('/')}/api/channels/recordings/$id/file/"
+    } else {
+        null
+    }
     return DvrViewModel.Recording(
         id = "server-$id",
         source = DvrViewModel.Source.Server,
@@ -363,6 +383,7 @@ private fun DispatcharrRecording.toRecording(): DvrViewModel.Recording {
         endMillis = end,
         status = status,
         fileSizeBytes = fileSize ?: 0L,
+        playbackUrl = playback,
         dispatcharrChannelId = channel,
     )
 }

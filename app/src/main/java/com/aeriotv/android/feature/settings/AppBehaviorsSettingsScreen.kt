@@ -57,8 +57,10 @@ fun AppBehaviorsSettingsScreen(
 ) {
     val skipLoadingScreen by viewModel.skipLoadingScreen.collectAsStateWithLifecycle(initialValue = false)
     val appleTVChannelFlip by viewModel.appleTVChannelFlip.collectAsStateWithLifecycle(initialValue = true)
+    val playbackSkipSeconds by viewModel.playbackSkipSeconds.collectAsStateWithLifecycle(initialValue = 10)
     val autoResumeLastChannel by viewModel.autoResumeLastChannel.collectAsStateWithLifecycle(initialValue = false)
     val defaultTab by viewModel.defaultTab.collectAsStateWithLifecycle(initialValue = "")
+    val playbackSkipPresets = listOf(5, 10, 15, 30, 60, 90, 120)
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -127,6 +129,22 @@ fun AppBehaviorsSettingsScreen(
                     checked = appleTVChannelFlip,
                     onCheckedChange = viewModel::setAppleTVChannelFlip,
                 )
+            }
+
+            SettingsGroup(
+                header = "Playback Skip Interval",
+                footer = "Controls how far Back/Forward seek jumps during recording and VOD playback.",
+            ) {
+                playbackSkipPresets.forEachIndexed { idx, seconds ->
+                    PresetRow(
+                        label = "${seconds}s",
+                        selected = playbackSkipSeconds == seconds,
+                        onClick = { viewModel.setPlaybackSkipSeconds(seconds) },
+                    )
+                    if (idx < playbackSkipPresets.lastIndex) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    }
+                }
             }
 
             SettingsGroup(header = "Default Tab", footer = "Which tab the app lands on after launch. Live TV is the iOS default.") {
@@ -224,6 +242,33 @@ private fun ToggleRow(
 
 @Composable
 private fun DefaultTabRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary),
+        )
+    }
+}
+
+@Composable
+private fun PresetRow(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,

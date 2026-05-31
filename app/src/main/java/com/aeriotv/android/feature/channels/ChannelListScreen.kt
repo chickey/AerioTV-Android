@@ -76,6 +76,7 @@ import com.aeriotv.android.core.category.CategoryPaletteState
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
+import com.aeriotv.android.core.data.programmesFor
 import com.aeriotv.android.core.data.toInfoTarget
 import com.aeriotv.android.feature.favorites.FavoritesViewModel
 import com.aeriotv.android.feature.livetv.LiveTVViewMode
@@ -339,7 +340,7 @@ fun ChannelListScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(items = filtered, key = { it.id }) { channel ->
-                    val programmes = state.epgByChannel[channel.tvgID].orEmpty()
+                    val programmes = state.epgByChannel.programmesFor(channel)
                     val nowProgramme = programmes.nowPlaying()
                     ChannelRow(
                         channel = channel,
