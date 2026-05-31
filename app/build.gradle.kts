@@ -51,6 +51,24 @@ android {
             "GOOGLE_DRIVE_WEB_CLIENT_ID",
             "\"$googleDriveWebClientId\"",
         )
+        buildConfigField("boolean", "GOOGLE_SERVICES_AVAILABLE", "true")
+    }
+
+    flavorDimensions += "store"
+    productFlavors {
+        create("play") {
+            dimension = "store"
+            buildConfigField("boolean", "GOOGLE_SERVICES_AVAILABLE", "true")
+        }
+        create("fire") {
+            dimension = "store"
+            applicationIdSuffix = ".fire"
+            versionNameSuffix = "-fire"
+            buildConfigField("boolean", "GOOGLE_SERVICES_AVAILABLE", "false")
+            // Fire builds do not ship Google OAuth config, so sync UI
+            // reliably stays disabled through SyncConfig.
+            buildConfigField("String", "GOOGLE_DRIVE_WEB_CLIENT_ID", "\"\"")
+        }
     }
 
     if (hasReleaseSigning) {

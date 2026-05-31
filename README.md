@@ -30,6 +30,27 @@ From the command line (after first Studio sync has populated `gradle/wrapper/gra
 ./gradlew :app:installDebug
 ```
 
+## Build variants (Play vs Fire TV)
+
+The app defines two product flavors:
+
+- `play`: Google Play oriented build (Google sign-in / Drive sync can be enabled with `GOOGLE_DRIVE_WEB_CLIENT_ID`).
+- `fire`: Fire TV oriented build. Google services are disabled at build time and Drive sync sign-in remains unavailable.
+
+Build APKs from CLI:
+
+```
+./gradlew :app:assemblePlayDebug
+./gradlew :app:assembleFireDebug
+```
+
+Install on Fire TV over ADB:
+
+```
+adb connect <FIRE_TV_IP>:5555
+adb install -r app/build/outputs/apk/fire/debug/app-fire-debug.apk
+```
+
 ## Module structure (planned)
 
 The current scaffold is a single `:app` module. As features land, code will move into:

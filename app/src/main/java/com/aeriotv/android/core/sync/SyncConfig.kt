@@ -23,7 +23,7 @@ object SyncConfig {
 
     val WEB_CLIENT_ID: String get() = BuildConfig.GOOGLE_DRIVE_WEB_CLIENT_ID
 
-    fun isConfigured(): Boolean = WEB_CLIENT_ID.isNotBlank()
+    fun isConfigured(): Boolean = BuildConfig.GOOGLE_SERVICES_AVAILABLE && WEB_CLIENT_ID.isNotBlank()
 
     /** Drive REST AppData scope. Files written here are scoped per-app. */
     const val DRIVE_APPDATA_SCOPE: String = "https://www.googleapis.com/auth/drive.appdata"
