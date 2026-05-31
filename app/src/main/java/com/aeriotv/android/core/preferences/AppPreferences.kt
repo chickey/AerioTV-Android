@@ -106,6 +106,32 @@ class AppPreferences @Inject constructor(
         }
     }
 
+    /** Show channel name under logos in Guide channel rail. */
+    val guideShowChannelName: Flow<Boolean> = store.data.map { it[KEY_GUIDE_SHOW_CHANNEL_NAME] ?: true }
+    suspend fun setGuideShowChannelName(value: Boolean) {
+        store.edit { it[KEY_GUIDE_SHOW_CHANNEL_NAME] = value }
+    }
+
+    /** Show channel number in Guide channel rail. */
+    val guideShowChannelNumber: Flow<Boolean> = store.data.map { it[KEY_GUIDE_SHOW_CHANNEL_NUMBER] ?: true }
+    suspend fun setGuideShowChannelNumber(value: Boolean) {
+        store.edit { it[KEY_GUIDE_SHOW_CHANNEL_NUMBER] = value }
+    }
+
+    /** Transparent logo tile in Guide channel rail. */
+    val guideTransparentLogoBackground: Flow<Boolean> =
+        store.data.map { it[KEY_GUIDE_TRANSPARENT_LOGO_BACKGROUND] ?: true }
+    suspend fun setGuideTransparentLogoBackground(value: Boolean) {
+        store.edit { it[KEY_GUIDE_TRANSPARENT_LOGO_BACKGROUND] = value }
+    }
+
+    /** Logo scale mode for Guide rail: fit | fill | crop. */
+    val guideLogoScaleMode: Flow<String> = store.data.map { it[KEY_GUIDE_LOGO_SCALE_MODE] ?: "fit" }
+    suspend fun setGuideLogoScaleMode(value: String) {
+        val safe = value.lowercase().takeIf { it == "fit" || it == "fill" || it == "crop" } ?: "fit"
+        store.edit { it[KEY_GUIDE_LOGO_SCALE_MODE] = safe }
+    }
+
     /**
      * Either "list" or "guide", or empty for "follow form-factor default".
      * Mirrors iOS `@AppStorage("defaultLiveTVView")`. Phase 5 used
@@ -514,6 +540,10 @@ class AppPreferences @Inject constructor(
         data[KEY_APPLE_TV_CHANNEL_FLIP]?.let { out["appleTVChannelFlip"] = it.toString() }
         data[KEY_PLAYBACK_SKIP_SECONDS]?.let { out["playbackSkipSeconds"] = it.toString() }
         data[KEY_AUTO_RESUME_LAST_CHANNEL]?.let { out["autoResumeLastChannel"] = it.toString() }
+        data[KEY_GUIDE_SHOW_CHANNEL_NAME]?.let { out["guideShowChannelName"] = it.toString() }
+        data[KEY_GUIDE_SHOW_CHANNEL_NUMBER]?.let { out["guideShowChannelNumber"] = it.toString() }
+        data[KEY_GUIDE_TRANSPARENT_LOGO_BACKGROUND]?.let { out["guideTransparentLogoBackground"] = it.toString() }
+        data[KEY_GUIDE_LOGO_SCALE_MODE]?.let { out["guideLogoScaleMode"] = it }
         data[KEY_CATEGORY_MASTER_ENABLE]?.let { out["enableCategoryColors"] = it.toString() }
         data[KEY_CATEGORY_CUSTOM_JSON]?.let { out["customCategoryColors.v1"] = it }
         // Audit task #52: broaden Drive sync to match iOS coverage. iOS
@@ -542,6 +572,14 @@ class AppPreferences @Inject constructor(
             keys["appleTVChannelFlip"]?.toBooleanStrictOrNull()?.let { prefs[KEY_APPLE_TV_CHANNEL_FLIP] = it }
             keys["playbackSkipSeconds"]?.toIntOrNull()?.let { prefs[KEY_PLAYBACK_SKIP_SECONDS] = it }
             keys["autoResumeLastChannel"]?.toBooleanStrictOrNull()?.let { prefs[KEY_AUTO_RESUME_LAST_CHANNEL] = it }
+            keys["guideShowChannelName"]?.toBooleanStrictOrNull()?.let { prefs[KEY_GUIDE_SHOW_CHANNEL_NAME] = it }
+            keys["guideShowChannelNumber"]?.toBooleanStrictOrNull()?.let { prefs[KEY_GUIDE_SHOW_CHANNEL_NUMBER] = it }
+            keys["guideTransparentLogoBackground"]?.toBooleanStrictOrNull()?.let {
+                prefs[KEY_GUIDE_TRANSPARENT_LOGO_BACKGROUND] = it
+            }
+            keys["guideLogoScaleMode"]?.let {
+                prefs[KEY_GUIDE_LOGO_SCALE_MODE] = it.lowercase().takeIf { v -> v == "fit" || v == "fill" || v == "crop" } ?: "fit"
+            }
             keys["enableCategoryColors"]?.toBooleanStrictOrNull()?.let { prefs[KEY_CATEGORY_MASTER_ENABLE] = it }
             keys["customCategoryColors.v1"]?.let { prefs[KEY_CATEGORY_CUSTOM_JSON] = it }
             // Audit task #52: receive the broadened keys.
@@ -630,6 +668,10 @@ class AppPreferences @Inject constructor(
         val KEY_DISPLAY_SCALE_MOVIES = doublePreferencesKey("display_scale_movies")
         val KEY_DISPLAY_SCALE_LIVE_TV = doublePreferencesKey("display_scale_live_tv")
         val KEY_GUIDE_SCALE = doublePreferencesKey("guide_scale")
+        val KEY_GUIDE_SHOW_CHANNEL_NAME = booleanPreferencesKey("guide_show_channel_name")
+        val KEY_GUIDE_SHOW_CHANNEL_NUMBER = booleanPreferencesKey("guide_show_channel_number")
+        val KEY_GUIDE_TRANSPARENT_LOGO_BACKGROUND = booleanPreferencesKey("guide_transparent_logo_background")
+        val KEY_GUIDE_LOGO_SCALE_MODE = stringPreferencesKey("guide_logo_scale_mode")
         val KEY_DEFAULT_TAB = stringPreferencesKey("default_tab")
         val KEY_NETWORK_TIMEOUT = doublePreferencesKey("network_timeout_secs")
         val KEY_MAX_RETRIES = intPreferencesKey("max_retries")

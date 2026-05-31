@@ -391,7 +391,7 @@ class DispatcharrClient @Inject constructor() {
      * over numeric id because Dispatcharr can apply failover on the UUID path.
      */
     fun streamUrl(baseUrl: String, channelUuid: String): String =
-        "${baseUrl.trimEnd('/')}/proxy/ts/stream/$channelUuid"
+        "${normaliseHttpScheme(baseUrl).trimEnd('/')}/proxy/ts/stream/$channelUuid"
 
     /**
      * POST /api/channels/recordings/ — schedules a server-side DVR recording.
@@ -773,7 +773,7 @@ class DispatcharrClient @Inject constructor() {
      * MPV. Mirrors iOS recordingPlaybackURL (StreamingAPIs.swift line 2444).
      */
     fun recordingPlaybackUrl(baseUrl: String, recordingId: Int): String =
-        "${baseUrl.trimEnd('/')}/api/channels/recordings/$recordingId/file/"
+        "${normaliseHttpScheme(baseUrl).trimEnd('/')}/api/channels/recordings/$recordingId/file/"
 
     /** DELETE /api/channels/recordings/{id}/ — cancels a scheduled recording or removes a completed file. */
     suspend fun deleteRecording(baseUrl: String, apiKey: String, recordingId: Int) {
@@ -793,7 +793,16 @@ class DispatcharrClient @Inject constructor() {
      * required (matches Coil's anonymous fetch).
      */
     fun logoUrl(baseUrl: String, logoId: Int): String =
-        "${baseUrl.trimEnd('/')}/api/channels/logos/$logoId/cache/"
+        "${normaliseHttpScheme(baseUrl).trimEnd('/')}/api/channels/logos/$logoId/cache/"
+
+    private fun normaliseHttpScheme(url: String): String {
+        val trimmed = url.trim()
+        return when {
+            trimmed.startsWith("HTTP://") -> "http://${trimmed.removePrefix("HTTP://")}"
+            trimmed.startsWith("HTTPS://") -> "https://${trimmed.removePrefix("HTTPS://")}"
+            else -> trimmed
+        }
+    }
 }
 
 @Serializable

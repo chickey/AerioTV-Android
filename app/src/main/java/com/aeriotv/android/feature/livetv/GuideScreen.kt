@@ -75,6 +75,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,6 +90,7 @@ import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.core.data.programmesFor
 import com.aeriotv.android.core.data.db.entity.reminderKey
 import com.aeriotv.android.core.data.toInfoTarget
+import com.aeriotv.android.core.debug.debugLogWarn
 import com.aeriotv.android.feature.favorites.FavoritesViewModel
 import com.aeriotv.android.feature.multiview.MultiviewStoreHandle
 import com.aeriotv.android.feature.multiview.rememberMultiviewStoreHandle
@@ -150,6 +152,10 @@ fun GuideScreen(
     val settingsVm: SettingsViewModel = hiltViewModel()
     val palette by settingsVm.categoryPalette.collectAsStateWithLifecycle(initialValue = CategoryPaletteState.Default)
     val epgWindowHours by settingsVm.epgWindowHours.collectAsStateWithLifecycle(initialValue = 24)
+    val guideShowChannelName by settingsVm.guideShowChannelName.collectAsStateWithLifecycle(initialValue = true)
+    val guideShowChannelNumber by settingsVm.guideShowChannelNumber.collectAsStateWithLifecycle(initialValue = true)
+    val guideTransparentLogoBackground by settingsVm.guideTransparentLogoBackground.collectAsStateWithLifecycle(initialValue = true)
+    val guideLogoScaleMode by settingsVm.guideLogoScaleMode.collectAsStateWithLifecycle(initialValue = "fit")
     val multiviewStore = rememberMultiviewStoreHandle()
     // Audit task #22: staged-channel banner. When the user has added at
     // least one channel to Multiview (via the row context menu / long
@@ -650,6 +656,10 @@ fun GuideScreen(
                     onToggleFavorite = { favoritesVm.toggle(channel) },
                     palette = palette,
                     multiviewStore = multiviewStore,
+                    showChannelName = guideShowChannelName,
+                    showChannelNumber = guideShowChannelNumber,
+                    transparentLogoBackground = guideTransparentLogoBackground,
+                    logoScaleMode = guideLogoScaleMode,
                 )
                 HorizontalDivider(color = guideDivider, thickness = 0.5.dp)
             }
@@ -716,6 +726,10 @@ private fun ChannelGuideRow(
     onToggleFavorite: () -> Unit,
     palette: CategoryPaletteState,
     multiviewStore: MultiviewStoreHandle,
+    showChannelName: Boolean,
+    showChannelNumber: Boolean,
+    transparentLogoBackground: Boolean,
+    logoScaleMode: String,
 ) {
     val multiviewSelected by multiviewStore.selected.collectAsStateWithLifecycle()
     val inMultiview = multiviewSelected.any { it.id == channel.id }
@@ -731,11 +745,33 @@ private fun ChannelGuideRow(
     // labelMedium needs ~24dp; 28dp accommodates 4 digits with margin. Phone
     // keeps the compact 22dp.
     val numberWidth = if (isTv) 28.dp else 22.dp
-    // logoBox/logoImage are the PHONE rail's square logo. TV uses a landscape
-    // logo-over-name VStack (the isTv branch below) so the channel name gets its
-    // own full-width line and shows in full, mirroring tvOS channelLabel.
-    val logoBox = 36.dp
-    val logoImage = 32.dp
+    val tvLogoWidthBase = when {
+        showChannelName && showChannelNumber -> 36.dp
+        showChannelName || showChannelNumber -> 44.dp
+        else -> 58.dp
+    }
+    val tvLogoHeightBase = when {
+        showChannelName && showChannelNumber -> 24.dp
+        showChannelName || showChannelNumber -> 30.dp
+        else -> 40.dp
+    }
+    val phoneLogoBoxBase = when {
+        showChannelName && showChannelNumber -> 36.dp
+        showChannelName || showChannelNumber -> 44.dp
+        else -> 52.dp
+    }
+    val fillBoost = if (logoScaleMode == "fill") 1.22f else 1f
+    val tvLogoWidth = (tvLogoWidthBase.value * fillBoost).dp
+    val tvLogoHeight = (tvLogoHeightBase.value * fillBoost).dp
+    val phoneLogoBox = (phoneLogoBoxBase.value * fillBoost).dp
+    val phoneLogoImage = phoneLogoBox
+    val logoContentScale = when (logoScaleMode) {
+        // "Fill" should not clip: keep full logo visible while preserving
+        // aspect ratio (letterbox/pillarbox as needed).
+        "fill" -> ContentScale.Fit
+        "crop" -> ContentScale.Crop
+        else -> ContentScale.Fit
+    }
     // TV name uses labelMedium (10.8sp at the 0.9 type scale) - the closest match
     // to tvOS's 18pt name (~9sp proportional on 540dp). bodyMedium would be ~17%
     // bigger than tvOS proportional. Phone keeps labelMedium.
@@ -780,7 +816,7 @@ private fun ChannelGuideRow(
                 // column width (single line, like tvOS lineLimit(1)) so it reads in
                 // full instead of being squeezed in beside the number + logo. Names
                 // longer than the column truncate, exactly like tvOS.
-                channel.channelNumber?.let { num ->
+                if (showChannelNumber) channel.channelNumber?.let { num ->
                     Text(
                         text = num.toString(),
                         style = numberStyle,
@@ -790,7 +826,7 @@ private fun ChannelGuideRow(
                         modifier = Modifier.width(numberWidth),
                     )
                 }
-                Spacer(Modifier.width(8.dp))
+                if (showChannelNumber) Spacer(Modifier.width(8.dp))
                 Column(
                     modifier = Modifier.weight(1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -800,9 +836,12 @@ private fun ChannelGuideRow(
                     // canvas -> 36x24dp (matching the channel column's tvOS ratios).
                     Box(
                         modifier = Modifier
-                            .size(width = 36.dp, height = 24.dp)
+                            .size(width = tvLogoWidth, height = tvLogoHeight)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.background),
+                            .then(
+                                if (transparentLogoBackground) Modifier
+                                else Modifier.background(MaterialTheme.colorScheme.background),
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (channel.tvgLogo.isNotBlank()) {
@@ -814,13 +853,24 @@ private fun ChannelGuideRow(
                             // logos that would otherwise look mushy.
                             AsyncImage(
                                 model = coil3.request.ImageRequest.Builder(ctx)
-                                    .data(channel.tvgLogo)
+                                    .data(normaliseImageUrl(channel.tvgLogo))
                                     .size(128, 128)
                                     .build(),
                                 contentDescription = null,
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(3.dp),
+                                    .fillMaxSize(),
+                                contentScale = logoContentScale,
+                                onError = { state ->
+                                    debugLogWarn(
+                                        ctx,
+                                        "GuideScreen",
+                                        "Channel logo load failed (tv): name=\"${channel.name}\", " +
+                                            "tvgId=\"${channel.tvgID}\", url=\"${channel.tvgLogo}\", " +
+                                            "cause=${state.result.throwable::class.simpleName}: " +
+                                            "${state.result.throwable.message}",
+                                        state.result.throwable,
+                                    )
+                                },
                             )
                         } else {
                             Text(
@@ -831,19 +881,21 @@ private fun ChannelGuideRow(
                             )
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = channel.name,
-                        style = nameStyle,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    if (showChannelName) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = channel.name,
+                            style = nameStyle,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             } else {
-                channel.channelNumber?.let { num ->
+                if (showChannelNumber) channel.channelNumber?.let { num ->
                     Text(
                         text = num.toString(),
                         style = numberStyle,
@@ -851,12 +903,15 @@ private fun ChannelGuideRow(
                         modifier = Modifier.width(numberWidth),
                     )
                 }
-                Spacer(Modifier.width(4.dp))
+                if (showChannelNumber) Spacer(Modifier.width(4.dp))
                 Box(
                     modifier = Modifier
-                        .size(logoBox)
+                        .size(phoneLogoBox)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.background),
+                        .then(
+                            if (transparentLogoBackground) Modifier
+                            else Modifier.background(MaterialTheme.colorScheme.background),
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (channel.tvgLogo.isNotBlank()) {
@@ -865,11 +920,23 @@ private fun ChannelGuideRow(
                         // AsyncImage rationale above).
                         AsyncImage(
                             model = coil3.request.ImageRequest.Builder(ctx2)
-                                .data(channel.tvgLogo)
+                                .data(normaliseImageUrl(channel.tvgLogo))
                                 .size(128, 128)
                                 .build(),
                             contentDescription = null,
-                            modifier = Modifier.size(logoImage),
+                            modifier = Modifier.size(phoneLogoImage),
+                            contentScale = logoContentScale,
+                            onError = { state ->
+                                debugLogWarn(
+                                    ctx2,
+                                    "GuideScreen",
+                                    "Channel logo load failed (phone): name=\"${channel.name}\", " +
+                                        "tvgId=\"${channel.tvgID}\", url=\"${channel.tvgLogo}\", " +
+                                        "cause=${state.result.throwable::class.simpleName}: " +
+                                        "${state.result.throwable.message}",
+                                    state.result.throwable,
+                                )
+                            },
                         )
                     } else {
                         Text(
@@ -880,14 +947,16 @@ private fun ChannelGuideRow(
                         )
                     }
                 }
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = channel.name,
-                    style = nameStyle,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (showChannelName) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = channel.name,
+                        style = nameStyle,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             DropdownMenu(
                 expanded = railMenuOpen,
@@ -1288,6 +1357,15 @@ private object GuideMetrics {
     val ROW_HEIGHT = 80.dp
     /** Base (1.0x) width of one hour column. Scaled by guideScale at render. */
     val HOUR_WIDTH = 320.dp
+}
+
+private fun normaliseImageUrl(url: String): String {
+    val trimmed = url.trim()
+    return when {
+        trimmed.startsWith("HTTP://") -> "http://${trimmed.removePrefix("HTTP://")}"
+        trimmed.startsWith("HTTPS://") -> "https://${trimmed.removePrefix("HTTPS://")}"
+        else -> trimmed
+    }
 }
 
 private const val MS_PER_HOUR_F = 3_600_000f

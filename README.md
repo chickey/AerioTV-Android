@@ -35,7 +35,7 @@ From the command line (after first Studio sync has populated `gradle/wrapper/gra
 This project includes a Fire TV flavor (`fire`) for Android-based Fire TV devices.
 The current minimum Android version is API 25, which supports older Android-based Fire TV models.
 
-See [Fire TV Build and Test Guide](firetv-readme.md) for Fire-specific setup, build, install, and cleanup instructions.
+See [Fire TV Build, Test, and Release Guide](firetv-readme.md) for Fire-specific setup, build, install, release, and cleanup instructions.
 
 ## Build variants (Play vs Fire TV)
 
@@ -87,4 +87,4 @@ Sync is opt-in. App is fully functional without a Google account.
 
 ## Status
 
-v0.1.0 scaffold. No features yet.
+Active Fire TV release flow uses tags in the form `v0.1.x-fire` and publishes a stable APK asset name: `AerioTV-FireTV.apk`.

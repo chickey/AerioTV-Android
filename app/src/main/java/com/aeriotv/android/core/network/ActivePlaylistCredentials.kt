@@ -2,6 +2,7 @@ package com.aeriotv.android.core.network
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.Locale
 
 /**
  * App-scoped, thread-safe cache of the active playlist's API key + the
@@ -36,6 +37,7 @@ class ActivePlaylistCredentials @Inject constructor() {
         this.prefixes = prefixes
             .map { it.trimEnd('/') }
             .filter { it.isNotBlank() }
+            .map { it.lowercase(Locale.ROOT) }
         this.key = apiKey?.takeIf { it.isNotBlank() }
     }
 
@@ -56,7 +58,7 @@ class ActivePlaylistCredentials @Inject constructor() {
         // Conservative match: startsWith on the URL minus its query string.
         // A logo URL like ${base}/api/channels/logos/42/cache/ matches
         // ${base}; a third-party tvg-logo URL doesn't and is ignored.
-        val needle = url.substringBefore('?')
+        val needle = url.substringBefore('?').trimEnd('/').lowercase(Locale.ROOT)
         return if (prefs.any { needle.startsWith(it) }) k else null
     }
 }

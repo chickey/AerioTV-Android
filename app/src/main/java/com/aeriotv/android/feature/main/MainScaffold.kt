@@ -69,6 +69,7 @@ import com.aeriotv.android.feature.settings.AddMoreCategoriesScreen
 import com.aeriotv.android.feature.settings.AppearanceSettingsScreen
 import com.aeriotv.android.feature.settings.DeveloperSettingsScreen
 import com.aeriotv.android.feature.settings.DvrSettingsScreen
+import com.aeriotv.android.feature.settings.GuideOptionsSettingsScreen
 import com.aeriotv.android.feature.settings.MultiviewSettingsScreen
 import com.aeriotv.android.feature.settings.NetworkSettingsScreen
 import com.aeriotv.android.feature.settings.SettingsScreen
@@ -716,6 +717,7 @@ private fun SettingsTabContent() {
             onBack = { section = null },
             onOpenAddMoreCategories = { addMoreOpen = true },
         )
+        section == SettingsSection.GuideOptions -> GuideOptionsSettingsScreen(onBack = { section = null })
         section == SettingsSection.AppBehaviors -> AppBehaviorsSettingsScreen(onBack = { section = null })
         section == SettingsSection.Multiview -> MultiviewSettingsScreen(onBack = { section = null })
         section == SettingsSection.Network -> NetworkSettingsScreen(onBack = { section = null })

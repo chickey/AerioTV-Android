@@ -53,6 +53,22 @@ class SettingsViewModel @Inject constructor(
     fun setGuideScale(value: Float) {
         viewModelScope.launch { prefs.setGuideScale(value) }
     }
+    val guideShowChannelName: Flow<Boolean> = prefs.guideShowChannelName
+    fun setGuideShowChannelName(value: Boolean) {
+        viewModelScope.launch { prefs.setGuideShowChannelName(value) }
+    }
+    val guideShowChannelNumber: Flow<Boolean> = prefs.guideShowChannelNumber
+    fun setGuideShowChannelNumber(value: Boolean) {
+        viewModelScope.launch { prefs.setGuideShowChannelNumber(value) }
+    }
+    val guideTransparentLogoBackground: Flow<Boolean> = prefs.guideTransparentLogoBackground
+    fun setGuideTransparentLogoBackground(value: Boolean) {
+        viewModelScope.launch { prefs.setGuideTransparentLogoBackground(value) }
+    }
+    val guideLogoScaleMode: Flow<String> = prefs.guideLogoScaleMode
+    fun setGuideLogoScaleMode(value: String) {
+        viewModelScope.launch { prefs.setGuideLogoScaleMode(value) }
+    }
 
     val hiddenGroups: Flow<Set<String>> = prefs.hiddenGroups
     fun setHiddenGroups(groups: Set<String>) {

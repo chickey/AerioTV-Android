@@ -1,4 +1,4 @@
-# Fire TV Build and Test Guide
+# Fire TV Build, Test, and Release Guide
 
 This guide is for installing and testing AerioTV on Android-based Fire TV devices (not VegaOS models).
 
@@ -29,6 +29,7 @@ The following changes were added in this repository to support Fire TV builds cl
 - `/setup-and-build-aeriotv.sh`: one-time macOS setup + build (JDK 21, SDK 36, licenses, local.properties).
 - `/install-firetv.sh`: install and launch Fire APK using Fire TV IP passed as parameter.
 - `/uninstall-aeriotv-build-deps.sh`: removes setup-installed toolchain/env items without touching project files.
+- `/publish-fire-release.sh`: builds Fire release APK, copies stable asset name, pushes tag, and creates/updates GitHub release.
 
 5. Gradle daemon JDK compatibility fix
 - `/gradle/gradle-daemon-jvm.properties` updated to use `toolchainVendor=adoptium` with Java 21
@@ -36,6 +37,17 @@ The following changes were added in this repository to support Fire TV builds cl
 
 6. Lower minimum SDK for older Fire TV devices
 - `/app/build.gradle.kts` `minSdk` lowered from 26 to 25 so Android API 25 Fire TV devices can install the app.
+
+7. Fire TV guide UX and logo behavior improvements
+- New `Settings > Guide Options` section with:
+  - Show/hide channel name
+  - Show/hide channel number
+  - Transparent logo background toggle
+  - Logo scale mode (`Fit`, `Fill`, `Crop`)
+- Fire TV D-pad behavior improvements:
+  - Appearance sliders now use Left/Right for value changes and Up/Down for focus navigation.
+- Dispatcharr logo URL normalization:
+  - Uppercase schemes like `HTTP://...` are normalized so channel logos load reliably on Fire TV.
 
 ## Prerequisites
 
@@ -141,6 +153,62 @@ This uninstall script:
 - Removes `$ANDROID_SDK_ROOT` (default: `~/Library/Android/sdk`)
 - Does not delete project files in `/Users/colinhickey/Projects/AerioTV-Android`
 
+## 7) Build and publish a GitHub release
+
+### Release prerequisites
+
+- A release keystore (for this repo: `fire-release.keystore`)
+- `keystore.properties` in project root (already gitignored) with:
+
+```properties
+storeFile=/absolute/path/to/fire-release.keystore
+storePassword=YOUR_STORE_PASSWORD
+keyAlias=fireupload
+keyPassword=YOUR_KEY_PASSWORD
+```
+
+- GitHub CLI authenticated (`gh auth status`)
+- Push access to your fork/repo
+
+### Versioning/tag scheme
+
+Use tags like:
+
+- `v0.1.1-fire`
+- `v0.1.2-fire`
+- `v0.1.3-fire`
+
+This replaces older `v0.1.0-fire.2` style tags.
+
+### Bump app version before release
+
+Update in `/app/build.gradle.kts`:
+
+- increment `versionCode` by 1 each release
+- set `versionName` to the matching base version (for example `0.1.2`)
+
+### Publish command
+
+From project root:
+
+```bash
+./publish-fire-release.sh v0.1.2-fire "Fire TV release build"
+```
+
+What this script does:
+
+- sets gh default repo
+- builds `:app:assembleFireRelease`
+- copies APK to stable filename:
+  - `/Users/colinhickey/Projects/AerioTV-Android/app/build/outputs/apk/fire/release/AerioTV-FireTV.apk`
+- creates/pushes git tag
+- creates GitHub release (or updates asset if release already exists)
+
+Result on GitHub Releases:
+
+- Release title/tag: `v0.1.2-fire`
+- Asset filename: `AerioTV-FireTV.apk`
+
 ## Troubleshooting
 
 If licenses fail during build, run:
@@ -158,4 +226,10 @@ Then retry:
 cd /Users/colinhickey/Projects/AerioTV-Android
 ./gradlew --stop
 ./gradlew :app:assembleFireDebug
+```
+
+If `gh` reports no default repo:
+
+```bash
+gh repo set-default chickey/AerioTV-Android
 ```

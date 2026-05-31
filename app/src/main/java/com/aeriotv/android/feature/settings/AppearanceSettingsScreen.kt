@@ -46,9 +46,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.category.CategoryPaletteState
@@ -591,6 +599,7 @@ private fun ScaleSliderRow(
     value: Float,
     onValueChange: (Float) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -616,11 +625,32 @@ private fun ScaleSliderRow(
             onValueChange = onValueChange,
             valueRange = 0.85f..1.25f,
             steps = 7, // 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.25
+            modifier = Modifier.onPreviewKeyEvent { event ->
+                routeVerticalKeysToFocus(event, focusManager)
+            },
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
             ),
         )
+    }
+}
+
+private fun routeVerticalKeysToFocus(
+    event: androidx.compose.ui.input.key.KeyEvent,
+    focusManager: FocusManager,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    return when (event.key) {
+        Key.DirectionUp -> {
+            focusManager.moveFocus(FocusDirection.Up)
+            true
+        }
+        Key.DirectionDown -> {
+            focusManager.moveFocus(FocusDirection.Down)
+            true
+        }
+        else -> false
     }
 }
 

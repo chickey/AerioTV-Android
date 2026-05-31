@@ -204,6 +204,7 @@ fun SettingsScreen(
                     header = "App Settings",
                     rows = listOf(
                         SettingsSection.Appearance,
+                        SettingsSection.GuideOptions,
                         SettingsSection.AppBehaviors,
                         SettingsSection.Multiview,
                         SettingsSection.Network,
@@ -748,6 +749,11 @@ enum class SettingsSection(
         title = "App Behaviors",
         subtitle = "Splash, default tab, channel-flip",
         icon = Icons.Outlined.PlayCircle,
+    ),
+    GuideOptions(
+        title = "Guide Options",
+        subtitle = "Channel rail labels and logo sizing",
+        icon = Icons.Filled.RadioButtonChecked,
     ),
     Multiview(
         title = "Multiview",
