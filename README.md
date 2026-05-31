@@ -30,6 +30,12 @@ From the command line (after first Studio sync has populated `gradle/wrapper/gra
 ./gradlew :app:installDebug
 ```
 
+## Fire TV variant
+
+This project includes a Fire TV flavor (`fire`) for Android-based Fire TV devices.
+
+See [Fire TV Build and Test Guide](firetv-readme.md) for Fire-specific setup, build, install, and cleanup instructions.
+
 ## Build variants (Play vs Fire TV)
 
 The app defines two product flavors:
