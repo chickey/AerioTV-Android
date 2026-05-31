@@ -16,8 +16,8 @@ Android port of [AerioTV](https://github.com/jonzey231/AerioTV) (iOS/tvOS IPTV a
 ## Requirements
 
 - Android Studio Ladybug (2024.2.1) or newer
-- JDK 17
-- Android SDK 35 (compile/target), minSdk 26 (Android 8.0)
+- JDK 21
+- Android SDK 36 (compile/target), minSdk 25 (Android 7.1)
 
 ## Building
 
@@ -33,6 +33,7 @@ From the command line (after first Studio sync has populated `gradle/wrapper/gra
 ## Fire TV variant
 
 This project includes a Fire TV flavor (`fire`) for Android-based Fire TV devices.
+The current minimum Android version is API 25, which supports older Android-based Fire TV models.
 
 See [Fire TV Build and Test Guide](firetv-readme.md) for Fire-specific setup, build, install, and cleanup instructions.
 

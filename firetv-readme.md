@@ -34,6 +34,9 @@ The following changes were added in this repository to support Fire TV builds cl
 - `/gradle/gradle-daemon-jvm.properties` updated to use `toolchainVendor=adoptium` with Java 21
   instead of JetBrains vendor-only toolchain resolution.
 
+6. Lower minimum SDK for older Fire TV devices
+- `/app/build.gradle.kts` `minSdk` lowered from 26 to 25 so Android API 25 Fire TV devices can install the app.
+
 ## Prerequisites
 
 - macOS

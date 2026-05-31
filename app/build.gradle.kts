@@ -38,7 +38,7 @@ android {
 
     defaultConfig {
         applicationId = "com.aeriotv.android"
-        minSdk = 26
+        minSdk = 25
         targetSdk = 36
         versionCode = 6
         versionName = "0.1.5"
