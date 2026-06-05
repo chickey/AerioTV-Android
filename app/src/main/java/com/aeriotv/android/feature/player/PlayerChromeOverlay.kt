@@ -5,6 +5,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -406,104 +410,104 @@ private fun PlayerMoreMenu(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        DropdownMenuItem(
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.ClosedCaption,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            },
-            text = { Text("Subtitles") },
+        MenuActionItem(
+            icon = Icons.Outlined.ClosedCaption,
+            label = "Subtitles",
             onClick = onSubtitles,
         )
-        DropdownMenuItem(
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.GraphicEq,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            },
-            text = { Text("Audio Track") },
+        MenuActionItem(
+            icon = Icons.Outlined.GraphicEq,
+            label = "Audio Track",
             onClick = onAudioTracks,
         )
-        DropdownMenuItem(
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.Speed,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            },
-            text = { Text("Playback Speed") },
+        MenuActionItem(
+            icon = Icons.Outlined.Speed,
+            label = "Playback Speed",
             onClick = onPlaybackSpeed,
         )
         if (canRecord) {
-            DropdownMenuItem(
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Filled.FiberManualRecord,
-                        contentDescription = null,
-                        tint = Color(0xFFFF4757),
-                    )
-                },
-                text = { Text("Record Current Program") },
+            MenuActionItem(
+                icon = Icons.Filled.FiberManualRecord,
+                label = "Record Current Program",
+                activeTint = Color(0xFFFF4757),
                 onClick = onRecord,
             )
         }
-        DropdownMenuItem(
-            leadingIcon = {
-                Icon(
-                    imageVector = if (sleepActive)
-                        Icons.Filled.Bedtime
-                    else
-                        Icons.Outlined.Bedtime,
-                    contentDescription = null,
-                    tint = if (sleepActive)
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.onSurface,
-                )
-            },
-            text = {
-                Text(if (sleepActive) "Sleep Timer (active)" else "Sleep Timer")
-            },
+        MenuActionItem(
+            icon = if (sleepActive) Icons.Filled.Bedtime else Icons.Outlined.Bedtime,
+            label = if (sleepActive) "Sleep Timer (active)" else "Sleep Timer",
+            active = sleepActive,
             onClick = onSleepTimer,
         )
-        DropdownMenuItem(
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            },
-            text = { Text("Stream Info") },
+        MenuActionItem(
+            icon = Icons.Outlined.Info,
+            label = "Stream Info",
             onClick = onStreamInfo,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-        DropdownMenuItem(
-            leadingIcon = {
-                Icon(
-                    imageVector = if (audioOnly)
-                        Icons.Filled.MusicNote
-                    else
-                        Icons.Outlined.MusicNote,
-                    contentDescription = null,
-                    tint = if (audioOnly)
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.onSurface,
-                )
-            },
-            text = {
-                // iOS toggles the label to "Show Video" when in Audio
-                // Only mode so the action describes what tapping does,
-                // not what state it shows. Port that.
-                Text(if (audioOnly) "Show Video" else "Audio Only")
-            },
+        MenuActionItem(
+            icon = if (audioOnly) Icons.Filled.MusicNote else Icons.Outlined.MusicNote,
+            label = if (audioOnly) "Show Video" else "Audio Only",
+            active = audioOnly,
             onClick = onAudioOnly,
+        )
+    }
+}
+
+@Composable
+private fun MenuActionItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    active: Boolean = false,
+    activeTint: Color = MaterialTheme.colorScheme.primary,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val contentTint = when {
+        focused -> Color.White
+        active -> Color.White
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val background = when {
+        focused -> Color.Black.copy(alpha = 0.72f)
+        active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        else -> Color.Transparent
+    }
+    val borderColor = when {
+        focused -> Color.White
+        active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+        else -> Color.Transparent
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clip(RoundedCornerShape(10.dp))
+            .background(background)
+            .border(
+                width = when {
+                    focused -> 2.dp
+                    active -> 1.dp
+                    else -> 0.dp
+                },
+                color = borderColor,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentTint,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            color = contentTint,
+            fontWeight = if (focused || active) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
 }

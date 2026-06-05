@@ -3,6 +3,7 @@ package com.aeriotv.android.feature.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -350,10 +352,24 @@ private fun ThemeRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (focused || selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                else Color.Transparent,
+            )
+            .border(
+                width = if (focused) 2.dp else if (selected) 1.dp else 0.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(12.dp),
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -363,8 +379,9 @@ private fun ThemeRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(theme.appBackground)
                 .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                    width = if (focused) 2.dp else 1.dp,
+                    color = if (focused) Color.White
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
                     shape = RoundedCornerShape(8.dp),
                 ),
             contentAlignment = Alignment.Center,
@@ -381,20 +398,22 @@ private fun ThemeRow(
             Text(
                 text = theme.displayName,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = if (focused || selected) Color.White
+                else MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
             )
             Text(
                 text = themeSubtitle(theme),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (focused || selected) Color.White.copy(alpha = 0.85f)
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (selected) {
             Icon(
                 imageVector = Icons.Filled.Check,
                 contentDescription = "Selected",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = if (focused) Color.White else MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -562,9 +581,22 @@ private fun ToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                else Color.Transparent,
+            )
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(12.dp),
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -572,13 +604,14 @@ private fun ToggleRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (focused) Color.White.copy(alpha = 0.85f)
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(Modifier.size(12.dp))
@@ -600,23 +633,33 @@ private fun ScaleSliderRow(
     onValueChange: (Float) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
+    var focused by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(12.dp),
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = "${(value * 100).toInt()}%",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
             )
         }

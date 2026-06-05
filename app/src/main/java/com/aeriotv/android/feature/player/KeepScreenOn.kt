@@ -37,9 +37,29 @@ fun KeepScreenOnWhilePlaying() {
     val context = LocalContext.current
     DisposableEffect(Unit) {
         val activity = context.findActivityCompat()
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        ScreenOnRequests.acquire(activity)
         onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            ScreenOnRequests.release(activity)
+        }
+    }
+}
+
+private object ScreenOnRequests {
+    private var count = 0
+
+    @Synchronized
+    fun acquire(activity: Activity?) {
+        if (activity == null) return
+        count += 1
+        activity.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    @Synchronized
+    fun release(activity: Activity?) {
+        if (activity == null) return
+        count = (count - 1).coerceAtLeast(0)
+        if (count == 0) {
+            activity.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 }

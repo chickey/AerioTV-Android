@@ -58,6 +58,9 @@ fun BoxScope.PersistentExoWindow(
 ) {
     val mode by state.mode.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    if (mode != ExoWindowState.Mode.Hidden) {
+        KeepScreenOnWhilePlaying()
+    }
 
     // See PersistentMpvWindow for the long form of the z-index rationale.
     // tl;dr: NavHost paints over PersistentExoWindow by declaration order;

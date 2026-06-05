@@ -54,6 +54,7 @@ import kotlinx.coroutines.delay
 import java.net.UnknownHostException
 import kotlin.math.abs
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 
 private const val TAG = "PlayerScreen"
 private const val AUTO_HIDE_MS = 4_000L
@@ -279,18 +280,23 @@ fun PlayerScreen(
         freezeBannerMessage = null
     }
 
-    LaunchedEffect(exoHolder.player, currentChannel?.id) {
-        while (true) {
-            val err = exoHolder.player?.playerError
-            if (err != null) {
-                val warning = playbackWarningFor(err)
-                if (!warning.isNullOrBlank() && warning != lastShownPlaybackWarning) {
-                    Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
-                    lastShownPlaybackWarning = warning
-                }
+    DisposableEffect(exoHolder.player, currentChannel?.id) {
+        val player = exoHolder.player
+        fun showPlaybackWarning(error: PlaybackException) {
+            val warning = playbackWarningFor(error)
+            if (!warning.isNullOrBlank() && warning != lastShownPlaybackWarning) {
+                Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
+                lastShownPlaybackWarning = warning
             }
-            delay(500L)
         }
+        player?.playerError?.let(::showPlaybackWarning)
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                showPlaybackWarning(error)
+            }
+        }
+        player?.addListener(listener)
+        onDispose { player?.removeListener(listener) }
     }
 
     val latestChannel by rememberUpdatedState(currentChannel)

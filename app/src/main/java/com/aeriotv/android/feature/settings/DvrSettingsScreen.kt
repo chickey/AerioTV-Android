@@ -9,7 +9,9 @@ import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
@@ -37,8 +39,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -52,17 +52,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEvent
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.feature.dvr.DvrViewModel
@@ -86,7 +79,6 @@ fun DvrSettingsScreen(
     val customFolderUri by settingsVm.dvrCustomFolderUri.collectAsStateWithLifecycle(initialValue = "")
     val keepAwake by settingsVm.dvrKeepAwakeDuringRecording.collectAsStateWithLifecycle(initialValue = true)
     val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -114,6 +106,15 @@ fun DvrSettingsScreen(
         reserveFreeMB = reserveFreeMB,
     )
     val effectiveBudgetMB = (effectiveBudgetBytes / (1024L * 1024L)).toInt()
+    val maxSelectableCapMB = effectiveBudgetMB.coerceAtLeast(0)
+    val capOptions = remember(maxSelectableCapMB) { buildRecordingCapOptions(maxSelectableCapMB) }
+    val displayCapMB = capMB.coerceAtMost(maxSelectableCapMB.takeIf { it > 0 } ?: capMB)
+
+    androidx.compose.runtime.LaunchedEffect(maxSelectableCapMB, capMB) {
+        if (maxSelectableCapMB > 0 && capMB > maxSelectableCapMB) {
+            settingsVm.setDvrMaxLocalStorageMB(maxSelectableCapMB)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -158,7 +159,7 @@ fun DvrSettingsScreen(
             item {
                 Card(
                     header = "Local Storage",
-                    footer = "Cap applies to local recordings on this device only. Server recordings live on Dispatcharr and are tracked there.",
+                    footer = "The cap is limited to the usable recording budget on this device, after keeping the reserve floor free.",
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -170,30 +171,30 @@ fun DvrSettingsScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                text = formatStorage(capMB),
+                                text = formatStorage(displayCapMB),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
-                        // 1 GB - 100 GB range, step 1 GB (1024 MB).
-                        Slider(
-                            value = capMB.toFloat(),
-                            onValueChange = { settingsVm.setDvrMaxLocalStorageMB(it.toInt()) },
-                            valueRange = 1024f..102400f,
-                            steps = 99,
-                            modifier = Modifier.onPreviewKeyEvent { event ->
-                                routeVerticalKeysToFocus(event, focusManager)
-                            },
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        )
+                        Spacer(Modifier.height(10.dp))
+                        if (capOptions.isEmpty()) {
+                            Text(
+                                text = "Not enough free space for local recordings right now.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else {
+                            CapOptionsList(
+                                options = capOptions,
+                                selected = displayCapMB,
+                                onSelect = settingsVm::setDvrMaxLocalStorageMB,
+                            )
+                        }
                         Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "${formatStorage(usedMB)} of ${formatStorage(capMB)} used",
+                                text = "${formatStorage(usedMB)} of ${formatStorage(displayCapMB)} used",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (usedFraction > 0.8f)
                                     MaterialTheme.colorScheme.error
@@ -400,24 +401,6 @@ private fun StorageInfoRow(
     }
 }
 
-private fun routeVerticalKeysToFocus(
-    event: KeyEvent,
-    focusManager: FocusManager,
-): Boolean {
-    if (event.type != KeyEventType.KeyDown) return false
-    return when (event.key) {
-        Key.DirectionUp -> {
-            focusManager.moveFocus(FocusDirection.Up)
-            true
-        }
-        Key.DirectionDown -> {
-            focusManager.moveFocus(FocusDirection.Down)
-            true
-        }
-        else -> false
-    }
-}
-
 @Composable
 private fun Card(
     header: String,
@@ -465,32 +448,45 @@ private fun BufferRow(
     onSelect: (Int) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     Box {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { menuOpen = true }
+                .onFocusChanged { focused = it.isFocused }
+                .focusable()
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                    else Color.Transparent,
+                )
+                .border(
+                    width = if (focused) 2.dp else 0.dp,
+                    color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    shape = RoundedCornerShape(12.dp),
+                )
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = formatRoll(selected),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.size(6.dp))
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (focused) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         DropdownMenu(
@@ -528,32 +524,45 @@ private fun ReserveRow(
     onSelect: (Int) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     Box {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { menuOpen = true }
+                .onFocusChanged { focused = it.isFocused }
+                .focusable()
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                    else Color.Transparent,
+                )
+                .border(
+                    width = if (focused) 2.dp else 0.dp,
+                    color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    shape = RoundedCornerShape(12.dp),
+                )
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = formatBytes(selected.toLong() * 1024L * 1024L),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.size(6.dp))
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (focused) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         DropdownMenu(
@@ -583,7 +592,86 @@ private fun ReserveRow(
     }
 }
 
+@Composable
+private fun CapOptionsList(
+    options: List<Int>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Column {
+        options.forEachIndexed { index, mb ->
+            CapOptionRow(
+                label = formatStorage(mb),
+                selected = mb == selected,
+                onClick = { onSelect(mb) },
+            )
+            if (index < options.lastIndex) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CapOptionRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (focused || selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                else Color.Transparent,
+            )
+            .border(
+                width = if (focused) 2.dp else if (selected) 1.dp else 0.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(12.dp),
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (focused || selected) Color.White
+            else MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+            fontWeight = FontWeight.Medium,
+        )
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = Color.White,
+                unselectedColor = if (focused) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+        )
+    }
+}
+
 private fun formatRoll(mins: Int): String = if (mins == 0) "None" else "$mins min"
+
+private fun buildRecordingCapOptions(maxBudgetMB: Int): List<Int> {
+    if (maxBudgetMB <= 0) return emptyList()
+    val options = mutableListOf<Int>()
+    val step = if (maxBudgetMB < 1024) 100 else 1024
+    var value = step
+    while (value < maxBudgetMB) {
+        options += value
+        value += step
+    }
+    options += maxBudgetMB
+    return options.distinct().sorted()
+}
 
 private fun formatStorage(mb: Int): String {
     if (mb >= 1024) {
