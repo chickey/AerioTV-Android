@@ -33,6 +33,7 @@ import com.aeriotv.android.feature.main.MainScaffold
 import com.aeriotv.android.feature.main.MainScaffoldEntryPoint
 import com.aeriotv.android.feature.onboarding.ChooseSourceTypeScreen
 import com.aeriotv.android.feature.onboarding.ConfigureSourceScreen
+import com.aeriotv.android.feature.onboarding.PairDispatcharrScreen
 import com.aeriotv.android.feature.onboarding.WelcomeScreen
 import com.aeriotv.android.feature.multiview.MultiviewScreen
 import com.aeriotv.android.feature.ondemand.OnDemandViewModel
@@ -67,6 +68,7 @@ object Routes {
     const val BOOTSTRAP = "bootstrap"
     const val WELCOME = "welcome"
     const val CHOOSE_TYPE = "choose_type"
+    const val PAIR_DISPATCHARR = "pair_dispatcharr"
     const val CONFIGURE = "configure/{type}"
     const val MAIN = "main"
     const val PLAYER = "player/{channelId}"
@@ -238,10 +240,11 @@ fun AerioTVNavHost(
                         }
                     },
                     googleSignInInProgress = googleSignInInFlight,
-                    onSignInWithGoogle = {
+                    onSignInWithGoogle = if (BuildConfig.GOOGLE_SERVICES_AVAILABLE) {
+                        googleSignIn@{
                         if (!syncBuildConfigured) {
                             welcomeNotConfiguredDialog = true
-                            return@WelcomeScreen
+                            return@googleSignIn
                         }
                         val activity = context.findActivity()
                         if (activity == null) {
@@ -250,7 +253,7 @@ fun AerioTVNavHost(
                                 "Sign-in needs a foreground activity. Try again.",
                                 android.widget.Toast.LENGTH_SHORT,
                             ).show()
-                            return@WelcomeScreen
+                            return@googleSignIn
                         }
                         googleSignInInFlight = true
                         scope.launch {
@@ -284,7 +287,8 @@ fun AerioTVNavHost(
                                 }
                             }
                         }
-                    },
+                        }
+                    } else null,
                 )
 
                 if (welcomeNotConfiguredDialog) {
@@ -316,6 +320,37 @@ fun AerioTVNavHost(
                     onChoose = { type ->
                         navController.navigate(Routes.configure(type))
                     },
+                    onPairDispatcharr = if (BuildConfig.GOOGLE_SERVICES_AVAILABLE) null else {
+                        { navController.navigate(Routes.PAIR_DISPATCHARR) }
+                    },
+                )
+            }
+
+            composable(Routes.PAIR_DISPATCHARR) {
+                val parent = remember {
+                    navController.getBackStackEntry(Routes.PLAYLIST_GRAPH)
+                }
+                val vm: PlaylistViewModel = hiltViewModel(parent)
+                val state by vm.state.collectAsStateWithLifecycle()
+
+                LaunchedEffect(state.phase) {
+                    if (state.phase == PlaylistViewModel.Phase.ChannelsReady) {
+                        navController.navigate(Routes.MAIN) {
+                            popUpTo(Routes.WELCOME) { inclusive = true }
+                        }
+                    }
+                }
+
+                PairDispatcharrScreen(
+                    onBack = { navController.popBackStack() },
+                    onManualSetup = {
+                        navController.navigate(Routes.configure(SourceType.DispatcharrUserPass))
+                    },
+                    onApproved = { approved ->
+                        vm.loadFromPairedDispatcharr(approved)
+                    },
+                    isConfiguring = state.isLoading,
+                    configurationError = state.error,
                 )
             }
 

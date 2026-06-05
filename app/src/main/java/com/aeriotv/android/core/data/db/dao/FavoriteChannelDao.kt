@@ -18,6 +18,9 @@ interface FavoriteChannelDao {
     @Query("SELECT * FROM favorite_channel ORDER BY displayOrder ASC")
     fun observeAll(): Flow<List<FavoriteChannelEntity>>
 
+    @Query("SELECT * FROM favorite_channel ORDER BY displayOrder ASC")
+    suspend fun allOnce(): List<FavoriteChannelEntity>
+
     @Query("SELECT EXISTS(SELECT 1 FROM favorite_channel WHERE channelId = :channelId)")
     fun observeIsFavorite(channelId: String): Flow<Boolean>
 

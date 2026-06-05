@@ -304,6 +304,20 @@ class AppPreferences @Inject constructor(
         else raw.split('\n').mapNotNull { it.trim().takeIf(String::isNotBlank) }
     }
 
+    suspend fun recentChannelIdsOnce(): List<String> {
+        val raw = store.data.first()[KEY_RECENT_CHANNEL_IDS] ?: ""
+        return if (raw.isBlank()) emptyList()
+        else raw.split('\n').mapNotNull { it.trim().takeIf(String::isNotBlank) }
+    }
+
+    suspend fun setRecentChannelIds(ids: List<String>) {
+        store.edit { prefs ->
+            val clean = ids.mapNotNull { it.trim().takeIf(String::isNotBlank) }.distinct().take(RECENT_CHANNELS_CAP)
+            if (clean.isEmpty()) prefs.remove(KEY_RECENT_CHANNEL_IDS)
+            else prefs[KEY_RECENT_CHANNEL_IDS] = clean.joinToString("\n")
+        }
+    }
+
     /**
      * Promote [channelId] to the front of the recents list, de-duplicating and
      * capping at [RECENT_CHANNELS_CAP]. No-op for blanks.
@@ -359,6 +373,11 @@ class AppPreferences @Inject constructor(
             if (groups.isEmpty()) prefs.remove(KEY_HIDDEN_GROUPS)
             else prefs[KEY_HIDDEN_GROUPS] = groups.joinToString("\n")
         }
+    }
+    suspend fun hiddenGroupsOnce(): Set<String> {
+        val raw = store.data.first()[KEY_HIDDEN_GROUPS] ?: ""
+        return if (raw.isBlank()) emptySet()
+        else raw.split('\n').mapNotNull { it.trim().takeIf(String::isNotBlank) }.toSet()
     }
     suspend fun autoResumeLastChannelOnce(): Boolean =
         store.data.first()[KEY_AUTO_RESUME_LAST_CHANNEL] ?: false

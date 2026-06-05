@@ -37,6 +37,10 @@
          path on every API level at or above 29. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- mDNS/NSD discovery of Dispatcharr on the LAN. A multicast lock makes
+         service discovery reliable on Fire TV Wi-Fi; the permission is
+         normal-protection and granted at install. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Phase 9b Local DVR. Foreground service handles in-flight downloads
          so Android doesn't kill the recording when the user backgrounds the
          app. mediaPlayback service type matches the spirit of the work even

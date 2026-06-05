@@ -12,6 +12,7 @@ import com.aeriotv.android.core.data.repository.ChannelProfileOption
 import com.aeriotv.android.core.data.repository.PlaylistRepository
 import com.aeriotv.android.core.debug.DebugLogger
 import com.aeriotv.android.core.debug.MemoryPressureBus
+import com.aeriotv.android.core.sync.DispatcharrPairingStatusResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,7 @@ class PlaylistViewModel @Inject constructor(
     private val repository: PlaylistRepository,
     private val memoryPressureBus: MemoryPressureBus,
     private val debugLogger: DebugLogger,
+    private val secureTokenStore: com.aeriotv.android.core.sync.SecureTokenStore,
 ) : ViewModel() {
 
     enum class Phase { Bootstrapping, NeedsUrl, ChannelsReady }
@@ -307,6 +309,78 @@ class PlaylistViewModel @Inject constructor(
             )
         }
         loadPlaylist()
+    }
+
+    /**
+     * Phase 4 Dispatcharr pairing handoff. The plugin returns the server URL,
+     * scoped device credential, and optional profile id; from here we reuse the
+     * normal repository path so first load, persistence, cache population, EPG
+     * loading, and active-playlist switching behave exactly like manual setup.
+     */
+    fun loadFromPairedDispatcharr(approved: DispatcharrPairingStatusResponse) {
+        val serverBaseUrl = approved.serverBaseUrl?.takeIf { it.isNotBlank() }
+        val deviceToken = approved.deviceToken?.takeIf { it.isNotBlank() }
+        if (serverBaseUrl == null || deviceToken == null) {
+            _state.update {
+                it.copy(
+                    error = "Pairing approved, but Dispatcharr did not return a server URL and device token.",
+                    isLoading = false,
+                )
+            }
+            return
+        }
+
+        // Keep the scoped device token in Android-encrypted storage as the
+        // source of truth for the sync path. The playlist row still holds it for
+        // the existing API-key auth broker used by channel/EPG calls.
+        secureTokenStore.saveDeviceToken(deviceToken)
+
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    sourceType = SourceType.DispatcharrApiKey,
+                    name = "Dispatcharr",
+                    url = serverBaseUrl,
+                    lanUrl = serverBaseUrl,
+                    apiKey = deviceToken,
+                    username = "",
+                    password = "",
+                    isLoading = true,
+                    error = null,
+                )
+            }
+            val request = PlaylistRepository.SaveRequest(
+                sourceType = SourceType.DispatcharrApiKey,
+                name = "Dispatcharr",
+                url = normalizeSchemedUrl(serverBaseUrl),
+                lanUrl = normalizeSchemedUrl(serverBaseUrl),
+                apiKey = deviceToken,
+                dispatcharrProfileId = approved.profileId,
+            )
+            repository.loadAndPersist(request, existingId = _state.value.playlist?.id).fold(
+                onSuccess = { (entity, channels) ->
+                    _state.update {
+                        it.copy(
+                            phase = Phase.ChannelsReady,
+                            playlist = entity,
+                            channels = channels,
+                            isLoading = false,
+                            error = if (channels.isEmpty()) "No channels found." else null,
+                        )
+                    }
+                    loadEpgIfConfigured(entity)
+                },
+                onFailure = { t ->
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            channels = emptyList(),
+                            error = "Paired with Dispatcharr, but could not load channels: ${t.message ?: t::class.simpleName}",
+                        )
+                    }
+                },
+            )
+        }
     }
 
     fun loadPlaylist() {

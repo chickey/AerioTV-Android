@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,6 +50,7 @@ import com.aeriotv.android.ui.adaptive.rememberViewport
 fun ChooseSourceTypeScreen(
     onBack: () -> Unit,
     onChoose: (SourceType) -> Unit,
+    onPairDispatcharr: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -103,6 +105,14 @@ fun ChooseSourceTypeScreen(
 
                 Spacer(Modifier.height(4.dp))
 
+                if (onPairDispatcharr != null) {
+                    SourceTypeCard(
+                        icon = Icons.Outlined.Hub,
+                        title = "Find Dispatcharr automatically",
+                        subtitle = "Pair this Fire TV with the AerioTV Dispatcharr plugin using a short code.",
+                        modifier = Modifier.tappable(onPairDispatcharr),
+                    )
+                }
                 SourceTypeCard(
                     icon = Icons.Filled.Key,
                     title = "Dispatcharr Direct Connect",

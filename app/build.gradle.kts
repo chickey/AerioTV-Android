@@ -167,6 +167,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
 
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.documentfile)
     implementation(libs.play.services.auth)
     implementation(libs.androidx.credentials)

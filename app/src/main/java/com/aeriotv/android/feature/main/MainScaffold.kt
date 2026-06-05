@@ -2,6 +2,7 @@ package com.aeriotv.android.feature.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
+import com.aeriotv.android.BuildConfig
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.programmesFor
 import com.aeriotv.android.core.playback.AerioExoPlayerHolder
@@ -69,6 +73,7 @@ import com.aeriotv.android.feature.settings.AppBehaviorsSettingsScreen
 import com.aeriotv.android.feature.settings.AddMoreCategoriesScreen
 import com.aeriotv.android.feature.settings.AppearanceSettingsScreen
 import com.aeriotv.android.feature.settings.DeveloperSettingsScreen
+import com.aeriotv.android.feature.settings.DispatcharrSyncSettingsScreen
 import com.aeriotv.android.feature.settings.DvrSettingsScreen
 import com.aeriotv.android.feature.settings.GuideOptionsSettingsScreen
 import com.aeriotv.android.feature.settings.MultiviewSettingsScreen
@@ -170,16 +175,26 @@ fun MainScaffold(
             MainScaffoldEntryPoint::class.java,
         ).exoPlayerHolder()
     }
-    // Poll pause state from the held ExoPlayer so the mini-player's
-    // Pause/Play icon stays accurate when the notification action /
-    // BT button toggles playback elsewhere.
+    // Keep the mini-player Pause/Play icon accurate when notification
+    // actions or Bluetooth media buttons toggle playback elsewhere.
     var miniPaused by remember { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(miniPlayerState) {
-        if (miniPlayerState !is com.aeriotv.android.feature.miniplayer.MiniPlayerSession.State.Active) return@LaunchedEffect
-        while (true) {
-            miniPaused = exoHolder.isPaused()
-            kotlinx.coroutines.delay(500L)
+    DisposableEffect(miniPlayerState, exoHolder.player) {
+        if (miniPlayerState !is com.aeriotv.android.feature.miniplayer.MiniPlayerSession.State.Active) {
+            return@DisposableEffect onDispose { }
         }
+        val player = exoHolder.player
+        miniPaused = exoHolder.isPaused()
+        val listener = object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                miniPaused = !playWhenReady
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                miniPaused = exoHolder.isPaused()
+            }
+        }
+        player?.addListener(listener)
+        onDispose { player?.removeListener(listener) }
     }
 
     val settingsVm: SettingsViewModel = hiltViewModel()
@@ -554,7 +569,7 @@ private fun TvTab(
     var focused by remember { mutableStateOf(false) }
     val background = when {
         focused -> MaterialTheme.colorScheme.primary
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
         else -> Color.Transparent
     }
     val foreground = when {
@@ -567,6 +582,12 @@ private fun TvTab(
             .focusRequester(focusRequester)
             .clip(RoundedCornerShape(26.dp))
             .background(background)
+            .border(
+                width = if (focused) 2.dp else if (selected) 1.dp else 0.dp,
+                color = if (focused) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(26.dp),
+            )
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
@@ -737,9 +758,15 @@ private fun SettingsTabContent() {
         section == SettingsSection.AppBehaviors -> AppBehaviorsSettingsScreen(onBack = { section = null })
         section == SettingsSection.Multiview -> MultiviewSettingsScreen(onBack = { section = null })
         section == SettingsSection.Network -> NetworkSettingsScreen(onBack = { section = null })
-        section == SettingsSection.Sync -> com.aeriotv.android.feature.settings.SyncSettingsScreen(
-            onBack = { section = null },
-        )
+        section == SettingsSection.Sync -> {
+            if (BuildConfig.GOOGLE_SERVICES_AVAILABLE) {
+                com.aeriotv.android.feature.settings.SyncSettingsScreen(
+                    onBack = { section = null },
+                )
+            } else {
+                DispatcharrSyncSettingsScreen(onBack = { section = null })
+            }
+        }
         section == SettingsSection.DvrSettings -> DvrSettingsScreen(onBack = { section = null })
         logViewerOpen -> com.aeriotv.android.feature.settings.LogViewerScreen(
             onBack = { logViewerOpen = false },

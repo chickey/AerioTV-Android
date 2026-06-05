@@ -1,9 +1,13 @@
 package com.aeriotv.android.feature.settings
 
+import com.aeriotv.android.BuildConfig
+
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +60,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -219,8 +225,12 @@ fun SettingsScreen(
                     header = "Sync",
                     rows = listOf(SettingsSection.Sync),
                     onClick = onSectionClick,
-                    footer = "Playlists, preferences, and watch progress sync across all devices " +
-                        "signed into the same Google account. Credentials stay in encrypted Android storage.",
+                    footer = if (BuildConfig.GOOGLE_SERVICES_AVAILABLE) {
+                        "Playlists, preferences, and watch progress sync across all devices " +
+                            "signed into the same Google account. Credentials stay in encrypted Android storage."
+                    } else {
+                        "Fire TV builds use Dispatcharr pairing and sync. Google Drive sync is hidden for this flavour."
+                    },
                 )
             }
 
@@ -510,10 +520,23 @@ private fun SettingsSectionGroup(
 
 @Composable
 private fun SectionNavRow(section: SettingsSection, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
+                else Color.Transparent,
+            )
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(12.dp),
+            )
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -521,13 +544,16 @@ private fun SectionNavRow(section: SettingsSection, onClick: () -> Unit) {
             modifier = Modifier
                 .size(34.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+                .background(
+                    if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
+                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = section.icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = if (focused) Color.White else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -536,19 +562,20 @@ private fun SectionNavRow(section: SettingsSection, onClick: () -> Unit) {
             Text(
                 text = section.title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Medium,
             )
             Text(
                 text = section.subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (focused) Color.White.copy(alpha = 0.85f)
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = if (focused) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
