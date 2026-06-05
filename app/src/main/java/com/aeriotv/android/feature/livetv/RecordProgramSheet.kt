@@ -1,6 +1,7 @@
 package com.aeriotv.android.feature.livetv
 
 import android.widget.Toast
+import android.os.StatFs
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,7 @@ import com.aeriotv.android.feature.dvr.LocalRecordingService
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import com.aeriotv.android.feature.settings.SettingsViewModel
 import java.text.DateFormat
+import java.io.File
 import java.util.Date
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -85,6 +87,7 @@ fun RecordProgramSheet(
     val defaultPreRoll by settingsViewModel.dvrDefaultPreRollMins.collectAsStateWithLifecycle(initialValue = 0)
     val defaultPostRoll by settingsViewModel.dvrDefaultPostRollMins.collectAsStateWithLifecycle(initialValue = 0)
     val storageCapMB by settingsViewModel.dvrMaxLocalStorageMB.collectAsStateWithLifecycle(initialValue = 10_240)
+    val reserveFreeMB by settingsViewModel.dvrReserveFreeSpaceMB.collectAsStateWithLifecycle(initialValue = 200)
     val dvrState by dvrViewModel.state.collectAsStateWithLifecycle()
 
     var preRoll by remember(defaultPreRoll) { mutableStateOf(defaultPreRoll) }
@@ -133,11 +136,17 @@ fun RecordProgramSheet(
                             val usedBytes = dvrState.recordings
                                 .filter { it.source == DvrViewModel.Source.Local }
                                 .sumOf { it.fileSizeBytes }
-                            val usedMB = (usedBytes / (1024L * 1024L)).toInt()
-                            if (usedMB >= storageCapMB) {
+                            val availableBytes = defaultRecordingAvailableBytes(context)
+                            val budgetBytes = computeEffectiveLocalBudgetBytes(
+                                capMB = storageCapMB,
+                                usedBytes = usedBytes,
+                                availableBytes = availableBytes,
+                                reserveFreeMB = reserveFreeMB,
+                            )
+                            if (budgetBytes <= 0L) {
                                 Toast.makeText(
                                     context,
-                                    "Local storage cap reached. Free space or raise the cap in Settings -> DVR.",
+                                    "Not enough storage free. Reduce recordings or lower the DVR reserve in Settings -> DVR.",
                                     Toast.LENGTH_LONG,
                                 ).show()
                                 onDismiss()
@@ -155,23 +164,24 @@ fun RecordProgramSheet(
                                     "Couldn't locate stream URL for ${target.channelName}.",
                                     Toast.LENGTH_SHORT,
                                 ).show()
-                            } else {
-                                val durationMs = (target.endMillis + postRoll * 60_000L) -
-                                        System.currentTimeMillis()
-                                LocalRecordingService.start(
-                                    context = context,
-                                    streamUrl = streamUrl,
-                                    title = target.title.ifBlank { target.channelName },
-                                    channelName = target.channelName,
-                                    apiKey = apiKey.orEmpty(),
-                                    durationMs = durationMs.coerceAtLeast(60_000L),
-                                )
-                                Toast.makeText(
-                                    context,
-                                    "Recording started locally.",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                onDismiss()
+                                return@TextButton
                             }
+                            val durationMs = (target.endMillis + postRoll * 60_000L) -
+                                    System.currentTimeMillis()
+                            LocalRecordingService.start(
+                                context = context,
+                                streamUrl = streamUrl,
+                                title = target.title.ifBlank { target.channelName },
+                                channelName = target.channelName,
+                                apiKey = apiKey.orEmpty(),
+                                durationMs = durationMs.coerceAtLeast(60_000L),
+                            )
+                            Toast.makeText(
+                                context,
+                                "Recording started locally.",
+                                Toast.LENGTH_SHORT,
+                            ).show()
                             onDismiss()
                             return@TextButton
                         }
@@ -297,6 +307,24 @@ fun RecordProgramSheet(
             }
         }
     }
+}
+
+private fun defaultRecordingAvailableBytes(context: android.content.Context): Long {
+    val dir = File(context.getExternalFilesDir(null), "Recordings").apply { mkdirs() }
+    return runCatching { StatFs(dir.absolutePath).availableBytes }.getOrDefault(0L)
+}
+
+private fun computeEffectiveLocalBudgetBytes(
+    capMB: Int,
+    usedBytes: Long,
+    availableBytes: Long,
+    reserveFreeMB: Int,
+): Long {
+    val capBytes = capMB.coerceAtLeast(0).toLong() * 1024L * 1024L
+    val reserveBytes = reserveFreeMB.coerceAtLeast(0).toLong() * 1024L * 1024L
+    val capRemaining = (capBytes - usedBytes).coerceAtLeast(0L)
+    val freeRemaining = (availableBytes - reserveBytes).coerceAtLeast(0L)
+    return minOf(capRemaining, freeRemaining)
 }
 
 @Composable

@@ -58,9 +58,12 @@ fun AppBehaviorsSettingsScreen(
     val skipLoadingScreen by viewModel.skipLoadingScreen.collectAsStateWithLifecycle(initialValue = false)
     val appleTVChannelFlip by viewModel.appleTVChannelFlip.collectAsStateWithLifecycle(initialValue = true)
     val playbackSkipSeconds by viewModel.playbackSkipSeconds.collectAsStateWithLifecycle(initialValue = 10)
+    val freezeDetectionEnabled by viewModel.freezeDetectionEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val freezeDetectionSeconds by viewModel.freezeDetectionSeconds.collectAsStateWithLifecycle(initialValue = 15)
     val autoResumeLastChannel by viewModel.autoResumeLastChannel.collectAsStateWithLifecycle(initialValue = false)
     val defaultTab by viewModel.defaultTab.collectAsStateWithLifecycle(initialValue = "")
     val playbackSkipPresets = listOf(5, 10, 15, 30, 60, 90, 120)
+    val freezeDetectionPresets = listOf(5, 10, 15, 30, 60, 120)
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -142,6 +145,29 @@ fun AppBehaviorsSettingsScreen(
                         onClick = { viewModel.setPlaybackSkipSeconds(seconds) },
                     )
                     if (idx < playbackSkipPresets.lastIndex) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    }
+                }
+            }
+
+            SettingsGroup(
+                header = "Freeze Detection",
+                footer = "If the live picture appears stuck for long enough, the app can restart the stream automatically.",
+            ) {
+                ToggleRow(
+                    title = "Enable freeze detection",
+                    subtitle = "Watch live playback for stalls and restart if video stops advancing",
+                    checked = freezeDetectionEnabled,
+                    onCheckedChange = viewModel::setFreezeDetectionEnabled,
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                freezeDetectionPresets.forEachIndexed { idx, seconds ->
+                    PresetRow(
+                        label = "${seconds}s",
+                        selected = freezeDetectionSeconds == seconds,
+                        onClick = { viewModel.setFreezeDetectionSeconds(seconds) },
+                    )
+                    if (idx < freezeDetectionPresets.lastIndex) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                     }
                 }

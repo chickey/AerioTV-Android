@@ -1,7 +1,10 @@
 package com.aeriotv.android.feature.multiview
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,6 +86,9 @@ fun AddToMultiviewSheet(
     val selected by multiviewStore.selected.collectAsState()
     val recentIds by settingsVm.recentChannelIds.collectAsStateWithLifecycle(initialValue = emptyList())
     val selectedIds = selected.map { it.id }.toSet()
+    val isTv = (
+        LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK
+        ) == Configuration.UI_MODE_TYPE_TELEVISION
 
     var selectedGroup by remember { mutableStateOf(PlaylistViewModel.ALL_GROUPS) }
     var query by remember { mutableStateOf("") }
@@ -164,26 +172,37 @@ fun AddToMultiviewSheet(
                 }
             }
 
-            // Search field.
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                placeholder = { Text("Search channels") },
-                singleLine = true,
-                leadingIcon = {
-                    Icon(Icons.Filled.Search, contentDescription = null)
-                },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Clear search")
+            if (!isTv) {
+                // Search field for touch devices. On TV this steals focus and
+                // raises the on-screen keyboard, so we omit it and let the user
+                // scroll the list with the D-pad instead.
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    placeholder = { Text("Search channels") },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Filled.Search, contentDescription = null)
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            } else {
+                Text(
+                    text = "Use the D-pad to choose channels. Search is available on touch devices.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
 
             LazyColumn(
                 modifier = Modifier
@@ -247,10 +266,18 @@ private fun ChannelPickerRow(
         MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
     else
         MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
             .background(baseColor)
             .clickable(enabled = !atCap, onClick = onToggle)
             .padding(horizontal = 12.dp, vertical = 8.dp),

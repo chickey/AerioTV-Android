@@ -24,6 +24,7 @@ class MultiviewStoreHandleVm @Inject constructor(
     val maxTiles: Int get() = store.maxTiles
     fun toggle(channel: M3UChannel) = store.toggle(channel)
     fun isSelected(channel: M3UChannel): Boolean = store.isSelected(channel)
+    fun ensureSelected(channel: M3UChannel) = store.ensureSelected(channel)
     fun setAudioFocus(index: Int) = store.setAudioFocus(index)
     fun swap(from: Int, to: Int) = store.swap(from, to)
     fun move(from: Int, to: Int) = store.move(from, to)
@@ -40,6 +41,7 @@ class MultiviewStoreHandle(
     val audioFocusedIndex: StateFlow<Int>,
     val maxTiles: Int,
     val toggle: (M3UChannel) -> Unit,
+    val ensureSelected: (M3UChannel) -> Unit,
     val setAudioFocus: (Int) -> Unit,
     val swap: (Int, Int) -> Unit,
     val move: (Int, Int) -> Unit,
@@ -55,6 +57,7 @@ fun rememberMultiviewStoreHandle(
         audioFocusedIndex = vm.audioFocusedIndex,
         maxTiles = vm.maxTiles,
         toggle = vm::toggle,
+        ensureSelected = vm::ensureSelected,
         setAudioFocus = vm::setAudioFocus,
         swap = vm::swap,
         move = vm::move,

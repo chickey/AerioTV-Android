@@ -16,6 +16,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +65,7 @@ class PlaylistViewModel @Inject constructor(
         val channels: List<M3UChannel> = emptyList(),
         val epgByChannel: Map<String, List<EPGProgramme>> = emptyMap(),
         val isEpgLoading: Boolean = false,
+        val epgStatusMessage: String? = null,
         val searchQuery: String = "",
         val selectedGroup: String = ALL_GROUPS,
         val sortMode: SortMode = SortMode.ByNumber,
@@ -114,6 +116,7 @@ class PlaylistViewModel @Inject constructor(
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
     private var epgLoadJob: Job? = null
+    private var epgBootstrapRetryJob: Job? = null
 
     init {
         bootstrap()
@@ -189,6 +192,7 @@ class PlaylistViewModel @Inject constructor(
                 // cells light up immediately too, instead of waiting on the
                 // channel network refresh.
                 loadEpgIfConfigured(saved)
+                scheduleBootstrapEpgRetry(saved)
             }
 
             // Freshness gate: within the TTL window, the cached rail is
@@ -217,7 +221,10 @@ class PlaylistViewModel @Inject constructor(
                     // we'd already done it above from cache, this is a no-op
                     // for fresh-cache cases and a re-trigger for non-cached
                     // cases - loadEpgIfConfigured is idempotent w.r.t. state).
-                    if (!hasChannelCache) loadEpgIfConfigured(saved)
+                    if (!hasChannelCache) {
+                        loadEpgIfConfigured(saved)
+                        scheduleBootstrapEpgRetry(saved)
+                    }
                 },
                 onFailure = { t ->
                     if (hasChannelCache) {
@@ -416,7 +423,13 @@ class PlaylistViewModel @Inject constructor(
             if (hasCache) {
                 logI("loadEpgIfConfigured: painted ${cached.size} cached programmes")
                 val groupedCached = groupByChannel(cached)
-                _state.update { it.copy(epgByChannel = groupedCached, isEpgLoading = false) }
+                _state.update {
+                    it.copy(
+                        epgByChannel = groupedCached,
+                        isEpgLoading = false,
+                        epgStatusMessage = if (forceRefresh) "Refreshing guide data..." else "Loading cached guide data...",
+                    )
+                }
             }
             // 2. Freshness: skip the network entirely when the cache is recent,
             // unless the caller forced a refresh (e.g. Refresh Playlist).
@@ -426,14 +439,21 @@ class PlaylistViewModel @Inject constructor(
                     (System.currentTimeMillis() - newest) < EPG_CACHE_TTL_MS
                 if (fresh) {
                     logI("loadEpgIfConfigured: cache fresh, skipping network")
-                    _state.update { it.copy(isEpgLoading = false) }
+                    _state.update { it.copy(isEpgLoading = false, epgStatusMessage = null) }
                     return@launch
                 }
             }
             // 3. Stale / forced / first-ever launch -> network. Only show the
             // spinner when there is nothing cached to display yet.
             logI("loadEpgIfConfigured: fetching EPG for ${playlist.sourceType} (force=$forceRefresh, hadCache=$hasCache)")
-            if (!hasCache) _state.update { it.copy(isEpgLoading = true) }
+            if (!hasCache) {
+                _state.update {
+                    it.copy(
+                        isEpgLoading = true,
+                        epgStatusMessage = if (forceRefresh) "Retrying guide data..." else "Loading guide data...",
+                    )
+                }
+            }
             repository.loadEpg(playlist).fold(
                 onSuccess = { programmes ->
                     // Startup reliability guard: Dispatcharr can occasionally
@@ -442,7 +462,12 @@ class PlaylistViewModel @Inject constructor(
                     // UI and replacing disk cache with an empty payload.
                     if (programmes.isEmpty() && (hasCache || _state.value.epgByChannel.isNotEmpty())) {
                         logW("EPG load returned 0 programmes; keeping existing guide data")
-                        _state.update { it.copy(isEpgLoading = false) }
+                        _state.update {
+                            it.copy(
+                                isEpgLoading = false,
+                                epgStatusMessage = "Guide data was empty; retrying shortly...",
+                            )
+                        }
                         return@fold
                     }
                     logI("EPG loaded: ${programmes.size} programmes across ${programmes.map { it.channelId }.toSet().size} channels")
@@ -453,6 +478,7 @@ class PlaylistViewModel @Inject constructor(
                         st.copy(
                             epgByChannel = grouped,
                             isEpgLoading = false,
+                            epgStatusMessage = null,
                             playlist = st.playlist?.copy(lastEpgRefreshedAt = refreshedAt),
                         )
                     }
@@ -485,7 +511,16 @@ class PlaylistViewModel @Inject constructor(
                 onFailure = { t ->
                     logW("EPG load failed", t)
                     // Keep whatever cache we already painted on screen.
-                    _state.update { it.copy(isEpgLoading = false) }
+                    _state.update {
+                        it.copy(
+                            isEpgLoading = false,
+                            epgStatusMessage = if (hasCache || _state.value.epgByChannel.isNotEmpty()) {
+                                "Guide update failed; keeping cached data."
+                            } else {
+                                "Guide data unavailable. Retrying..."
+                            },
+                        )
+                    }
                 },
             )
         }.also { job ->
@@ -495,6 +530,20 @@ class PlaylistViewModel @Inject constructor(
                 }
                 if (epgLoadJob === job) epgLoadJob = null
             }
+        }
+    }
+
+    private fun scheduleBootstrapEpgRetry(playlist: PlaylistEntity) {
+        epgBootstrapRetryJob?.cancel()
+        epgBootstrapRetryJob = viewModelScope.launch {
+            delay(6_000L)
+            val current = _state.value
+            if (current.playlist?.id != playlist.id) return@launch
+            if (current.epgByChannel.isNotEmpty()) return@launch
+            if (current.isEpgLoading) return@launch
+            logI("bootstrap EPG retry: guide still empty, forcing a refresh")
+            _state.update { it.copy(epgStatusMessage = "Guide still empty after startup; retrying...") }
+            loadEpgIfConfigured(playlist, forceRefresh = true)
         }
     }
 

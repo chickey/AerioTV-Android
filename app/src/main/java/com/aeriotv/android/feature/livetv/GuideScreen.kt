@@ -404,6 +404,32 @@ fun GuideScreen(
                 }
             }
         }
+        val epgStatusMessage = state.epgStatusMessage
+        if (!epgStatusMessage.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AccessTime,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = epgStatusMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
         // Jump-to-now scroller. Coroutine-driven so animateScrollTo can
         // suspend; matches iOS EPGGuideView's "scroll back to now" button
         // which snaps the time axis so the now-indicator sits ~1/4 of the

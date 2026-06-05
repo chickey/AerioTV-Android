@@ -4,6 +4,8 @@ import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 
 import android.content.Intent
 import android.net.Uri
+import android.os.StatFs
+import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -50,8 +52,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.feature.dvr.DvrViewModel
@@ -69,11 +80,13 @@ fun DvrSettingsScreen(
     dvrVm: DvrViewModel = hiltViewModel(),
 ) {
     val capMB by settingsVm.dvrMaxLocalStorageMB.collectAsStateWithLifecycle(initialValue = 10_240)
+    val reserveFreeMB by settingsVm.dvrReserveFreeSpaceMB.collectAsStateWithLifecycle(initialValue = 200)
     val preRoll by settingsVm.dvrDefaultPreRollMins.collectAsStateWithLifecycle(initialValue = 0)
     val postRoll by settingsVm.dvrDefaultPostRollMins.collectAsStateWithLifecycle(initialValue = 0)
     val customFolderUri by settingsVm.dvrCustomFolderUri.collectAsStateWithLifecycle(initialValue = "")
     val keepAwake by settingsVm.dvrKeepAwakeDuringRecording.collectAsStateWithLifecycle(initialValue = true)
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -92,6 +105,15 @@ fun DvrSettingsScreen(
         .sumOf { it.fileSizeBytes }
     val usedMB = (usedBytes / (1024L * 1024L)).toInt()
     val usedFraction = if (capMB > 0) (usedMB.toFloat() / capMB.toFloat()).coerceIn(0f, 1f) else 0f
+    val availableBytes = defaultRecordingAvailableBytes(context)
+    val availableMB = (availableBytes / (1024L * 1024L)).toInt()
+    val effectiveBudgetBytes = computeEffectiveLocalBudgetBytes(
+        capMB = capMB,
+        usedBytes = usedBytes,
+        availableBytes = availableBytes,
+        reserveFreeMB = reserveFreeMB,
+    )
+    val effectiveBudgetMB = (effectiveBudgetBytes / (1024L * 1024L)).toInt()
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -160,6 +182,9 @@ fun DvrSettingsScreen(
                             onValueChange = { settingsVm.setDvrMaxLocalStorageMB(it.toInt()) },
                             valueRange = 1024f..102400f,
                             steps = 99,
+                            modifier = Modifier.onPreviewKeyEvent { event ->
+                                routeVerticalKeysToFocus(event, focusManager)
+                            },
                             colors = SliderDefaults.colors(
                                 thumbColor = MaterialTheme.colorScheme.primary,
                                 activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -196,6 +221,39 @@ fun DvrSettingsScreen(
                                 MaterialTheme.colorScheme.primary,
                             trackColor = MaterialTheme.colorScheme.surfaceVariant,
                             drawStopIndicator = {},
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        StorageInfoRow(
+                            label = "Device free space",
+                            value = formatBytes(availableBytes),
+                            valueColor = if (availableMB <= reserveFreeMB)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        StorageInfoRow(
+                            label = "Usable recording budget",
+                            value = formatBytes(effectiveBudgetBytes),
+                            valueColor = if (effectiveBudgetBytes <= 0)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    header = "Storage Safety",
+                    footer = "Keep some free space in reserve so the Fire TV stays responsive while recordings are running. The service will stop before it dips below this floor.",
+                ) {
+                    Column {
+                        ReserveRow(
+                            label = "Keep free",
+                            options = RESERVE_OPTIONS_MB,
+                            selected = reserveFreeMB,
+                            onSelect = settingsVm::setDvrReserveFreeSpaceMB,
                         )
                     }
                 }
@@ -316,6 +374,51 @@ fun DvrSettingsScreen(
 }
 
 @Composable
+private fun StorageInfoRow(
+    label: String,
+    value: String,
+    valueColor: androidx.compose.ui.graphics.Color,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = valueColor,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+private fun routeVerticalKeysToFocus(
+    event: KeyEvent,
+    focusManager: FocusManager,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    return when (event.key) {
+        Key.DirectionUp -> {
+            focusManager.moveFocus(FocusDirection.Up)
+            true
+        }
+        Key.DirectionDown -> {
+            focusManager.moveFocus(FocusDirection.Down)
+            true
+        }
+        else -> false
+    }
+}
+
+@Composable
 private fun Card(
     header: String,
     footer: String?,
@@ -417,6 +520,69 @@ private fun BufferRow(
     }
 }
 
+@Composable
+private fun ReserveRow(
+    label: String,
+    options: List<Int>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { menuOpen = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = formatBytes(selected.toLong() * 1024L * 1024L),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.size(6.dp))
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            options.forEach { mb ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = mb == selected,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary),
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(formatBytes(mb.toLong() * 1024L * 1024L))
+                        }
+                    },
+                    onClick = {
+                        onSelect(mb)
+                        menuOpen = false
+                    },
+                )
+            }
+        }
+    }
+}
+
 private fun formatRoll(mins: Int): String = if (mins == 0) "None" else "$mins min"
 
 private fun formatStorage(mb: Int): String {
@@ -427,7 +593,37 @@ private fun formatStorage(mb: Int): String {
     return "$mb MB"
 }
 
+private fun formatBytes(bytes: Long): String {
+    val mb = bytes / (1024.0 * 1024.0)
+    return when {
+        mb >= 1024 -> {
+            val gb = mb / 1024.0
+            if (gb >= 10) "${gb.toInt()} GB" else String.format("%.1f GB", gb)
+        }
+        else -> String.format("%.0f MB", mb)
+    }
+}
+
+private fun defaultRecordingAvailableBytes(context: android.content.Context): Long {
+    val dir = File(context.getExternalFilesDir(null), "Recordings").apply { mkdirs() }
+    return runCatching { StatFs(dir.absolutePath).availableBytes }.getOrDefault(0L)
+}
+
+private fun computeEffectiveLocalBudgetBytes(
+    capMB: Int,
+    usedBytes: Long,
+    availableBytes: Long,
+    reserveFreeMB: Int,
+): Long {
+    val capBytes = capMB.coerceAtLeast(0).toLong() * 1024L * 1024L
+    val reserveBytes = reserveFreeMB.coerceAtLeast(0).toLong() * 1024L * 1024L
+    val capRemaining = (capBytes - usedBytes).coerceAtLeast(0L)
+    val freeRemaining = (availableBytes - reserveBytes).coerceAtLeast(0L)
+    return minOf(capRemaining, freeRemaining)
+}
+
 private val ROLL_OPTIONS: List<Int> = listOf(0, 5, 10, 15, 30, 60)
+private val RESERVE_OPTIONS_MB: List<Int> = listOf(100, 200, 500, 1024, 2048)
 
 /**
  * Render a SAF tree URI as a human-readable label by extracting the

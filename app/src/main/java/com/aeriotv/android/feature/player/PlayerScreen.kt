@@ -4,14 +4,18 @@ import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
 import com.aeriotv.android.BuildConfig
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -20,12 +24,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.EPGProgramme
@@ -36,6 +43,7 @@ import com.aeriotv.android.core.pip.PipState
 import com.aeriotv.android.feature.livetv.RecordProgramSheet
 import com.aeriotv.android.feature.miniplayer.MiniPlayerViewModel
 import com.aeriotv.android.feature.multiview.AddToMultiviewSheet
+import com.aeriotv.android.feature.multiview.rememberMultiviewStoreHandle
 import com.aeriotv.android.feature.playlist.nowPlaying
 import com.aeriotv.android.feature.settings.SettingsViewModel
 import dagger.hilt.android.EntryPointAccessors
@@ -45,6 +53,7 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.delay
 import java.net.UnknownHostException
 import kotlin.math.abs
+import androidx.media3.common.Player
 
 private const val TAG = "PlayerScreen"
 private const val AUTO_HIDE_MS = 4_000L
@@ -80,7 +89,10 @@ fun PlayerScreen(
     val settingsVm: SettingsViewModel = hiltViewModel()
     val miniPlayerEnabled by settingsVm.guideMiniPlayerEnabled.collectAsStateWithLifecycle(initialValue = true)
     val miniPlayerVm: MiniPlayerViewModel = hiltViewModel()
+    val multiviewStore = rememberMultiviewStoreHandle()
     val appleTVChannelFlip by settingsVm.appleTVChannelFlip.collectAsStateWithLifecycle(initialValue = true)
+    val freezeDetectionEnabled by settingsVm.freezeDetectionEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val freezeDetectionSeconds by settingsVm.freezeDetectionSeconds.collectAsStateWithLifecycle(initialValue = 15)
     val streamBufferSize by settingsVm.streamBufferSize.collectAsStateWithLifecycle(initialValue = "default")
     val playerEntry = remember {
         EntryPointAccessors.fromApplication(
@@ -255,6 +267,8 @@ fun PlayerScreen(
     var playbackSpeedSheet by remember { mutableStateOf<Float?>(null) }
     var multiviewPickerOpen by remember { mutableStateOf(false) }
     var lastShownPlaybackWarning by remember { mutableStateOf<String?>(null) }
+    var freezeBannerMessage by remember { mutableStateOf<String?>(null) }
+    var freezeBannerToken by remember { mutableIntStateOf(0) }
 
     // Sleep timer: stores the wall-clock millis at which the player should close.
     var sleepEndsAt by remember { mutableStateOf<Long?>(null) }
@@ -262,6 +276,7 @@ fun PlayerScreen(
 
     LaunchedEffect(currentChannel?.id) {
         lastShownPlaybackWarning = null
+        freezeBannerMessage = null
     }
 
     LaunchedEffect(exoHolder.player, currentChannel?.id) {
@@ -275,6 +290,69 @@ fun PlayerScreen(
                 }
             }
             delay(500L)
+        }
+    }
+
+    val latestChannel by rememberUpdatedState(currentChannel)
+    val latestProgrammeTitle by rememberUpdatedState(nowProgramme?.title.orEmpty())
+    val latestArtworkUri by rememberUpdatedState(
+        currentChannel?.tvgLogo
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() },
+    )
+    LaunchedEffect(
+        exoHolder.player,
+        currentChannel?.id,
+        freezeDetectionEnabled,
+        freezeDetectionSeconds,
+        isLive,
+        audioOnly,
+    ) {
+        if (!isLive || audioOnly || !freezeDetectionEnabled || freezeDetectionSeconds <= 0) return@LaunchedEffect
+        val frozenThresholdMs = freezeDetectionSeconds * 1000L
+        var lastObservedPosition = -1L
+        var lastProgressAt = SystemClock.elapsedRealtime()
+        var lastRestartAt = 0L
+        while (true) {
+            val player = exoHolder.player ?: break
+            val channel = latestChannel ?: break
+            val position = player.currentPosition
+            val now = SystemClock.elapsedRealtime()
+            val playing = player.playWhenReady && player.playbackState == Player.STATE_READY && player.isPlaying
+
+            if (!playing) {
+                lastObservedPosition = position
+                lastProgressAt = now
+            } else {
+                if (lastObservedPosition < 0L || abs(position - lastObservedPosition) > 500L) {
+                    lastObservedPosition = position
+                    lastProgressAt = now
+                } else if (now - lastProgressAt >= frozenThresholdMs && now - lastRestartAt >= frozenThresholdMs) {
+                    Log.w(
+                        TAG,
+                        "Freeze watchdog restarting live stream for ${channel.name} after ${freezeDetectionSeconds}s without progress",
+                    )
+                    freezeBannerMessage = "${channel.name} froze for ${freezeDetectionSeconds}s, restarting..."
+                    freezeBannerToken++
+                    exoHolder.playUrl(
+                        url = channel.url,
+                        title = channel.name,
+                        subtitle = latestProgrammeTitle,
+                        artworkUri = latestArtworkUri,
+                    )
+                    lastRestartAt = now
+                    lastObservedPosition = -1L
+                    lastProgressAt = now
+                }
+            }
+            delay(1_000L)
+        }
+    }
+
+    LaunchedEffect(freezeBannerToken) {
+        if (freezeBannerMessage != null) {
+            delay(3_000L)
+            freezeBannerMessage = null
         }
     }
 
@@ -399,7 +477,14 @@ fun PlayerScreen(
                     .stop(context)
                 onClose()
             },
-            onAddToMultiview = { multiviewPickerOpen = true },
+            onAddToMultiview = {
+                currentChannel?.let { ch ->
+                    if (ch.url.isNotBlank()) {
+                        multiviewStore.ensureSelected(ch)
+                    }
+                }
+                multiviewPickerOpen = true
+            },
             onShowRecord = { target -> recordTarget = target },
             onShowStreamInfo = {
                 streamInfo = exoHolder.player?.captureStreamInfo() ?: StreamInfoSnapshot(
@@ -452,6 +537,25 @@ fun PlayerScreen(
             },
             sleepRemainingMillis = sleepRemainingMillis,
         )
+
+        freezeBannerMessage?.let { message ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 20.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(999.dp),
+                    )
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
     }
 
     // Auto-hide chrome after AUTO_HIDE_MS of inactivity. Phase 172:

@@ -30,13 +30,13 @@ import com.aeriotv.android.core.data.SourceType
 import com.aeriotv.android.core.pip.findActivity
 import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.feature.main.MainScaffold
+import com.aeriotv.android.feature.main.MainScaffoldEntryPoint
 import com.aeriotv.android.feature.onboarding.ChooseSourceTypeScreen
 import com.aeriotv.android.feature.onboarding.ConfigureSourceScreen
 import com.aeriotv.android.feature.onboarding.WelcomeScreen
 import com.aeriotv.android.feature.multiview.MultiviewScreen
 import com.aeriotv.android.feature.ondemand.OnDemandViewModel
 import com.aeriotv.android.feature.ondemand.SeriesDetailScreen
-import com.aeriotv.android.feature.main.MainScaffoldEntryPoint
 import com.aeriotv.android.feature.miniplayer.MiniPlayerSession
 import com.aeriotv.android.feature.miniplayer.MiniPlayerViewModel
 import com.aeriotv.android.feature.miniplayer.TvMiniPlayerOverlay
@@ -96,6 +96,13 @@ fun AerioTVNavHost(
     onDeepLinkConsumed: () -> Unit = {},
 ) {
     val navController = rememberNavController()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val exoHandOff = remember(context) {
+        dagger.hilt.android.EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            MainScaffoldEntryPoint::class.java,
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
     NavHost(navController = navController, startDestination = Routes.PLAYLIST_GRAPH) {
@@ -404,6 +411,8 @@ fun AerioTVNavHost(
                         navController.navigate(Routes.recordingPlayer(playbackUrl, title))
                     },
                     onLaunchMultiview = {
+                        exoHandOff.exoWindowState().hide()
+                        exoHandOff.exoPlayerHolder().stop()
                         navController.navigate(Routes.MULTIVIEW)
                     },
                     onWatchLive = { dispatcharrChannelId ->
@@ -456,6 +465,8 @@ fun AerioTVNavHost(
                     epgByChannel = state.epgByChannel,
                     onClose = { navController.popBackStack() },
                     onLaunchMultiview = {
+                        exoHandOff.exoWindowState().hide()
+                        exoHandOff.exoPlayerHolder().stop()
                         navController.navigate(Routes.MULTIVIEW)
                     },
                 )

@@ -112,6 +112,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { prefs.setPlaybackSkipSeconds(value) }
     }
 
+    val freezeDetectionEnabled: Flow<Boolean> = prefs.freezeDetectionEnabled
+    fun setFreezeDetectionEnabled(value: Boolean) {
+        viewModelScope.launch { prefs.setFreezeDetectionEnabled(value) }
+    }
+
+    val freezeDetectionSeconds: Flow<Int> = prefs.freezeDetectionSeconds
+    fun setFreezeDetectionSeconds(value: Int) {
+        viewModelScope.launch { prefs.setFreezeDetectionSeconds(value) }
+    }
+
     // Developer
     val debugLoggingEnabled: Flow<Boolean> = prefs.debugLoggingEnabled
     fun setDebugLoggingEnabled(value: Boolean) {
@@ -195,6 +205,11 @@ class SettingsViewModel @Inject constructor(
     val dvrMaxLocalStorageMB: Flow<Int> = prefs.dvrMaxLocalStorageMB
     fun setDvrMaxLocalStorageMB(value: Int) {
         viewModelScope.launch { prefs.setDvrMaxLocalStorageMB(value) }
+    }
+
+    val dvrReserveFreeSpaceMB: Flow<Int> = prefs.dvrReserveFreeSpaceMB
+    fun setDvrReserveFreeSpaceMB(value: Int) {
+        viewModelScope.launch { prefs.setDvrReserveFreeSpaceMB(value) }
     }
 
     val dvrDefaultPreRollMins: Flow<Int> = prefs.dvrDefaultPreRollMins

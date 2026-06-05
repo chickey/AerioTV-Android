@@ -15,6 +15,9 @@ interface LocalRecordingDao {
     @Query("SELECT * FROM local_recording ORDER BY startedAt DESC")
     fun observeAll(): Flow<List<LocalRecordingEntity>>
 
+    @Query("SELECT * FROM local_recording ORDER BY startedAt DESC")
+    suspend fun allOnce(): List<LocalRecordingEntity>
+
     @Query("DELETE FROM local_recording WHERE id = :id")
     suspend fun delete(id: Long)
 }

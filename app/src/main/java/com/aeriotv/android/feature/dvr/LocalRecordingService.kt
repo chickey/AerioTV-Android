@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.net.Uri
+import android.os.StatFs
 import androidx.core.app.NotificationCompat
 import androidx.documentfile.provider.DocumentFile
 import com.aeriotv.android.MainActivity
@@ -129,6 +130,26 @@ class LocalRecordingService : Service() {
             val safeTitle = title.replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
             val fileName = "$ts-$safeTitle.ts"
 
+            val capBytes = runCatching { appPreferences.dvrMaxLocalStorageOnce() }
+                .getOrDefault(10_240) * 1024L * 1024L
+            val reserveBytes = runCatching { appPreferences.dvrReserveFreeSpaceOnce() }
+                .getOrDefault(200) * 1024L * 1024L
+            val usedBytesAtStart = runCatching {
+                localRecordingDao.allOnce().sumOf { it.byteSize }
+            }.getOrDefault(0L)
+            if (remainingLocalBudgetBytes(
+                    usedBytes = usedBytesAtStart,
+                    bytesWritten = 0L,
+                    capBytes = capBytes,
+                    reserveBytes = reserveBytes,
+                ) <= 0L
+            ) {
+                Log.w(TAG, "Recording aborted - no usable local storage budget remaining")
+                releaseWakeLock()
+                stopSelf()
+                return@launch
+            }
+
             val customUri = runCatching { appPreferences.dvrCustomFolderUriOnce() }.getOrDefault("")
             val sink: RecordingSink = openSink(customUri, fileName)
                 ?: run {
@@ -136,6 +157,7 @@ class LocalRecordingService : Service() {
                     openSink("", fileName)
                 } ?: run {
                     Log.w(TAG, "App default folder unwritable - aborting")
+                    releaseWakeLock()
                     stopSelf()
                     return@launch
                 }
@@ -159,10 +181,26 @@ class LocalRecordingService : Service() {
                         sink.output.use { output ->
                             val buffer = ByteArray(64 * 1024)
                             while (isActive && System.currentTimeMillis() < deadline) {
+                                val budgetRemaining = remainingLocalBudgetBytes(
+                                    usedBytes = usedBytesAtStart,
+                                    bytesWritten = bytesWritten,
+                                    capBytes = capBytes,
+                                    reserveBytes = reserveBytes,
+                                )
+                                if (budgetRemaining <= 0L) {
+                                    Log.w(TAG, "Local recording stopped to preserve DVR cap/reserve")
+                                    break
+                                }
                                 val read = input.read(buffer)
                                 if (read <= 0) break
-                                output.write(buffer, 0, read)
-                                bytesWritten += read
+                                val writeLen = minOf(read.toLong(), budgetRemaining).toInt()
+                                if (writeLen <= 0) break
+                                output.write(buffer, 0, writeLen)
+                                bytesWritten += writeLen
+                                if (writeLen < read) {
+                                    Log.w(TAG, "Local recording stopped after reaching storage budget")
+                                    break
+                                }
                             }
                             output.flush()
                         }
@@ -288,6 +326,23 @@ class LocalRecordingService : Service() {
                 resolveBytes = { runCatching { doc.length().takeIf { it > 0 } }.getOrNull() },
             )
         }.getOrNull()
+    }
+
+    private fun remainingLocalBudgetBytes(
+        usedBytes: Long,
+        bytesWritten: Long,
+        capBytes: Long,
+        reserveBytes: Long,
+    ): Long {
+        val availableBytes = recordingVolumeAvailableBytes()
+        val capRemaining = (capBytes - usedBytes - bytesWritten).coerceAtLeast(0L)
+        val freeRemaining = (availableBytes - reserveBytes).coerceAtLeast(0L)
+        return minOf(capRemaining, freeRemaining)
+    }
+
+    private fun recordingVolumeAvailableBytes(): Long {
+        val dir = File(getExternalFilesDir(null), "Recordings").apply { mkdirs() }
+        return runCatching { StatFs(dir.absolutePath).availableBytes }.getOrDefault(0L)
     }
 
     override fun onDestroy() {

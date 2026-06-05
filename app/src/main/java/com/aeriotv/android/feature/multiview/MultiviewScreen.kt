@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -516,6 +517,17 @@ private fun Tile(
     //   grayPersistent: muted gray border always around the active tile
     //   themeFading: cyan border that auto-hides after 5s of inactivity
     val showCenterIcon = isAudioFocused && audioFocusStyle == "centerIcon" && chromeVisible
+    val showDpadFocusRing = dpadFocused && chromeVisible
+    val audioBorderAlpha by animateFloatAsState(
+        targetValue = when {
+            !isAudioFocused -> 0f
+            audioFocusStyle == "centerIcon" -> 0f
+            chromeVisible -> 1f
+            audioFocusStyle == "themeFading" && !focusFadedOut -> 1f
+            else -> 0f
+        },
+        label = "audioBorderAlpha",
+    )
     // Border priority: transient drag states first, then the D-pad focus
     // ring (bright, always visible while navigating), then the audio-focus
     // border styles, then the resting hairline. The D-pad ring deliberately
@@ -524,19 +536,19 @@ private fun Tile(
     val borderColor = when {
         isDropTarget -> MaterialTheme.colorScheme.tertiary
         isRelocating -> MaterialTheme.colorScheme.primary
-        dpadFocused -> Color.White
+        showDpadFocusRing -> Color.White
         isAudioFocused && audioFocusStyle == "grayPersistent" ->
-            Color.White.copy(alpha = 0.5f)
-        isAudioFocused && audioFocusStyle == "themeFading" && !focusFadedOut ->
-            MaterialTheme.colorScheme.primary
+            Color.White.copy(alpha = 0.5f * audioBorderAlpha)
+        isAudioFocused && audioFocusStyle == "themeFading" ->
+            MaterialTheme.colorScheme.primary.copy(alpha = audioBorderAlpha)
         else -> Color.White.copy(alpha = 0.08f)
     }
     val borderWidth = when {
         isDropTarget -> 4.dp
-        dpadFocused -> 4.dp
+        showDpadFocusRing -> 4.dp
         isRelocating -> 3.dp
         isAudioFocused && (audioFocusStyle == "grayPersistent" ||
-                (audioFocusStyle == "themeFading" && !focusFadedOut)) -> 2.dp
+                audioFocusStyle == "themeFading") -> 2.dp * audioBorderAlpha
         else -> 1.dp
     }
     Box(
@@ -703,6 +715,7 @@ private fun ExoTile(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
+                keepScreenOn = true
                 useController = false
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT

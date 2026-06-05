@@ -41,8 +41,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -64,6 +73,7 @@ fun NetworkSettingsScreen(
     val backgroundRefreshEnabled by viewModel.backgroundRefreshEnabled
         .collectAsStateWithLifecycle(initialValue = true)
     val homeSsids by viewModel.homeSsids.collectAsStateWithLifecycle(initialValue = emptySet<String>())
+    val focusManager = LocalFocusManager.current
 
     Column(modifier = Modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
@@ -146,6 +156,7 @@ private fun ConnectionSection(
     onTimeoutChange: (Double) -> Unit,
     onMaxRetriesChange: (Int) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     SettingsCard(header = "Connection", footer = "Adjust timeouts if you have a slow or unstable connection.") {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
@@ -171,6 +182,9 @@ private fun ConnectionSection(
                 onValueChange = { onTimeoutChange(it.toDouble()) },
                 valueRange = 5f..60f,
                 steps = 10, // 5..60 step 5 -> 11 marks -> 10 intermediate steps
+                modifier = Modifier.onPreviewKeyEvent { event ->
+                    routeVerticalKeysToFocus(event, focusManager)
+                },
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
                     activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -217,6 +231,24 @@ private fun ConnectionSection(
                 Icon(Icons.Filled.Add, contentDescription = "Increase")
             }
         }
+    }
+}
+
+private fun routeVerticalKeysToFocus(
+    event: KeyEvent,
+    focusManager: FocusManager,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    return when (event.key) {
+        Key.DirectionUp -> {
+            focusManager.moveFocus(FocusDirection.Up)
+            true
+        }
+        Key.DirectionDown -> {
+            focusManager.moveFocus(FocusDirection.Down)
+            true
+        }
+        else -> false
     }
 }
 

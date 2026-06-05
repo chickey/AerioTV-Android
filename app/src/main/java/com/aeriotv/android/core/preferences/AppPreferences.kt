@@ -209,6 +209,37 @@ class AppPreferences @Inject constructor(
     }
 
     /**
+     * Minimum free space to keep available on the recording storage volume so
+     * long local recordings don't exhaust the device. Default 200 MB.
+     */
+    val dvrReserveFreeSpaceMB: Flow<Int> =
+        store.data.map { it[KEY_DVR_RESERVE_FREE_SPACE_MB] ?: 200 }
+    suspend fun setDvrReserveFreeSpaceMB(value: Int) {
+        store.edit { it[KEY_DVR_RESERVE_FREE_SPACE_MB] = value.coerceAtLeast(0) }
+    }
+
+    /**
+     * Optional live-stream freeze watchdog. When enabled, PlayerScreen watches
+     * the active live stream for a stalled video timeline and can restart it
+     * automatically after [freezeDetectionSeconds].
+     */
+    val freezeDetectionEnabled: Flow<Boolean> =
+        store.data.map { it[KEY_FREEZE_DETECTION_ENABLED] ?: false }
+    suspend fun setFreezeDetectionEnabled(value: Boolean) {
+        store.edit { it[KEY_FREEZE_DETECTION_ENABLED] = value }
+    }
+
+    /**
+     * How long the live stream must appear frozen before the watchdog restarts
+     * it. Stored in seconds to keep the settings surface simple.
+     */
+    val freezeDetectionSeconds: Flow<Int> =
+        store.data.map { it[KEY_FREEZE_DETECTION_SECONDS] ?: 15 }
+    suspend fun setFreezeDetectionSeconds(value: Int) {
+        store.edit { it[KEY_FREEZE_DETECTION_SECONDS] = value }
+    }
+
+    /**
      * iOS `debugLoggingEnabled` parity (DeveloperSettingsView line 14). The
      * Settings -> Developer screen flips this on/off; the DebugLogger
      * singleton reads it on startup and on every change to know whether to
@@ -570,6 +601,8 @@ class AppPreferences @Inject constructor(
         data[KEY_SKIP_LOADING_SCREEN]?.let { out["skipLoadingScreen"] = it.toString() }
         data[KEY_APPLE_TV_CHANNEL_FLIP]?.let { out["appleTVChannelFlip"] = it.toString() }
         data[KEY_PLAYBACK_SKIP_SECONDS]?.let { out["playbackSkipSeconds"] = it.toString() }
+        data[KEY_FREEZE_DETECTION_ENABLED]?.let { out["freezeDetectionEnabled"] = it.toString() }
+        data[KEY_FREEZE_DETECTION_SECONDS]?.let { out["freezeDetectionSeconds"] = it.toString() }
         data[KEY_AUTO_RESUME_LAST_CHANNEL]?.let { out["autoResumeLastChannel"] = it.toString() }
         data[KEY_GUIDE_SHOW_CHANNEL_NAME]?.let { out["guideShowChannelName"] = it.toString() }
         data[KEY_GUIDE_SHOW_CHANNEL_NUMBER]?.let { out["guideShowChannelNumber"] = it.toString() }
@@ -606,6 +639,12 @@ class AppPreferences @Inject constructor(
             keys["skipLoadingScreen"]?.toBooleanStrictOrNull()?.let { prefs[KEY_SKIP_LOADING_SCREEN] = it }
             keys["appleTVChannelFlip"]?.toBooleanStrictOrNull()?.let { prefs[KEY_APPLE_TV_CHANNEL_FLIP] = it }
             keys["playbackSkipSeconds"]?.toIntOrNull()?.let { prefs[KEY_PLAYBACK_SKIP_SECONDS] = it }
+            keys["freezeDetectionEnabled"]?.toBooleanStrictOrNull()?.let {
+                prefs[KEY_FREEZE_DETECTION_ENABLED] = it
+            }
+            keys["freezeDetectionSeconds"]?.toIntOrNull()?.let {
+                prefs[KEY_FREEZE_DETECTION_SECONDS] = it.coerceAtLeast(1)
+            }
             keys["autoResumeLastChannel"]?.toBooleanStrictOrNull()?.let { prefs[KEY_AUTO_RESUME_LAST_CHANNEL] = it }
             keys["guideShowChannelName"]?.toBooleanStrictOrNull()?.let { prefs[KEY_GUIDE_SHOW_CHANNEL_NAME] = it }
             keys["guideShowChannelNumber"]?.toBooleanStrictOrNull()?.let { prefs[KEY_GUIDE_SHOW_CHANNEL_NUMBER] = it }
@@ -651,6 +690,12 @@ class AppPreferences @Inject constructor(
     suspend fun setDvrMaxLocalStorageMB(value: Int) {
         store.edit { it[KEY_DVR_MAX_LOCAL_STORAGE_MB] = value }
     }
+    suspend fun dvrMaxLocalStorageOnce(): Int =
+        store.data.first()[KEY_DVR_MAX_LOCAL_STORAGE_MB] ?: 10_240
+
+    /** Free-space floor in MB, used by the DVR start check and the service. */
+    suspend fun dvrReserveFreeSpaceOnce(): Int =
+        store.data.first()[KEY_DVR_RESERVE_FREE_SPACE_MB] ?: 200
 
     /** iOS `dvrDefaultPreRollMins` parity. */
     val dvrDefaultPreRollMins: Flow<Int> = store.data.map { it[KEY_DVR_DEFAULT_PRE_ROLL] ?: 0 }
@@ -709,6 +754,8 @@ class AppPreferences @Inject constructor(
         val KEY_DEBUG_LOGGING_ENABLED = booleanPreferencesKey("debug_logging_enabled")
         val KEY_APPLE_TV_CHANNEL_FLIP = booleanPreferencesKey("app_behaviors_apple_tv_channel_flip")
         val KEY_PLAYBACK_SKIP_SECONDS = intPreferencesKey("app_behaviors_playback_skip_seconds")
+        val KEY_FREEZE_DETECTION_ENABLED = booleanPreferencesKey("app_behaviors_freeze_detection_enabled")
+        val KEY_FREEZE_DETECTION_SECONDS = intPreferencesKey("app_behaviors_freeze_detection_seconds")
         val KEY_AUTO_RESUME_LAST_CHANNEL = booleanPreferencesKey("app_behaviors_auto_resume_last_channel")
         val KEY_LAST_WATCHED_CHANNEL_ID = stringPreferencesKey("last_watched_channel_id")
         val KEY_LAST_SEEN_WHATSNEW_VERSION = stringPreferencesKey("last_seen_whatsnew_version")
@@ -738,6 +785,7 @@ class AppPreferences @Inject constructor(
         val KEY_DVR_DEFAULT_POST_ROLL = intPreferencesKey("dvr_default_post_roll_mins")
         val KEY_DVR_CUSTOM_FOLDER_URI = stringPreferencesKey("dvr_custom_folder_uri")
         val KEY_DVR_KEEP_AWAKE = booleanPreferencesKey("dvr_keep_awake_during_recording")
+        val KEY_DVR_RESERVE_FREE_SPACE_MB = intPreferencesKey("dvr_reserve_free_space_mb")
         val KEY_CATEGORY_MASTER_ENABLE = booleanPreferencesKey(CategoryPaletteState.MASTER_ENABLED_KEY)
         val KEY_CATEGORY_CUSTOM_JSON = stringPreferencesKey(CategoryPaletteState.CUSTOM_KEY)
         val KEY_SYNC_MASTER = booleanPreferencesKey("sync_master_enabled")

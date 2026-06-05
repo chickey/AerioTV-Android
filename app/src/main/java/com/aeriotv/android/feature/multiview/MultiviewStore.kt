@@ -32,6 +32,31 @@ class MultiviewStore @Inject constructor() {
     fun isSelected(channel: M3UChannel): Boolean =
         _selected.value.any { it.id == channel.id }
 
+    /**
+     * Ensure [channel] is present in the multiview set, promoting it to the
+     * front if it was not already selected. This is used when entering the
+     * "add to multiview" flow from fullscreen playback so the current live
+     * channel becomes the primary tile instead of being omitted entirely.
+     */
+    fun ensureSelected(channel: M3UChannel) {
+        val current = _selected.value
+        val existingIndex = current.indexOfFirst { it.id == channel.id }
+        when {
+            existingIndex == 0 -> return
+            existingIndex > 0 -> {
+                val mutable = current.toMutableList()
+                mutable.removeAt(existingIndex)
+                mutable.add(0, channel)
+                _selected.value = mutable
+                _audioFocusedIndex.value = 0
+            }
+            current.size < maxTiles -> {
+                _selected.value = listOf(channel) + current
+                _audioFocusedIndex.value = 0
+            }
+        }
+    }
+
     fun toggle(channel: M3UChannel) {
         val current = _selected.value
         val existing = current.firstOrNull { it.id == channel.id }
