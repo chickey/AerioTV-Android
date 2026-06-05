@@ -231,6 +231,31 @@ Result on GitHub Releases:
 - Release title/tag: `v0.1.2-fire`
 - Asset filename: `AerioTV-FireTV.apk`
 
+### Stable "latest APK" permalink
+
+Because every Fire release reuses the asset name `AerioTV-FireTV.apk` and is
+marked as the repo's "Latest" release, this URL always serves the newest APK:
+
+```text
+https://github.com/chickey/AerioTV-Android/releases/latest/download/AerioTV-FireTV.apk
+```
+
+Note: plugin releases must be published with `--latest=false` (the
+`publish-plugin.sh` script does this) so they never steal the "Latest" pointer
+from the Fire app and break this permalink.
+
+### aftv.news sideload shortcode (Downloader app)
+
+The APK is distributed to Fire TV devices via the Amazon **Downloader** app using
+an [aftv.news](https://aftv.news) short link, which points at the permalink above.
+
+- Shortcode: `1522736`
+- Short URL: http://aftv.news/1522736
+
+To install on a Fire TV: open the Downloader app, enter the shortcode `1522736`
+(or the full short URL), then install the downloaded APK. Re-running the same
+shortcode later fetches whatever is currently the latest Fire release.
+
 ## Troubleshooting
 
 If licenses fail during build, run:
