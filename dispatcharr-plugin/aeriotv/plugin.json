@@ -1,6 +1,6 @@
 {
   "name": "AerioTV Pairing",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Pairs AerioTV Fire TV clients with Dispatcharr and serves the AerioTV sync document. Use the link below to open the pairing page. Docs: https://github.com/chickey/AerioTV-Android",
   "author": "AerioTV",
   "help_url": "/api/plugins/aeriotv/admin",
@@ -16,7 +16,7 @@
       "label": "Pairing page",
       "type": "string",
       "default": "/api/plugins/aeriotv/admin",
-      "help_text": "Open the pairing page (same host/port as Dispatcharr): [Pairing page](/api/plugins/aeriotv/admin) — or the 'docs' link above. Run 'Open pairing admin page' below if you need a token link."
+      "help_text": "Open the pairing page (same host/port as Dispatcharr): [Pairing page](/api/plugins/aeriotv/admin) \u2014 or the 'docs' link above. Run 'Open pairing admin page' below if you need a token link."
     },
     {
       "id": "server_base_url",

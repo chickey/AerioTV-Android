@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-PLUGIN_VERSION = "0.5.0"
+PLUGIN_VERSION = "0.5.1"
 ADMIN_TOKEN_TTL_SECONDS = 30 * 24 * 3600
 # Bumped when the pairing/sync wire contract changes. AerioTV checks this so it
 # can warn about an incompatible plugin instead of failing opaquely.
@@ -297,12 +297,16 @@ class Plugin:
             code = str(settings.get("approval_code") or params.get("code") or "").strip()
             if not code:
                 return {"status": "error", "message": "Enter the AerioTV pairing code in plugin settings first."}
+            # Priority: explicit settings key → admin's DB API key → placeholder.
+            api_key = str(settings.get("api_key_for_testing") or "").strip()
+            if not api_key:
+                api_key = _admin_api_key_from_db() or ""
             result = approve_code(
                 state,
                 code,
                 profile_id=_safe_int(settings.get("profile_id"), default=1),
                 server_base_url=str(settings.get("server_base_url") or "").strip() or None,
-                api_key=str(settings.get("api_key_for_testing") or "").strip(),
+                api_key=api_key,
             )
             if result.get("status") == "ok" and logger:
                 logger.info("Approved AerioTV pairing for %s", result.get("deviceName"))
@@ -738,6 +742,31 @@ def _user_api_key(user) -> str | None:
         user.api_key = key
         user.save(update_fields=["api_key"])
         return key
+    except Exception:
+        return None
+
+
+def _admin_api_key_from_db() -> str | None:
+    """Fetch a real Dispatcharr API key when no request/JWT is available.
+
+    Used by the plugin action path (approve_pairing button in plugin settings),
+    which has no HTTP request context. Queries the User model directly for any
+    staff user with an API key, minting one if none exist yet.
+    """
+    try:
+        from apps.accounts.models import User
+        user = (
+            User.objects.filter(is_staff=True)
+            .exclude(api_key__isnull=True)
+            .exclude(api_key="")
+            .first()
+        )
+        if user is None:
+            # No admin has a key yet — mint one for the first staff user.
+            user = User.objects.filter(is_staff=True).first()
+        if user is None:
+            return None
+        return _user_api_key(user)
     except Exception:
         return None
 
