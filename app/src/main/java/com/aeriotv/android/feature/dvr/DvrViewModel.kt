@@ -370,13 +370,19 @@ private fun DispatcharrRecording.toRecording(
 ): DvrViewModel.Recording {
     val start = parseIsoMillis(startTime) ?: 0L
     val end = parseIsoMillis(endTime) ?: start
-    val status = when (this.status?.lowercase()) {
-        "scheduled" -> DvrViewModel.Recording.Status.Scheduled
+    val now = System.currentTimeMillis()
+    val status = when (this.status?.lowercase()?.trim()) {
+        "scheduled", "pending", "queued", "waiting" -> DvrViewModel.Recording.Status.Scheduled
         "recording", "in_progress" -> DvrViewModel.Recording.Status.Recording
-        "completed" -> DvrViewModel.Recording.Status.Completed
+        "completed", "complete" -> DvrViewModel.Recording.Status.Completed
         "stopped" -> DvrViewModel.Recording.Status.Stopped
         "failed", "error" -> DvrViewModel.Recording.Status.Failed
-        else -> DvrViewModel.Recording.Status.Unknown
+        else -> when {
+            start > now -> DvrViewModel.Recording.Status.Scheduled
+            end > now -> DvrViewModel.Recording.Status.Recording
+            filePath != null || fileName != null || fileSize != null -> DvrViewModel.Recording.Status.Completed
+            else -> DvrViewModel.Recording.Status.Unknown
+        }
     }
     val playback = if (
         status == DvrViewModel.Recording.Status.Completed ||

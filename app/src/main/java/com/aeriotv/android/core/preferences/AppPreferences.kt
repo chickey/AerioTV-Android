@@ -163,6 +163,17 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_GUIDE_MINI_PLAYER_POSITION] = safe }
     }
 
+    /** Last selected Live TV / Guide group filter. Local-only UI state. */
+    val liveTvSelectedGroup: Flow<String> = store.data.map { it[KEY_LIVE_TV_SELECTED_GROUP] ?: "All" }
+    suspend fun liveTvSelectedGroupOnce(): String =
+        store.data.first()[KEY_LIVE_TV_SELECTED_GROUP] ?: "All"
+    suspend fun setLiveTvSelectedGroup(value: String) {
+        store.edit { prefs ->
+            if (value.isBlank() || value == "All") prefs.remove(KEY_LIVE_TV_SELECTED_GROUP)
+            else prefs[KEY_LIVE_TV_SELECTED_GROUP] = value
+        }
+    }
+
     /**
      * Either "list" or "guide", or empty for "follow form-factor default".
      * Mirrors iOS `@AppStorage("defaultLiveTVView")`. Phase 5 used
@@ -791,6 +802,7 @@ class AppPreferences @Inject constructor(
         val KEY_GUIDE_SHOW_DETAILS_PANEL = booleanPreferencesKey("guide_show_details_panel")
         val KEY_GUIDE_MINI_PLAYER_ENABLED = booleanPreferencesKey("guide_mini_player_enabled")
         val KEY_GUIDE_MINI_PLAYER_POSITION = stringPreferencesKey("guide_mini_player_position")
+        val KEY_LIVE_TV_SELECTED_GROUP = stringPreferencesKey("live_tv_selected_group")
         val KEY_DEFAULT_TAB = stringPreferencesKey("default_tab")
         val KEY_NETWORK_TIMEOUT = doublePreferencesKey("network_timeout_secs")
         val KEY_MAX_RETRIES = intPreferencesKey("max_retries")

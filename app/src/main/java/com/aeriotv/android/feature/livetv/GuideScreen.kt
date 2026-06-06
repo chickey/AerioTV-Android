@@ -146,6 +146,7 @@ fun GuideScreen(
     viewModel: PlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val topNavRequester = LocalTvTopNavFocusRequester.current
     val focusTopNavTab = LocalTvTopNavFocusTab.current
     val requesterForTab = LocalTvTopNavRequesterForTab.current
@@ -362,74 +363,49 @@ fun GuideScreen(
         guideAreaHasFocus = false
     }
 
-    Column(modifier = modifier.fillMaxSize().statusBarsPadding()) {
-        // Audit task #22: multiview staging banner. Visible only when at
-        // least one channel has been added to Multiview. Tapping the Play
-        // button launches the dedicated Multiview screen; tapping the chip
-        // body itself does the same so D-pad-focused users on TV can press
-        // OK from any column of the row.
-        if (stagedMultiview.isNotEmpty()) {
-            val labelCount = stagedMultiview.size
-            val label = "$labelCount Multiview channel${if (labelCount == 1) "" else "s"} staged"
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                    .clickable(onClick = onLaunchMultiview)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.ViewList,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.size(10.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onLaunchMultiview) {
-                    Text(
-                        text = "Play Multiview",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
+    Box(modifier = modifier.fillMaxSize().statusBarsPadding()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Audit task #22: multiview staging banner. Visible only when at
+            // least one channel has been added to Multiview. Tapping the Play
+            // button launches the dedicated Multiview screen; tapping the chip
+            // body itself does the same so D-pad-focused users on TV can press
+            // OK from any column of the row.
+            if (stagedMultiview.isNotEmpty()) {
+                val labelCount = stagedMultiview.size
+                val label = "$labelCount Multiview channel${if (labelCount == 1) "" else "s"} staged"
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                        .clickable(onClick = onLaunchMultiview)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ViewList,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
                     )
+                    Spacer(Modifier.size(10.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onLaunchMultiview) {
+                        Text(
+                            text = "Play Multiview",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
-        }
-        val epgStatusMessage = state.epgStatusMessage
-        if (!epgStatusMessage.isNullOrBlank()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 6.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.AccessTime,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = epgStatusMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        }
         // Jump-to-now scroller. Coroutine-driven so animateScrollTo can
         // suspend; matches iOS EPGGuideView's "scroll back to now" button
         // which snaps the time axis so the now-indicator sits ~1/4 of the
@@ -713,10 +689,18 @@ fun GuideScreen(
                     remindersVm = remindersVm,
                     onChannelClick = { onChannelClick(channel) },
                     onProgrammeClick = { programme ->
-                        programInfoTarget = programme.toInfoTarget(channel.name, channel.dispatcharrChannelId)
+                        programInfoTarget = programme.toInfoTarget(
+                            channelName = channel.name,
+                            channelDispatcharrId = channel.dispatcharrChannelId,
+                            channelId = channel.id,
+                        )
                     },
                     onProgrammeRecord = { programme ->
-                        recordTarget = programme.toInfoTarget(channel.name, channel.dispatcharrChannelId)
+                        recordTarget = programme.toInfoTarget(
+                            channelName = channel.name,
+                            channelDispatcharrId = channel.dispatcharrChannelId,
+                            channelId = channel.id,
+                        )
                     },
                     isFavorite = channel.id in favoriteIds,
                     onToggleFavorite = { favoritesVm.toggle(channel) },
@@ -729,6 +713,42 @@ fun GuideScreen(
                     pendingFocusTarget = pendingFocusTarget,
                     onConsumePendingFocusTarget = { token ->
                         if (pendingFocusTarget?.token == token) pendingFocusTarget = null
+                    },
+                    onRequestHorizontalMove = { fromChannelId, programme, direction ->
+                        val targetChannel = filteredChannels.firstOrNull { it.id == fromChannelId }
+                            ?: return@ChannelGuideRow false
+                        val targetProgrammes = state.epgByChannel.programmesFor(targetChannel)
+                            .sortedBy { it.startMillis }
+                        val currentIndex = targetProgrammes.indexOfFirst {
+                            it.startMillis == programme.startMillis && it.endMillis == programme.endMillis
+                        }
+                        if (currentIndex < 0) return@ChannelGuideRow false
+                        val target = targetProgrammes.getOrNull(currentIndex + direction)
+                            ?: return@ChannelGuideRow false
+                        guideMoveScope.launch {
+                            val targetStartPx = ((target.startMillis - effectiveWindowStart).toFloat() /
+                                3_600_000f * hourWidthPx).toInt()
+                            val targetEndPx = ((target.endMillis - effectiveWindowStart).toFloat() /
+                                3_600_000f * hourWidthPx).toInt()
+                            val viewportStart = horizontalScrollState.value
+                            val viewportEnd = viewportStart + stripViewportPx.toInt()
+                            val desired = when {
+                                targetStartPx < viewportStart ->
+                                    targetStartPx - (stripViewportPx * 0.12f).toInt()
+                                targetEndPx > viewportEnd ->
+                                    targetStartPx - (stripViewportPx * 0.12f).toInt()
+                                else -> viewportStart
+                            }.coerceIn(0, horizontalScrollState.maxValue)
+                            if (desired != viewportStart) {
+                                horizontalScrollState.scrollTo(desired)
+                            }
+                            pendingFocusTarget = GuideFocusTarget(
+                                channelId = targetChannel.id,
+                                startMillis = target.startMillis,
+                                endMillis = target.endMillis,
+                            )
+                        }
+                        true
                     },
                     onRequestVerticalMove = { fromChannelId, _anchorTimeMs, direction ->
                         val fromIndex = filteredChannels.indexOfFirst { it.id == fromChannelId }
@@ -827,11 +847,42 @@ fun GuideScreen(
                     .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 8.dp),
             )
         }
+        }
+        val epgStatusMessage = state.epgStatusMessage
+        if (!epgStatusMessage.isNullOrBlank()) {
+            EpgStatusBanner(
+                message = epgStatusMessage,
+                isTv = isTv,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
 
     programInfoTarget?.let { target ->
+        val key = reminderKey(target.channelName, target.title, target.startMillis)
+        val reminderSet = key in activeReminderKeys
         ProgramInfoSheet(
             target = target,
+            isReminderSet = reminderSet,
+            onToggleReminder = {
+                if (reminderSet) {
+                    remindersVm.cancelReminder(key)
+                    Toast.makeText(context, "Reminder cancelled.", Toast.LENGTH_SHORT).show()
+                } else {
+                    remindersVm.setReminder(
+                        channelName = target.channelName,
+                        programTitle = target.title,
+                        startMillis = target.startMillis,
+                        endMillis = target.endMillis,
+                        channelId = target.channelId.orEmpty(),
+                    )
+                    Toast.makeText(context, "Reminder set.", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onRecord = {
+                programInfoTarget = null
+                recordTarget = target
+            },
             onDismiss = { programInfoTarget = null },
         )
     }
@@ -865,6 +916,41 @@ fun GuideScreen(
     }
 }
 
+@Composable
+private fun EpgStatusBanner(
+    message: String,
+    isTv: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = if (isTv) 18.dp else 12.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(14.dp),
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.AccessTime,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelGuideRow(
@@ -895,6 +981,7 @@ private fun ChannelGuideRow(
     logoScaleMode: String,
     pendingFocusTarget: GuideFocusTarget?,
     onConsumePendingFocusTarget: (Long) -> Unit,
+    onRequestHorizontalMove: (channelId: String, programme: EPGProgramme, direction: Int) -> Boolean,
     onRequestVerticalMove: (channelId: String, anchorTimeMs: Long, direction: Int) -> Boolean,
     onFocusedProgrammeChanged: (EPGProgramme) -> Unit,
 ) {
@@ -1252,7 +1339,7 @@ private fun ChannelGuideRow(
                         onPlay = onChannelClick,
                         onShowInfo = { onProgrammeClick(programme) },
                         onRecord = { onProgrammeRecord(programme) },
-                        canAddToMultiview = channel.url.isNotBlank() && (!atCap || inMultiview),
+                        canAddToMultiview = isLive && channel.url.isNotBlank() && (!atCap || inMultiview),
                         inMultiview = inMultiview,
                         onToggleMultiview = { multiviewStore.toggle(channel) },
                         isPendingFocusTarget = pendingFocusTarget?.matches(
@@ -1262,6 +1349,9 @@ private fun ChannelGuideRow(
                         ) == true,
                         pendingFocusToken = pendingFocusTarget?.token,
                         onConsumePendingFocusTarget = onConsumePendingFocusTarget,
+                        onRequestHorizontalMove = { direction ->
+                            onRequestHorizontalMove(channel.id, programme, direction)
+                        },
                         onRequestVerticalMove = { _, direction ->
                             // Strict "now" anchor for vertical guide travel.
                             // Keeps UP/DOWN navigation locked to what's airing
@@ -1399,6 +1489,7 @@ private fun ProgrammeCell(
     isPendingFocusTarget: Boolean,
     pendingFocusToken: Long?,
     onConsumePendingFocusTarget: (Long) -> Unit,
+    onRequestHorizontalMove: (direction: Int) -> Boolean,
     onRequestVerticalMove: (anchorTimeMs: Long, direction: Int) -> Boolean,
     onFocused: () -> Unit,
 ) {
@@ -1493,15 +1584,21 @@ private fun ProgrammeCell(
                 if (it.isFocused) onFocused()
             }
             .combinedClickable(
-                // Single tap/click plays the channel; the program-info sheet +
-                // actions live behind a long press (the menu below). iOS parity.
-                onClick = onPlay,
+                // Live cells tune immediately. Future cells open details/actions
+                // instead; starting the channel for a programme that has not
+                // aired yet is surprising on TV remotes.
+                onClick = {
+                    if (isLive) onPlay() else onShowInfo()
+                },
                 onLongClick = { menuOpen = true; menuGuard.arm() },
             )
             .onPreviewKeyEvent { ev ->
                 val n = ev.nativeKeyEvent
                 if (!isTv || n.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                if (n.repeatCount > 0) return@onPreviewKeyEvent true
                 when (n.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> onRequestHorizontalMove(-1)
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> onRequestHorizontalMove(1)
                     android.view.KeyEvent.KEYCODE_DPAD_UP ->
                         onRequestVerticalMove((programme.startMillis + programme.endMillis) / 2L, -1)
                     android.view.KeyEvent.KEYCODE_DPAD_DOWN ->

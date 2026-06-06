@@ -1,7 +1,10 @@
 package com.aeriotv.android.feature.livetv
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,7 +37,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
@@ -73,6 +81,9 @@ import java.util.Locale
 fun ProgramInfoSheet(
     target: ProgramInfoTarget,
     onDismiss: () -> Unit,
+    isReminderSet: Boolean = false,
+    onToggleReminder: (() -> Unit)? = null,
+    onRecord: (() -> Unit)? = null,
     playlistVm: PlaylistViewModel = hiltViewModel(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
@@ -116,6 +127,7 @@ fun ProgramInfoSheet(
         ) == Configuration.UI_MODE_TYPE_TELEVISION
 
     if (isTv) {
+        BackHandler(onBack = onDismiss)
         // TV: a centered modal card, not a bottom-edge sheet. tvOS shows
         // program detail as a focused panel in the middle of the screen;
         // a ModalBottomSheet's drag handle + swipe-to-dismiss + edge
@@ -137,13 +149,30 @@ fun ProgramInfoSheet(
             ) {
                 Column(
                     modifier = Modifier
+                        .onPreviewKeyEvent { event ->
+                            val native = event.nativeKeyEvent
+                            if (native.keyCode == android.view.KeyEvent.KEYCODE_BACK &&
+                                native.action == android.view.KeyEvent.ACTION_DOWN
+                            ) {
+                                onDismiss()
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         .verticalScroll(rememberScrollState())
                         // focusable so the remote's D-pad up/down scrolls
                         // a long description instead of doing nothing.
                         .focusable()
                         .padding(horizontal = 32.dp, vertical = 28.dp),
                 ) {
-                    ProgramInfoBody(target = target, effectiveCategory = effectiveCategory)
+                    ProgramInfoBody(
+                        target = target,
+                        effectiveCategory = effectiveCategory,
+                        isReminderSet = isReminderSet,
+                        onToggleReminder = onToggleReminder,
+                        onRecord = onRecord,
+                    )
                 }
             }
         }
@@ -159,7 +188,13 @@ fun ProgramInfoSheet(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 4.dp),
             ) {
-                ProgramInfoBody(target = target, effectiveCategory = effectiveCategory)
+                ProgramInfoBody(
+                    target = target,
+                    effectiveCategory = effectiveCategory,
+                    isReminderSet = isReminderSet,
+                    onToggleReminder = onToggleReminder,
+                    onRecord = onRecord,
+                )
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -173,7 +208,13 @@ fun ProgramInfoSheet(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProgramInfoBody(target: ProgramInfoTarget, effectiveCategory: String) {
+private fun ProgramInfoBody(
+    target: ProgramInfoTarget,
+    effectiveCategory: String,
+    isReminderSet: Boolean,
+    onToggleReminder: (() -> Unit)?,
+    onRecord: (() -> Unit)?,
+) {
     Text(
         text = target.channelName.uppercase(Locale.getDefault()),
         style = MaterialTheme.typography.labelMedium,
@@ -197,6 +238,35 @@ private fun ProgramInfoBody(target: ProgramInfoTarget, effectiveCategory: String
 
     Spacer(Modifier.height(20.dp))
     InfoColumnsRow(target)
+
+    val now = System.currentTimeMillis()
+    if (target.endMillis > now && (onToggleReminder != null || onRecord != null)) {
+        val firstActionFocusRequester = remember { FocusRequester() }
+        LaunchedEffect(target.id) {
+            runCatching { firstActionFocusRequester.requestFocus() }
+        }
+        Spacer(Modifier.height(18.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            onRecord?.let { action ->
+                ProgramInfoActionButton(
+                    text = if (target.isLiveNow()) "Record from Now" else "Record",
+                    modifier = Modifier.focusRequester(firstActionFocusRequester),
+                    onClick = action,
+                )
+            }
+            onToggleReminder?.let { action ->
+                ProgramInfoActionButton(
+                    text = if (isReminderSet) "Cancel Reminder" else "Set Reminder",
+                    modifier = if (onRecord == null) Modifier.focusRequester(firstActionFocusRequester) else Modifier,
+                    onClick = action,
+                )
+            }
+        }
+    }
 
     Spacer(Modifier.height(20.dp))
     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
@@ -234,6 +304,42 @@ private fun ProgramInfoBody(target: ProgramInfoTarget, effectiveCategory: String
             Spacer(Modifier.height(8.dp))
             PillsFlow(tokens = genres)
         }
+    }
+}
+
+@Composable
+private fun ProgramInfoActionButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .background(
+                if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+                shape,
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f),
+                shape = shape,
+            )
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 

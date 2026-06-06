@@ -12,7 +12,9 @@ import com.aeriotv.android.core.data.repository.ChannelProfileOption
 import com.aeriotv.android.core.data.repository.PlaylistRepository
 import com.aeriotv.android.core.debug.DebugLogger
 import com.aeriotv.android.core.debug.MemoryPressureBus
+import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.core.sync.DispatcharrPairingStatusResponse
+import com.aeriotv.android.core.sync.DispatcharrSyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +43,8 @@ class PlaylistViewModel @Inject constructor(
     private val memoryPressureBus: MemoryPressureBus,
     private val debugLogger: DebugLogger,
     private val secureTokenStore: com.aeriotv.android.core.sync.SecureTokenStore,
+    private val dispatcharrSyncManager: DispatcharrSyncManager,
+    private val appPreferences: AppPreferences,
 ) : ViewModel() {
 
     enum class Phase { Bootstrapping, NeedsUrl, ChannelsReady }
@@ -90,10 +94,10 @@ class PlaylistViewModel @Inject constructor(
          * How long a disk-cached EPG is treated as fresh before a relaunch also
          * hits the network. Within this window the cache is used as-is (instant,
          * no network); past it the cache is still painted instantly but a
-         * background refresh runs. 30 minutes keeps now-playing accurate while
-         * making quick app revisits zero-network.
+         * background refresh runs. Six hours keeps Fire TV startup light while
+         * still refreshing guide data a few times per day.
          */
-        private const val EPG_CACHE_TTL_MS = 30L * 60L * 1000L
+        private const val EPG_CACHE_TTL_MS = 6L * 60L * 60L * 1000L
 
         /**
          * Channel snapshots refresh on a much slower cadence than the EPG (a
@@ -159,6 +163,9 @@ class PlaylistViewModel @Inject constructor(
             }
             val sourceType = SourceType.entries.firstOrNull { it.name == saved.sourceType }
                 ?: SourceType.M3uUrl
+            val savedGroup = appPreferences.liveTvSelectedGroupOnce()
+                .takeIf { it.isNotBlank() }
+                ?: ALL_GROUPS
 
             // Phase 130: paint the disk-cached channel list IMMEDIATELY so the
             // Live TV rail + cells are never blank on a cold launch (Archie's
@@ -179,6 +186,7 @@ class PlaylistViewModel @Inject constructor(
                     apiKey = saved.apiKey.orEmpty(),
                     username = saved.username.orEmpty(),
                     password = saved.password.orEmpty(),
+                    selectedGroup = savedGroup,
                     // If we have cached channels, skip straight to ChannelsReady
                     // and don't show the spinner; otherwise stay in pre-bootstrap
                     // phase with the spinner until the first-ever network fetch
@@ -279,6 +287,7 @@ class PlaylistViewModel @Inject constructor(
     }
     fun onGroupSelected(group: String) {
         _state.update { it.copy(selectedGroup = group) }
+        viewModelScope.launch { appPreferences.setLiveTvSelectedGroup(group) }
     }
 
     fun onSortModeChange(mode: SortMode) {
@@ -359,6 +368,9 @@ class PlaylistViewModel @Inject constructor(
             )
             repository.loadAndPersist(request, existingId = _state.value.playlist?.id).fold(
                 onSuccess = { (entity, channels) ->
+                    // A freshly paired Fire TV should always adopt the server's
+                    // sync document before it can become a source of updates.
+                    dispatcharrSyncManager.pull()
                     _state.update {
                         it.copy(
                             phase = Phase.ChannelsReady,
@@ -501,7 +513,11 @@ class PlaylistViewModel @Inject constructor(
                     it.copy(
                         epgByChannel = groupedCached,
                         isEpgLoading = false,
-                        epgStatusMessage = if (forceRefresh) "Refreshing guide data..." else "Loading cached guide data...",
+                        epgStatusMessage = if (forceRefresh) {
+                            "Retrieving EPG..."
+                        } else {
+                            "Loading EPG from local copy..."
+                        },
                     )
                 }
             }
@@ -520,11 +536,14 @@ class PlaylistViewModel @Inject constructor(
             // 3. Stale / forced / first-ever launch -> network. Only show the
             // spinner when there is nothing cached to display yet.
             logI("loadEpgIfConfigured: fetching EPG for ${playlist.sourceType} (force=$forceRefresh, hadCache=$hasCache)")
+            if (hasCache) {
+                _state.update { it.copy(epgStatusMessage = "Retrieving EPG...") }
+            }
             if (!hasCache) {
                 _state.update {
                     it.copy(
                         isEpgLoading = true,
-                        epgStatusMessage = if (forceRefresh) "Retrying guide data..." else "Loading guide data...",
+                        epgStatusMessage = "Retrieving EPG...",
                     )
                 }
             }

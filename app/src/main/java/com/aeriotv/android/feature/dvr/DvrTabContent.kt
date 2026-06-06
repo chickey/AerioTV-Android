@@ -171,7 +171,7 @@ fun DvrTabContent(
                     fontWeight = FontWeight.Bold,
                 )
             },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),
@@ -517,7 +517,10 @@ private fun FilterPill(
     onClick: () -> Unit,
 ) {
     FilterChip(
-        modifier = if (upTarget != null) Modifier.focusProperties { up = upTarget } else Modifier,
+        modifier = (if (upTarget != null) Modifier.focusProperties { up = upTarget } else Modifier)
+            .onFocusChanged { focusState ->
+                if (focusState.isFocused && !selected) onClick()
+            },
         selected = selected,
         onClick = onClick,
         label = { Text(label) },

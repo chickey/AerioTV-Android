@@ -8,20 +8,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -45,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.sync.DispatcharrSyncManager
-import com.aeriotv.android.core.sync.SyncProviders
 import java.text.DateFormat
 import java.util.Date
 
@@ -77,7 +72,7 @@ fun DispatcharrSyncSettingsScreen(
                     )
                 }
             },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onBackground,
             ),
@@ -87,53 +82,53 @@ fun DispatcharrSyncSettingsScreen(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter,
         ) {
-            LazyColumn(
-                modifier = Modifier.adaptiveFormWidth().fillMaxHeight(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 104.dp),
+            Column(
+                modifier = Modifier
+                    .adaptiveFormWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 104.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                item {
-                    InfoCard(
-                        icon = Icons.Outlined.Hub,
-                        title = "Dispatcharr sync",
-                        body = "Fire TV sync uses the active paired Dispatcharr server. Settings, favourites, hidden groups, recent channels and watch progress can be pushed to or pulled from the AerioTV Dispatcharr plugin.",
+                val statusText = when (val s = status) {
+                    DispatcharrSyncManager.Status.Idle -> "Ready."
+                    is DispatcharrSyncManager.Status.Working -> s.message
+                    is DispatcharrSyncManager.Status.Success -> s.message
+                    is DispatcharrSyncManager.Status.Error -> s.message
+                }
+                SummaryPanel(
+                    status = statusText,
+                    lastPull = formatSyncTime(lastPull),
+                    lastPush = formatSyncTime(lastPush),
+                )
+                ButtonRow(
+                    title = "Sync Now",
+                    subtitle = "Server first: pull Dispatcharr's sync data, then upload this Fire TV's newer state.",
+                    action = "Sync",
+                    onClick = viewModel::syncNow,
+                )
+                var showAdvanced by remember { mutableStateOf(false) }
+                ButtonRow(
+                    title = "Advanced Sync",
+                    subtitle = if (showAdvanced) {
+                        "Hide one-way recovery actions."
+                    } else {
+                        "Show pull-only and push-only recovery actions."
+                    },
+                    action = if (showAdvanced) "Hide" else "Show",
+                    onClick = { showAdvanced = !showAdvanced },
+                )
+                if (showAdvanced) {
+                    ButtonRow(
+                        title = "Pull from Dispatcharr",
+                        subtitle = "Apply the server sync document to this Fire TV without uploading local changes.",
+                        action = "Pull",
+                        onClick = viewModel::pull,
                     )
-                }
-                item {
-                    InfoCard(
-                        icon = Icons.Outlined.Sync,
-                        title = "Visible providers",
-                        body = SyncProviders.visible.joinToString { it.displayName },
+                    ButtonRow(
+                        title = "Push to Dispatcharr",
+                        subtitle = "Publish this Fire TV's current state. Use only when this device is the trusted copy.",
+                        action = "Push",
+                        onClick = viewModel::push,
                     )
-                }
-                item {
-                    InfoCard(
-                        icon = Icons.Outlined.Sync,
-                        title = "Last sync",
-                        body = "Pulled: ${formatSyncTime(lastPull)}\nPushed: ${formatSyncTime(lastPush)}",
-                    )
-                }
-                item {
-                    val body = when (val s = status) {
-                        DispatcharrSyncManager.Status.Idle -> "Ready."
-                        is DispatcharrSyncManager.Status.Working -> s.message
-                        is DispatcharrSyncManager.Status.Success -> s.message
-                        is DispatcharrSyncManager.Status.Error -> s.message
-                    }
-                    InfoCard(
-                        icon = Icons.Outlined.Hub,
-                        title = "Status",
-                        body = body,
-                    )
-                }
-                item {
-                    ButtonRow("Sync Now", "Pull first, then push local updates.", onClick = viewModel::syncNow)
-                }
-                item {
-                    ButtonRow("Pull from Dispatcharr", "Apply the plugin sync document to this Fire TV.", onClick = viewModel::pull)
-                }
-                item {
-                    ButtonRow("Push to Dispatcharr", "Publish this Fire TV's current syncable state.", onClick = viewModel::push)
                 }
             }
         }
@@ -144,6 +139,7 @@ fun DispatcharrSyncSettingsScreen(
 private fun ButtonRow(
     title: String,
     subtitle: String,
+    action: String,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -171,7 +167,7 @@ private fun ButtonRow(
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(
-            "Run",
+            action,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = if (focused) Color.White else MaterialTheme.colorScheme.primary,
@@ -184,22 +180,21 @@ private fun formatSyncTime(value: Long): String =
     else DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(value))
 
 @Composable
-private fun InfoCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    body: String,
+private fun SummaryPanel(
+    status: String,
+    lastPull: String,
+    lastPush: String,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.38f))
             .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         Icon(
-            imageVector = icon,
+            imageVector = Icons.Outlined.Hub,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(28.dp),
@@ -207,14 +202,26 @@ private fun InfoCard(
         Spacer(Modifier.size(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = title,
+                text = "Dispatcharr sync",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = body,
+                text = "Sync settings, favourites, hidden groups, recent channels and watch progress through the AerioTV Dispatcharr plugin.",
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.size(10.dp))
+            Text(
+                text = "Status: $status",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Pulled: $lastPull  |  Pushed: $lastPush",
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

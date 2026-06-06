@@ -20,6 +20,7 @@ import com.aeriotv.android.core.parser.XMLTVParser
 import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.core.wifi.WifiSsidProbe
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.net.URI
 import java.time.Instant
 import java.text.SimpleDateFormat
 import java.util.UUID
@@ -539,6 +540,7 @@ class PlaylistRepository @Inject constructor(
                 ?: throw IllegalArgumentException("Dispatcharr API key is required")
             val groups = dispatcharrClient.listGroups(base, key)
                 .associate { it.id to it.name }
+            val outputChannels = loadDispatcharrOutputM3u(fetcher, base, key)
             // Channel-profile scoping. When the playlist is pinned to a profile,
             // resolve that profile's member channel ids and keep only those.
             // A selected-but-now-deleted profile (firstOrNull == null) falls
@@ -560,6 +562,10 @@ class PlaylistRepository @Inject constructor(
                     { it.name.lowercase() },
                 ))
                 .map { ch ->
+                    val output = findDispatcharrOutputChannel(ch, outputChannels)
+                    val outputUrl = output?.url
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { resolveM3uUrl(base, it) }
                     // Stable ID derived from Dispatcharr's server UUID so the
                     // favorites store key survives playlist refreshes. The
                     // default `UUID.randomUUID()` in M3UChannel re-rolled on
@@ -567,12 +573,15 @@ class PlaylistRepository @Inject constructor(
                     M3UChannel(
                         id = "disp:${ch.uuid!!}",
                         name = ch.name,
-                        url = dispatcharrClient.streamUrl(base, ch.uuid!!),
-                        groupTitle = ch.channelGroupId?.let { groups[it] }.orEmpty(),
-                        tvgID = ch.tvgId.orEmpty(),
-                        tvgName = ch.name,
-                        tvgLogo = ch.logoId?.let { dispatcharrClient.logoUrl(base, it) }.orEmpty(),
-                        channelNumber = ch.channelNumber?.formatChannelNumber(),
+                        url = outputUrl ?: dispatcharrClient.streamUrl(base, ch.uuid!!),
+                        groupTitle = output?.groupTitle?.takeIf { it.isNotBlank() }
+                            ?: ch.channelGroupId?.let { groups[it] }.orEmpty(),
+                        tvgID = output?.tvgID?.takeIf { it.isNotBlank() } ?: ch.tvgId.orEmpty(),
+                        tvgName = output?.tvgName?.takeIf { it.isNotBlank() } ?: ch.name,
+                        tvgLogo = output?.tvgLogo?.takeIf { it.isNotBlank() }
+                            ?: ch.logoId?.let { dispatcharrClient.logoUrl(base, it) }.orEmpty(),
+                        channelNumber = output?.channelNumber ?: ch.channelNumber?.formatChannelNumber(),
+                        rawAttributes = output?.rawAttributes.orEmpty(),
                         dispatcharrChannelId = ch.id,
                     )
                 }
@@ -596,6 +605,53 @@ class PlaylistRepository @Inject constructor(
 /** URL-encode an Xtream credential for use in a query string. */
 private fun xtreamEncode(value: String): String =
     java.net.URLEncoder.encode(value, "UTF-8")
+
+private suspend fun loadDispatcharrOutputM3u(
+    fetcher: PlaylistFetcher,
+    base: String,
+    apiKey: String,
+): List<M3UChannel> {
+    val headers = mapOf(
+        "X-API-Key" to apiKey,
+        "Authorization" to "ApiKey $apiKey",
+    )
+    return runCatching {
+        M3UParser.parseBytes(
+            fetcher.fetchBytes(
+                url = "${base.trimEnd('/')}/output/m3u",
+                userAgent = "AerioTV-Android",
+                extraHeaders = headers,
+            ),
+        )
+    }.getOrDefault(emptyList())
+}
+
+private fun findDispatcharrOutputChannel(
+    channel: com.aeriotv.android.core.network.DispatcharrChannel,
+    outputChannels: List<M3UChannel>,
+): M3UChannel? {
+    if (outputChannels.isEmpty()) return null
+    val uuid = channel.uuid?.takeIf { it.isNotBlank() }
+    val tvgId = channel.tvgId?.takeIf { it.isNotBlank() }
+    val normalisedName = channel.name.normaliseChannelName()
+    return outputChannels.firstOrNull { out ->
+        uuid != null && out.url.contains("/proxy/ts/stream/$uuid", ignoreCase = true)
+    } ?: outputChannels.firstOrNull { out ->
+        tvgId != null && out.tvgID.equals(tvgId, ignoreCase = true)
+    } ?: outputChannels.firstOrNull { out ->
+        out.name.normaliseChannelName() == normalisedName ||
+            out.tvgName.normaliseChannelName() == normalisedName
+    }
+}
+
+private fun resolveM3uUrl(base: String, url: String): String =
+    runCatching {
+        val uri = URI(url)
+        if (uri.isAbsolute) url else URI("${base.trimEnd('/')}/").resolve(uri).toString()
+    }.getOrDefault(url)
+
+private fun String.normaliseChannelName(): String =
+    trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
 
 private fun PlaylistEntity.resolvedSourceType(): SourceType =
     SourceType.entries.firstOrNull { it.name == sourceType } ?: SourceType.M3uUrl

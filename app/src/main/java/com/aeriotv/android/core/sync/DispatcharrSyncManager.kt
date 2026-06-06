@@ -22,7 +22,10 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
-import java.time.Instant
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -162,11 +165,11 @@ class DispatcharrSyncManager @Inject constructor(
             row.videoId to DispatcharrWatchProgress(
                 positionMs = row.positionMs,
                 durationMs = row.durationMs,
-                updatedAt = Instant.ofEpochMilli(row.updatedAt).toString(),
+                updatedAt = isoUtc(row.updatedAt),
             )
         }
         return DispatcharrSyncDocument(
-            updatedAt = Instant.now().toString(),
+            updatedAt = isoUtc(System.currentTimeMillis()),
             updatedByDeviceId = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
             settings = appPreferences.snapshotSyncablePreferences(),
             favourites = favoriteDao.allOnce().map { it.channelId },
@@ -195,7 +198,7 @@ class DispatcharrSyncManager @Inject constructor(
             )
         }
         document.watchProgress.forEach { (videoId, remote) ->
-            val updatedAt = runCatching { Instant.parse(remote.updatedAt).toEpochMilli() }
+            val updatedAt = parseIsoUtc(remote.updatedAt)
                 .getOrDefault(System.currentTimeMillis())
             val local = watchProgressDao.getOnce(videoId)
             if (local == null || updatedAt > local.updatedAt) {
@@ -222,6 +225,13 @@ class DispatcharrSyncManager @Inject constructor(
         header("X-API-Key", token)
     }
 
+    private fun isoUtc(millis: Long): String =
+        ISO_UTC.get()!!.format(Date(millis))
+
+    private fun parseIsoUtc(value: String): Result<Long> = runCatching {
+        ISO_UTC.get()!!.parse(value)?.time ?: throw IllegalArgumentException("Invalid timestamp")
+    }
+
     sealed interface Status {
         data object Idle : Status
         data class Working(val message: String) : Status
@@ -232,4 +242,12 @@ class DispatcharrSyncManager @Inject constructor(
     /** Thrown when the plugin rejects the device token (revoked or unknown). */
     class TokenRevokedException :
         IllegalStateException("This device's Dispatcharr access was revoked. Pair again to reconnect.")
+
+    companion object {
+        private val ISO_UTC = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+        }
+    }
 }

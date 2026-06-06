@@ -15,6 +15,8 @@ data class ProgramInfoTarget(
     val endMillis: Long,
     val description: String,
     val category: String,
+    /** AerioTV's stable channel id, used for reminders. */
+    val channelId: String? = null,
     /**
      * Dispatcharr's int channel id. Required for server-side recording
      * scheduling on Dispatcharr playlists; null for M3U / Xtream sources
@@ -36,6 +38,7 @@ data class ProgramInfoTarget(
 fun EPGProgramme.toInfoTarget(
     channelName: String,
     channelDispatcharrId: Int? = null,
+    channelId: String? = null,
 ): ProgramInfoTarget =
     ProgramInfoTarget(
         channelName = channelName,
@@ -44,6 +47,7 @@ fun EPGProgramme.toInfoTarget(
         endMillis = endMillis,
         description = description,
         category = category,
+        channelId = channelId,
         channelDispatcharrId = channelDispatcharrId,
         dispatcharrProgramId = dispatcharrProgramId,
     )
