@@ -270,6 +270,22 @@ class AerioExoPlayerHolder @Inject constructor() {
 
     fun isPaused(): Boolean = player?.playWhenReady?.not() ?: true
 
+    /**
+     * Total video frames rendered since the current player instance was created.
+     * Returns -1 when the video decoder counters are not yet available (player
+     * not yet initialised, or video renderer hasn't produced any output yet).
+     *
+     * Used by the freeze watchdog in PlayerScreen: when the video decoder stalls
+     * (HEVC decoder hangs) but the EAC3 audio renderer keeps the media clock
+     * ticking, [ExoPlayer.currentPosition] continues to advance and the plain
+     * "position not moving" heuristic never fires. Watching the rendered-frame
+     * counter catches that scenario because it only advances when the video
+     * renderer actually pushes a frame to the surface.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    val renderedVideoFrameCount: Int
+        get() = player?.videoDecoderCounters?.renderedOutputBufferCount ?: -1
+
     /** Full teardown for the X-close button. Releases the codec,
      *  audio renderer, and DataSource. Next acquire creates fresh. */
     fun destroy() {

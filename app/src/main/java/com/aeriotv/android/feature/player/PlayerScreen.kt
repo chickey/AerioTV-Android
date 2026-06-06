@@ -317,37 +317,100 @@ fun PlayerScreen(
         if (!isLive || audioOnly || !freezeDetectionEnabled || freezeDetectionSeconds <= 0) return@LaunchedEffect
         val frozenThresholdMs = freezeDetectionSeconds * 1000L
         var lastObservedPosition = -1L
+        // -1 = decoder not yet active; >=0 = last polled rendered-frame count.
+        var lastObservedFrames = -1
         var lastProgressAt = SystemClock.elapsedRealtime()
-        var lastRestartAt = 0L
+        // Wall time of last recovery action (seek or restart), to rate-limit attempts.
+        var lastRecoveryAt = 0L
+        // How many consecutive recoveries have been attempted without a clean period.
+        var consecutiveRecoveries = 0
         while (true) {
             val player = exoHolder.player ?: break
             val channel = latestChannel ?: break
             val position = player.currentPosition
+            val renderedFrames = exoHolder.renderedVideoFrameCount
             val now = SystemClock.elapsedRealtime()
+            // isPlaying is false during STATE_BUFFERING or when audio focus is
+            // suppressed; don't arm the timer in those legitimate non-playing states.
             val playing = player.playWhenReady && player.playbackState == Player.STATE_READY && player.isPlaying
 
             if (!playing) {
+                // Reset anchors so the timer only starts once we're confidently playing.
                 lastObservedPosition = position
+                lastObservedFrames = renderedFrames
                 lastProgressAt = now
             } else {
-                if (lastObservedPosition < 0L || abs(position - lastObservedPosition) > 500L) {
-                    lastObservedPosition = position
+                // Primary signal: rendered video frame count.
+                //
+                // Why not just position? For HEVC + EAC3 streams (exactly what this
+                // Fire TV sees), the EAC3 audio renderer drives the media clock even
+                // when the HEVC video decoder has stalled. currentPosition therefore
+                // keeps ticking even though the picture is frozen, so the old
+                // position-only check never fired. The rendered-frame counter only
+                // advances when the video renderer actually pushes a frame to the
+                // surface, so it stops the moment the decoder hangs.
+                //
+                // Fallback to position: if the video decoder counter isn't available
+                // yet (decoder not yet initialised), use position so we catch pure
+                // network-stall freezes during the start-up phase.
+                val hasVideoCounter = renderedFrames >= 0
+                val progressed = if (hasVideoCounter) {
+                    renderedFrames != lastObservedFrames
+                } else {
+                    lastObservedPosition < 0L || abs(position - lastObservedPosition) > 500L
+                }
+
+                lastObservedPosition = position
+                lastObservedFrames = renderedFrames
+
+                if (progressed) {
+                    // Clean period: reset the consecutive counter once we've seen
+                    // meaningful progress for longer than the freeze threshold.
+                    if (now - lastRecoveryAt > frozenThresholdMs) consecutiveRecoveries = 0
                     lastProgressAt = now
-                } else if (now - lastProgressAt >= frozenThresholdMs && now - lastRestartAt >= frozenThresholdMs) {
-                    Log.w(
-                        TAG,
-                        "Freeze watchdog restarting live stream for ${channel.name} after ${freezeDetectionSeconds}s without progress",
-                    )
-                    freezeBannerMessage = "${channel.name} froze for ${freezeDetectionSeconds}s, restarting..."
+                } else if (now - lastProgressAt >= frozenThresholdMs && now - lastRecoveryAt >= frozenThresholdMs) {
+                    // Two-stage recovery:
+                    //
+                    // Stage 1 — soft: seek to the live edge. Data is still arriving
+                    // from the server (the server-side bitrate stats keep ticking),
+                    // so the HTTP connection is healthy. The stall is in the HEVC
+                    // decoder's output queue. seekToDefaultPosition() flushes the
+                    // decoder buffers and resets the codec output without touching
+                    // the DataSource or the network connection, so recovery is fast
+                    // and seamless.
+                    //
+                    // Stage 2 — hard: if the seek didn't fix it (decoder is
+                    // genuinely stuck / codec state corrupted), tear down and rebuild
+                    // the full MediaSource. This closes and reopens the HTTP stream,
+                    // which is heavier but guaranteed to clear any bad state.
+                    if (consecutiveRecoveries == 0) {
+                        Log.w(
+                            TAG,
+                            "Freeze watchdog: video frames stalled for ${freezeDetectionSeconds}s on " +
+                                "${channel.name} (rendered=$renderedFrames, position=${position}ms) — " +
+                                "seeking to live edge (soft recovery)",
+                        )
+                        freezeBannerMessage = "${channel.name} froze, seeking to live edge…"
+                        player.seekToDefaultPosition()
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Freeze watchdog: soft recovery failed for ${channel.name} — " +
+                                "restarting stream (hard recovery, attempt $consecutiveRecoveries)",
+                        )
+                        freezeBannerMessage = "${channel.name} froze for ${freezeDetectionSeconds}s, restarting…"
+                        exoHolder.playUrl(
+                            url = channel.url,
+                            title = channel.name,
+                            subtitle = latestProgrammeTitle,
+                            artworkUri = latestArtworkUri,
+                        )
+                    }
                     freezeBannerToken++
-                    exoHolder.playUrl(
-                        url = channel.url,
-                        title = channel.name,
-                        subtitle = latestProgrammeTitle,
-                        artworkUri = latestArtworkUri,
-                    )
-                    lastRestartAt = now
+                    consecutiveRecoveries++
+                    lastRecoveryAt = now
                     lastObservedPosition = -1L
+                    lastObservedFrames = -1
                     lastProgressAt = now
                 }
             }
