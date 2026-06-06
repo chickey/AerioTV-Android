@@ -549,16 +549,36 @@ class PlaylistViewModel @Inject constructor(
             }
             repository.loadEpg(playlist).fold(
                 onSuccess = { programmes ->
-                    // Startup reliability guard: Dispatcharr can occasionally
-                    // return an empty grid transiently. Keep a painted cache
-                    // (or any already-loaded guide) instead of blanking the
-                    // UI and replacing disk cache with an empty payload.
-                    if (programmes.isEmpty() && (hasCache || _state.value.epgByChannel.isNotEmpty())) {
-                        logW("EPG load returned 0 programmes; keeping existing guide data")
+                    // Safety guard: NEVER write an empty payload to the disk cache.
+                    //
+                    // Dispatcharr transiently returns 0 programmes during a server-side
+                    // guide refresh. The old guard only early-returned when there was
+                    // already something in memory or in cache — if BOTH were empty (e.g.
+                    // cold launch after a process kill, or app resuming from behind the
+                    // system PackageInstaller dialog) it fell through and called
+                    // saveEpgToCache(emptyList()), which deletes the whole cache via
+                    // replaceForPlaylist then inserts nothing. Every subsequent retry then
+                    // read an empty cache → fetched → wrote empty again. Guide stayed
+                    // blank permanently even after many manual refreshes.
+                    //
+                    // Fix: if programmes is empty, ALWAYS return early regardless of
+                    // what's in memory. We'd rather keep stale data (or stay blank) than
+                    // permanently destroy a valid cache with an empty response.
+                    if (programmes.isEmpty()) {
+                        val hasAnything = hasCache || _state.value.epgByChannel.isNotEmpty()
+                        logW(
+                            "EPG load returned 0 programmes; " +
+                                if (hasAnything) "keeping existing guide data" else "no cache to fall back on",
+                        )
                         _state.update {
                             it.copy(
                                 isEpgLoading = false,
-                                epgStatusMessage = "Guide data was empty; retrying shortly...",
+                                epgStatusMessage = if (hasAnything) {
+                                    "Guide data was empty; retrying shortly…"
+                                } else {
+                                    "No guide data available. " +
+                                        "Try refreshing guide data in Dispatcharr."
+                                },
                             )
                         }
                         return@fold
@@ -576,8 +596,13 @@ class PlaylistViewModel @Inject constructor(
                         )
                     }
                     // Persist the fresh guide so the next launch is instant.
-                    runCatching { repository.saveEpgToCache(playlist.id, programmes) }
-                        .onFailure { logW("saveEpgToCache failed", it) }
+                    // Belt-and-suspenders: the empty-guard above should have caught any
+                    // empty list already, but guard here too so a future refactor can't
+                    // accidentally reintroduce cache wipe via an empty programmes list.
+                    if (programmes.isNotEmpty()) {
+                        runCatching { repository.saveEpgToCache(playlist.id, programmes) }
+                            .onFailure { logW("saveEpgToCache failed", it) }
+                    }
                     // iOS parity: fire-and-forget category enrichment for
                     // Dispatcharr's bulk grid (which strips the category).
                     // Categories tint in progressively as detail responses
