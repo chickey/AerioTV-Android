@@ -186,6 +186,27 @@ bash /Users/colinhickey/Projects/AerioTV-Android/uninstall-aeriotv-build-deps.sh
 
 ## Release Notes for Maintainers
 
+Cut Fire TV releases with the helper script — do **not** run `gh release create`
+by hand:
+
+```bash
+scripts/release.sh                 # release the version in app/build.gradle.kts
+scripts/release.sh --dry-run       # build + verify locally, publish nothing
+scripts/release.sh --notes-file CHANGELOG.md
+```
+
+The script derives the version/repo/asset from `app/build.gradle.kts`, builds
+`:app:assembleFireRelease`, uploads the APK under the **exact** filename the
+in-app self-updater downloads (`BuildConfig.GITHUB_APK_ASSET` =
+`AerioTV-FireTV.apk`), then verifies the `latest/download` URL serves it.
+
+> ⚠️ Why the script exists: gradle outputs `app-fire-release.apk`, and `gh`'s
+> `file#label` syntax only sets a cosmetic label — **not** the download
+> filename. Uploading the raw output leaves
+> `releases/latest/download/AerioTV-FireTV.apk` returning **404**, so the app
+> downloads a 404 page instead of an APK and self-update fails with "issue with
+> the package". The asset must literally be named `AerioTV-FireTV.apk`.
+
 Fire app releases should remain the GitHub `Latest` release so this permalink keeps working:
 
 ```text
