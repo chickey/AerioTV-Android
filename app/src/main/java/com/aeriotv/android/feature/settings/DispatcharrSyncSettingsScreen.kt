@@ -4,6 +4,7 @@ import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,8 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -33,9 +32,13 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -124,11 +127,13 @@ fun DispatcharrSyncSettingsScreen(
                     )
                 }
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ButtonRow("Sync Now", "Pull first, then push local updates.", onClick = viewModel::syncNow)
-                        ButtonRow("Pull from Dispatcharr", "Apply the plugin sync document to this Fire TV.", onClick = viewModel::pull)
-                        ButtonRow("Push to Dispatcharr", "Publish this Fire TV's current syncable state.", onClick = viewModel::push)
-                    }
+                    ButtonRow("Sync Now", "Pull first, then push local updates.", onClick = viewModel::syncNow)
+                }
+                item {
+                    ButtonRow("Pull from Dispatcharr", "Apply the plugin sync document to this Fire TV.", onClick = viewModel::pull)
+                }
+                item {
+                    ButtonRow("Push to Dispatcharr", "Publish this Fire TV's current syncable state.", onClick = viewModel::push)
                 }
             }
         }
@@ -141,12 +146,23 @@ private fun ButtonRow(
     subtitle: String,
     onClick: () -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .background(
+                if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(16.dp),
+            )
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -154,15 +170,12 @@ private fun ButtonRow(
             Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.SemiBold)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Button(
-            onClick = onClick,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
-            ),
-        ) {
-            Text("Run")
-        }
+        Text(
+            "Run",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (focused) Color.White else MaterialTheme.colorScheme.primary,
+        )
     }
 }
 
