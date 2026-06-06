@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,11 +42,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.aeriotv.android.ui.rememberIsTvDevice
 import com.aeriotv.android.core.data.ProgramInfoTarget
 import com.aeriotv.android.feature.dvr.DvrViewModel
 import com.aeriotv.android.feature.dvr.LocalRecordingService
@@ -96,10 +101,15 @@ fun RecordProgramSheet(
     var removeCommercials by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
 
+    val isTv = rememberIsTvDevice()
+    val cancelFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (isTv) runCatching { cancelFocus.requestFocus() } }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = if (isTv) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(
             modifier = Modifier
@@ -114,7 +124,7 @@ fun RecordProgramSheet(
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = onDismiss, modifier = Modifier.focusRequester(cancelFocus)) {
                     Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.weight(1f))

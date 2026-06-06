@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.aeriotv.android.ui.rememberIsTvDevice
 
 /**
  * Manage Groups bottom sheet. Mirrors iOS Settings > Manage Groups modal:
@@ -66,10 +68,15 @@ fun ManageGroupsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var working by remember(hiddenGroups) { mutableStateOf(hiddenGroups.toMutableSet()) }
 
+    val isTv = rememberIsTvDevice()
+    val doneFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (isTv) runCatching { doneFocus.requestFocus() } }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = if (isTv) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(
             modifier = Modifier
@@ -90,10 +97,13 @@ fun ManageGroupsSheet(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = {
-                    onSave(working.toSet())
-                    onDismiss()
-                }) {
+                TextButton(
+                    onClick = {
+                        onSave(working.toSet())
+                        onDismiss()
+                    },
+                    modifier = Modifier.focusRequester(doneFocus),
+                ) {
                     Text("Done", color = MaterialTheme.colorScheme.primary)
                 }
             }

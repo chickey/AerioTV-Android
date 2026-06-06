@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +32,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.aeriotv.android.ui.rememberIsTvDevice
 import java.text.DateFormat
 import java.util.Date
 
@@ -66,10 +71,17 @@ fun EditRecordingSheet(
     val canSave = newEnd > newStart && title.trim().isNotEmpty()
     val timeFmt = DateFormat.getTimeInstance(DateFormat.SHORT)
 
+    val isTv = rememberIsTvDevice()
+    val cancelFocus = remember { FocusRequester() }
+    // Focus the Cancel button (not the title field) so opening the sheet on TV
+    // doesn't immediately raise the on-screen keyboard.
+    LaunchedEffect(Unit) { if (isTv) runCatching { cancelFocus.requestFocus() } }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = if (isTv) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(
             modifier = Modifier
@@ -137,7 +149,7 @@ fun EditRecordingSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = onDismiss, modifier = Modifier.focusRequester(cancelFocus)) {
                     Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(

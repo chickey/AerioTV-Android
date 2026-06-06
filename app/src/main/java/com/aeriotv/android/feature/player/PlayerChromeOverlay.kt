@@ -46,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -75,6 +76,7 @@ import coil3.size.Size
 import com.aeriotv.android.core.data.EPGProgramme
 import com.aeriotv.android.core.data.M3UChannel
 import com.aeriotv.android.core.data.ProgramInfoTarget
+import com.aeriotv.android.ui.rememberIsTvDevice
 import com.aeriotv.android.core.data.toInfoTarget
 import com.aeriotv.android.core.pip.PipState
 import com.aeriotv.android.core.pip.enterPip16x9
@@ -657,6 +659,8 @@ private fun SleepTimerSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
+        // Drag handle is touch-only; hide it on TV.
+        dragHandle = if (rememberIsTvDevice()) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
             Text(
@@ -711,6 +715,8 @@ fun StreamInfoSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
+        // Drag handle is touch-only; hide it on TV.
+        dragHandle = if (rememberIsTvDevice()) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
             Text(
@@ -770,6 +776,8 @@ fun SubtitlesSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
+        // Drag handle is touch-only; hide it on TV.
+        dragHandle = if (rememberIsTvDevice()) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
             Text(
@@ -824,6 +832,8 @@ fun AudioTracksSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
+        // Drag handle is touch-only; hide it on TV.
+        dragHandle = if (rememberIsTvDevice()) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
             Text(
@@ -882,6 +892,8 @@ fun PlaybackSpeedSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
+        // Drag handle is touch-only; hide it on TV.
+        dragHandle = if (rememberIsTvDevice()) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
             Text(

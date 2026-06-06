@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -37,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -93,6 +97,10 @@ fun AddToMultiviewSheet(
     var selectedGroup by remember { mutableStateOf(PlaylistViewModel.ALL_GROUPS) }
     var query by remember { mutableStateOf("") }
 
+    // On TV, move focus into the sheet on open so the D-pad can drive it.
+    val doneFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (isTv) runCatching { doneFocus.requestFocus() } }
+
     // Playable channels only, indexed for the recents join.
     val playable = remember(state.channels) { state.channels.filter { it.url.isNotBlank() } }
     val byId = remember(playable) { playable.associateBy { it.id } }
@@ -124,6 +132,8 @@ fun AddToMultiviewSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
+        // The drag handle is touch-only; hide it on TV.
+        dragHandle = if (isTv) null else { { BottomSheetDefaults.DragHandle() } },
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -132,7 +142,7 @@ fun AddToMultiviewSheet(
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = onDismiss, modifier = Modifier.focusRequester(doneFocus)) {
                     Text("Done", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.weight(1f))
