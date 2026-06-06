@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-PLUGIN_VERSION = "0.5.2"
+PLUGIN_VERSION = "0.5.3"
 ADMIN_TOKEN_TTL_SECONDS = 30 * 24 * 3600
 # Bumped when the pairing/sync wire contract changes. AerioTV checks this so it
 # can warn about an incompatible plugin instead of failing opaquely.
@@ -260,6 +260,13 @@ class Plugin:
             "button_variant": "filled",
             "button_color": "red",
         },
+        {
+            "id": "cleanup_revoked",
+            "label": "Delete all revoked devices",
+            "button_label": "Clean Up Revoked",
+            "button_variant": "subtle",
+            "button_color": "gray",
+        },
     ]
 
     def __init__(self) -> None:
@@ -329,6 +336,9 @@ class Plugin:
             if result.get("status") == "ok" and logger:
                 logger.info("Revoked AerioTV device %s", device_id)
             return result
+
+        if action == "cleanup_revoked":
+            return cleanup_revoked_devices(state)
 
         return {"status": "error", "message": f"Unknown action: {action}"}
 
@@ -417,6 +427,40 @@ def device_list(state: AerioTvState) -> list[dict[str, Any]]:
         }
         for device_id, device in sorted(state.devices.items())
     ]
+
+
+def delete_device_by_id(state: AerioTvState, device_id: str) -> dict[str, Any]:
+    """Permanently remove a device (and its pairing) from state.
+
+    Only allowed on revoked devices; active devices must be revoked first.
+    """
+    device = state.devices.get(device_id)
+    if not device:
+        return {"status": "error", "message": f"No device found with ID {device_id}."}
+    if not device.get("revoked"):
+        return {"status": "error", "message": f"Device {device_id} is still active. Revoke it first."}
+    del state.devices[device_id]
+    # Remove associated pairing records too.
+    stale = [pid for pid, p in state.pairings.items() if p.device_id == device_id]
+    for pid in stale:
+        del state.pairings[pid]
+    state.save()
+    return {"status": "ok", "message": f"Deleted {device.get('deviceName') or device_id}."}
+
+
+def cleanup_revoked_devices(state: AerioTvState) -> dict[str, Any]:
+    """Delete all revoked devices and their pairing records."""
+    revoked_ids = [did for did, d in list(state.devices.items()) if d.get("revoked")]
+    for device_id in revoked_ids:
+        del state.devices[device_id]
+    stale_pairings = [
+        pid for pid, p in list(state.pairings.items())
+        if p.device_id and p.device_id not in state.devices
+    ]
+    for pid in stale_pairings:
+        del state.pairings[pid]
+    state.save()
+    return {"status": "ok", "deleted": len(revoked_ids), "message": f"Deleted {len(revoked_ids)} revoked device(s)."}
 
 
 def register_routes() -> None:
@@ -645,6 +689,25 @@ def register_routes() -> None:
             result["authenticated"] = True
             return Response(result)
 
+    class AdminDeleteView(APIView):
+        authentication_classes = []
+        permission_classes = []
+
+        def post(self, request):
+            state = AerioTvState.load()
+            if not _is_admin(request, state):
+                return Response({"status": "error", "authenticated": False,
+                                 "message": "Admin link expired or invalid. Run 'Open pairing admin page' again."})
+            data = request.data or {}
+            device_id = str(data.get("deviceId") or "").strip()
+            if device_id:
+                result = delete_device_by_id(state, device_id)
+            else:
+                # No specific device — delete all revoked.
+                result = cleanup_revoked_devices(state)
+            result["authenticated"] = True
+            return Response(result)
+
     route_specs = [
         ("aeriotv/capabilities", CapabilitiesView.as_view(), "aeriotv-capabilities"),
         ("aeriotv/pairing/start", PairingStartView.as_view(), "aeriotv-pairing-start"),
@@ -654,6 +717,7 @@ def register_routes() -> None:
         ("aeriotv/admin/state", AdminStateView.as_view(), "aeriotv-admin-state"),
         ("aeriotv/admin/approve", AdminApproveView.as_view(), "aeriotv-admin-approve"),
         ("aeriotv/admin/revoke", AdminRevokeView.as_view(), "aeriotv-admin-revoke"),
+        ("aeriotv/admin/delete", AdminDeleteView.as_view(), "aeriotv-admin-delete"),
     ]
     existing = {getattr(pattern, "name", None) for pattern in api_urls.urlpatterns}
     for route, view, name in route_specs:
@@ -953,6 +1017,9 @@ _ADMIN_HTML = r"""<!doctype html>
       <tbody id="devicesBody"></tbody>
     </table>
     <div id="devicesEmpty" class="empty">No devices paired yet.</div>
+    <div id="cleanupRow" class="hidden" style="margin-top:14px;text-align:right">
+      <button class="small danger" onclick="deleteAllRevoked()">Delete all revoked</button>
+    </div>
   </section>
 </div>
 
@@ -1048,18 +1115,25 @@ function renderPending(pending){
 }
 function renderDevices(devices){
   const body=document.getElementById('devicesBody'), empty=document.getElementById('devicesEmpty');
+  const cleanup=document.getElementById('cleanupRow');
   body.innerHTML='';
   empty.classList.toggle('hidden', devices.length>0);
+  const anyRevoked=devices.some(d=>d.revoked);
+  cleanup.classList.toggle('hidden', !anyRevoked);
   devices.forEach(d=>{
     const tr=document.createElement('tr');
     const status=d.revoked?'<span class="pill revoked">revoked</span>':'<span class="pill active">active</span>';
     tr.innerHTML='<td>'+(d.deviceName||d.deviceId)+'<br><span style="color:#9aa0a6;font-size:12px">'+d.deviceId+'</span></td>'+
       '<td>'+fmtTime(d.lastSeenAt)+'</td><td>'+status+'</td><td style="text-align:right"></td>';
-    if(!d.revoked){
-      const btn=document.createElement('button'); btn.className='small danger'; btn.textContent='Revoke';
+    const btn=document.createElement('button');
+    if(d.revoked){
+      btn.className='small danger'; btn.textContent='Delete';
+      btn.onclick=()=>deleteDevice(d.deviceId, d.deviceName);
+    } else {
+      btn.className='small danger'; btn.textContent='Revoke';
       btn.onclick=()=>revoke(d.deviceId, d.deviceName);
-      tr.lastChild.appendChild(btn);
     }
+    tr.lastChild.appendChild(btn);
     body.appendChild(tr);
   });
 }
@@ -1081,8 +1155,20 @@ async function approve(){
   refresh();
 }
 async function revoke(deviceId, name){
-  if(!confirm('Revoke '+(name||deviceId)+'? Its token will stop working.')) return;
+  if(!confirm('Revoke '+(name||deviceId)+'? Its token will stop working immediately.')) return;
   const r=await api('/revoke',{method:'POST',body:JSON.stringify({deviceId})});
+  if(r.body && r.body.authenticated===false){ alert("Admin link expired. Run 'Open pairing admin page' in the plugin again."); return; }
+  refresh();
+}
+async function deleteDevice(deviceId, name){
+  if(!confirm('Permanently delete '+(name||deviceId)+'? This cannot be undone.')) return;
+  const r=await api('/delete',{method:'POST',body:JSON.stringify({deviceId})});
+  if(r.body && r.body.authenticated===false){ alert("Admin link expired. Run 'Open pairing admin page' in the plugin again."); return; }
+  refresh();
+}
+async function deleteAllRevoked(){
+  if(!confirm('Delete all revoked devices? This cannot be undone.')) return;
+  const r=await api('/delete',{method:'POST',body:JSON.stringify({})});
   if(r.body && r.body.authenticated===false){ alert("Admin link expired. Run 'Open pairing admin page' in the plugin again."); return; }
   refresh();
 }
