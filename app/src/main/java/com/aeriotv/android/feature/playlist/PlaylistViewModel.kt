@@ -205,11 +205,29 @@ class PlaylistViewModel @Inject constructor(
                 scheduleBootstrapEpgRetry(saved)
             }
 
+            // One-time upgrade migration: when the app version changes, the way
+            // cached channel fields are derived may have changed too (e.g.
+            // v0.1.11 fixed tvgID being taken from the /output/m3u channel
+            // number instead of the EPG-linked tvg_id). The on-disk channel
+            // snapshot was written by the OLD code and is still within its 24h
+            // freshness window, so a normal launch would skip the network and
+            // keep serving the stale/wrong fields forever. Force a one-time
+            // channel re-fetch on the first launch after any version change so
+            // the corrected mapping is applied without the user having to find
+            // and tap "Refresh Playlist".
+            val lastRunVersion = runCatching { appPreferences.lastRunVersionCodeOnce() }.getOrDefault(0)
+            val upgraded = lastRunVersion != com.aeriotv.android.BuildConfig.VERSION_CODE
+            if (upgraded) {
+                logI("bootstrap: version changed ($lastRunVersion -> ${com.aeriotv.android.BuildConfig.VERSION_CODE}); forcing channel re-fetch")
+                runCatching { appPreferences.setLastRunVersionCode(com.aeriotv.android.BuildConfig.VERSION_CODE) }
+            }
+
             // Freshness gate: within the TTL window, the cached rail is
             // good enough and we skip the channel network round-trip entirely
-            // (the EPG cache has its own 30-min TTL).
+            // (the EPG cache has its own 30-min TTL). An upgrade always bypasses
+            // this gate so the migration above can re-fetch with the new code.
             val newest = runCatching { repository.newestChannelFetch(saved.id) }.getOrNull()
-            val freshChannels = hasChannelCache && newest != null &&
+            val freshChannels = !upgraded && hasChannelCache && newest != null &&
                 (System.currentTimeMillis() - newest) < CHANNEL_CACHE_TTL_MS
             if (freshChannels) {
                 logI("bootstrap: channel cache fresh, skipping network refresh")

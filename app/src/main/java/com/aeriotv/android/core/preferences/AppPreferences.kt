@@ -163,6 +163,19 @@ class AppPreferences @Inject constructor(
         store.edit { it[KEY_GUIDE_MINI_PLAYER_POSITION] = safe }
     }
 
+    /**
+     * Version code of the build that last completed a bootstrap. Used to run
+     * one-time upgrade migrations (e.g. force a channel re-fetch when a release
+     * fixes how channel fields are derived). Returns 0 when never written
+     * (fresh install or pre-migration build), which deliberately differs from
+     * any real versionCode so the first run after upgrade always migrates.
+     */
+    suspend fun lastRunVersionCodeOnce(): Int =
+        store.data.first()[KEY_LAST_RUN_VERSION_CODE] ?: 0
+    suspend fun setLastRunVersionCode(value: Int) {
+        store.edit { it[KEY_LAST_RUN_VERSION_CODE] = value }
+    }
+
     /** Last selected Live TV / Guide group filter. Local-only UI state. */
     val liveTvSelectedGroup: Flow<String> = store.data.map { it[KEY_LIVE_TV_SELECTED_GROUP] ?: "All" }
     suspend fun liveTvSelectedGroupOnce(): String =
@@ -826,5 +839,6 @@ class AppPreferences @Inject constructor(
         val KEY_SYNC_ACCESS_TOKEN = stringPreferencesKey("sync_access_token")
         val KEY_SYNC_TOKEN_EXPIRY = longPreferencesKey("sync_token_expiry")
         val KEY_BG_REFRESH_ENABLED = booleanPreferencesKey("background_refresh_enabled")
+        val KEY_LAST_RUN_VERSION_CODE = intPreferencesKey("last_run_version_code")
     }
 }
