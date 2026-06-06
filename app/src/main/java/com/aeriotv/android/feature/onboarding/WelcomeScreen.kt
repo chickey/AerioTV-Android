@@ -89,11 +89,12 @@ fun WelcomeScreen(
     onPairDispatcharr: (() -> Unit)? = null,
 ) {
     val config = LocalConfiguration.current
-    val isTv = com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor().isTv
-    // Two-column when the viewport is meaningfully wider than tall (tablet
-    // landscape, foldable unfolded). TV is excluded: it uses the centered
-    // single column to mirror the tvOS welcome layout.
-    val twoColumn = !isTv && config.screenWidthDp >= 720 && config.screenHeightDp < 720
+    // Two-column when the viewport is meaningfully wider than tall (TV, tablet
+    // landscape, foldable unfolded). A 1080p TV is ~960x540dp, where a single
+    // vertical column doesn't fit and scrolling pushes the logo off-screen; the
+    // two-column layout keeps the brand block visible (left) while the CTAs sit
+    // in the right column, so everything fits without losing the header.
+    val twoColumn = config.screenWidthDp >= 720 && config.screenHeightDp < 720
 
     if (twoColumn) WelcomeTwoColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress, onPairDispatcharr)
     else WelcomeSingleColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress, onPairDispatcharr)
@@ -329,95 +330,26 @@ private fun ActionButtons(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // iOS WelcomeView line 174: `.background(LinearGradient.accentGradient)`.
-        // Material3 Button can't host a Brush container, so the CTA is a
-        // gradient-backed Box. We suppress the default (square) focus indication
-        // and draw our own rounded ring + slight scale so D-pad focus is clear
-        // and follows the button's rounded shape.
-        var connectFocused by remember { mutableStateOf(false) }
-        val connectInteraction = remember { MutableInteractionSource() }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp)
-                .scale(if (connectFocused) 1.02f else 1f)
-                .clip(shape)
-                .background(brush = gradient, shape = shape)
-                .border(
-                    width = if (connectFocused) 3.dp else 0.dp,
-                    color = if (connectFocused) Color.White else Color.Transparent,
-                    shape = shape,
-                )
-                .onFocusChanged { connectFocused = it.isFocused }
-                .clickable(
-                    interactionSource = connectInteraction,
-                    indication = null,
-                    onClick = onConnectServer,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Hub,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = "Connect a Server",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
+        // Connect + Pair share one style so focus is the only differentiator:
+        // outlined when unfocused, gradient-filled + white ring + slight scale
+        // when focused. The default (square) focus indication is suppressed so
+        // the highlight follows the rounded shape.
+        WelcomeActionButton(
+            label = "Connect a Server",
+            icon = Icons.Outlined.Hub,
+            shape = shape,
+            gradient = gradient,
+            onClick = onConnectServer,
+        )
         if (onPairDispatcharr != null) {
             Spacer(Modifier.height(12.dp))
-            // Pair with Dispatcharr straight from the first screen. Outlined
-            // secondary style; fills + thickens its ring on D-pad focus.
-            var pairFocused by remember { mutableStateOf(false) }
-            val pairInteraction = remember { MutableInteractionSource() }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .scale(if (pairFocused) 1.02f else 1f)
-                    .clip(shape)
-                    .background(
-                        if (pairFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                        else Color.Transparent,
-                        shape,
-                    )
-                    .border(
-                        width = if (pairFocused) 3.dp else 1.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = shape,
-                    )
-                    .onFocusChanged { pairFocused = it.isFocused }
-                    .clickable(
-                        interactionSource = pairInteraction,
-                        indication = null,
-                        onClick = onPairDispatcharr,
-                    ),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Hub,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = "Pair with Dispatcharr",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            WelcomeActionButton(
+                label = "Pair with Dispatcharr",
+                icon = Icons.Outlined.Hub,
+                shape = shape,
+                gradient = gradient,
+                onClick = onPairDispatcharr,
+            )
         }
         if (onSignInWithGoogle != null) {
             Spacer(Modifier.height(12.dp))
@@ -439,6 +371,57 @@ private fun ActionButtons(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+    }
+}
+
+/**
+ * Shared welcome CTA: outlined when unfocused, gradient-filled with a white ring
+ * and slight scale when focused. Identical styling for Connect and Pair so the
+ * focus state is the only visual difference between them.
+ */
+@Composable
+private fun WelcomeActionButton(
+    label: String,
+    icon: ImageVector,
+    shape: androidx.compose.ui.graphics.Shape,
+    gradient: Brush,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val contentColor = if (focused) Color.White else MaterialTheme.colorScheme.primary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .scale(if (focused) 1.02f else 1f)
+            .clip(shape)
+            .then(
+                if (focused) Modifier.background(brush = gradient, shape = shape)
+                else Modifier.background(Color.Transparent, shape = shape),
+            )
+            .border(
+                width = if (focused) 3.dp else 1.dp,
+                color = if (focused) Color.White else MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                shape = shape,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            color = contentColor,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
