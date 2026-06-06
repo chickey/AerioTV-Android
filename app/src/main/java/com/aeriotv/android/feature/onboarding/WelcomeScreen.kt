@@ -74,6 +74,13 @@ fun WelcomeScreen(
      */
     onSignInWithGoogle: (() -> Unit)? = null,
     googleSignInInProgress: Boolean = false,
+    /**
+     * Optional Dispatcharr pairing handler. When provided (Fire TV builds), a
+     * "Pair with Dispatcharr" button appears under Connect-a-Server so the user
+     * can pair from the very first screen instead of going through Connect ->
+     * Choose Source Type. Null hides it (e.g. Play builds).
+     */
+    onPairDispatcharr: (() -> Unit)? = null,
 ) {
     val config = LocalConfiguration.current
     val isTv = com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor().isTv
@@ -82,8 +89,8 @@ fun WelcomeScreen(
     // single column to mirror the tvOS welcome layout.
     val twoColumn = !isTv && config.screenWidthDp >= 720 && config.screenHeightDp < 720
 
-    if (twoColumn) WelcomeTwoColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
-    else WelcomeSingleColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
+    if (twoColumn) WelcomeTwoColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress, onPairDispatcharr)
+    else WelcomeSingleColumn(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress, onPairDispatcharr)
 }
 
 @Composable
@@ -92,6 +99,7 @@ private fun WelcomeSingleColumn(
     onSkip: () -> Unit,
     onSignInWithGoogle: (() -> Unit)?,
     googleSignInInProgress: Boolean,
+    onPairDispatcharr: (() -> Unit)?,
 ) {
     Box(
         modifier = Modifier
@@ -127,6 +135,7 @@ private fun WelcomeSingleColumn(
                 onSkip = onSkip,
                 onSignInWithGoogle = onSignInWithGoogle,
                 googleSignInInProgress = googleSignInInProgress,
+                onPairDispatcharr = onPairDispatcharr,
             )
             Spacer(Modifier.height(24.dp))
         }
@@ -139,6 +148,7 @@ private fun WelcomeTwoColumn(
     onSkip: () -> Unit,
     onSignInWithGoogle: (() -> Unit)?,
     googleSignInInProgress: Boolean,
+    onPairDispatcharr: (() -> Unit)?,
 ) {
     Box(
         modifier = Modifier
@@ -146,7 +156,7 @@ private fun WelcomeTwoColumn(
             .background(MaterialTheme.colorScheme.background),
     ) {
         WelcomeAmbientOrbs(modifier = Modifier.fillMaxSize())
-        WelcomeTwoColumnRow(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress)
+        WelcomeTwoColumnRow(onConnectServer, onSkip, onSignInWithGoogle, googleSignInInProgress, onPairDispatcharr)
     }
 }
 
@@ -156,6 +166,7 @@ private fun WelcomeTwoColumnRow(
     onSkip: () -> Unit,
     onSignInWithGoogle: (() -> Unit)?,
     googleSignInInProgress: Boolean,
+    onPairDispatcharr: (() -> Unit)?,
 ) {
     Row(
         modifier = Modifier
@@ -195,6 +206,7 @@ private fun WelcomeTwoColumnRow(
                 onSkip = onSkip,
                 onSignInWithGoogle = onSignInWithGoogle,
                 googleSignInInProgress = googleSignInInProgress,
+                onPairDispatcharr = onPairDispatcharr,
             )
         }
     }
@@ -235,11 +247,21 @@ private fun SupportedTypesGroup(alignStart: Boolean = false) {
 @Composable
 private fun InfoCardsGroup() {
     Column(modifier = Modifier.fillMaxWidth()) {
-        SourceTypeCard(
-            icon = Icons.Filled.CloudOff,
-            title = "Sync via Google Account",
-            subtitle = "After setup, sign in to Drive in Settings > Sync to mirror playlists, watch progress, reminders, and preferences across devices.",
-        )
+        // Sync card is flavour-aware: Play builds advertise Google Drive sync;
+        // Fire builds advertise Dispatcharr sync (no Google services).
+        if (com.aeriotv.android.BuildConfig.GOOGLE_SERVICES_AVAILABLE) {
+            SourceTypeCard(
+                icon = Icons.Filled.CloudOff,
+                title = "Sync via Google Account",
+                subtitle = "After setup, sign in to Drive in Settings > Sync to mirror playlists, watch progress, reminders, and preferences across devices.",
+            )
+        } else {
+            SourceTypeCard(
+                icon = Icons.Outlined.Hub,
+                title = "Sync via Dispatcharr",
+                subtitle = "Pair this Fire TV with your Dispatcharr server to sync settings, favourites, and watch progress across devices — no Google account needed.",
+            )
+        }
         Spacer(Modifier.height(10.dp))
         SourceTypeCard(
             icon = Icons.Outlined.Wifi,
@@ -255,6 +277,7 @@ private fun ActionButtons(
     onSkip: () -> Unit,
     onSignInWithGoogle: (() -> Unit)? = null,
     googleSignInInProgress: Boolean = false,
+    onPairDispatcharr: (() -> Unit)? = null,
 ) {
     val gradient = accentBrush()
     val shape = RoundedCornerShape(28.dp)
@@ -287,6 +310,33 @@ private fun ActionButtons(
                     text = "Connect a Server",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        if (onPairDispatcharr != null) {
+            Spacer(Modifier.height(12.dp))
+            // Fire TV: pair with Dispatcharr straight from the first screen.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .clip(shape)
+                    .border(1.dp, MaterialTheme.colorScheme.primary, shape)
+                    .clickable(onClick = onPairDispatcharr),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Hub,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = "Pair with Dispatcharr",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                 )
             }

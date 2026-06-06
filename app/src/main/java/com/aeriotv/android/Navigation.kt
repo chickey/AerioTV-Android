@@ -232,6 +232,9 @@ fun AerioTVNavHost(
 
                 WelcomeScreen(
                     onConnectServer = { navController.navigate(Routes.CHOOSE_TYPE) },
+                    onPairDispatcharr = if (BuildConfig.GOOGLE_SERVICES_AVAILABLE) null else {
+                        { navController.navigate(Routes.PAIR_DISPATCHARR) }
+                    },
                     // "Skip for now" is iOS parity. With no playlist saved the channel
                     // list is empty; user can reach Settings -> Change playlist later.
                     onSkip = {
