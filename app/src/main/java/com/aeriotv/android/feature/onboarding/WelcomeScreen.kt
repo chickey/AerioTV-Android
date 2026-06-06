@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,10 +34,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -49,7 +56,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aeriotv.android.R
-import com.aeriotv.android.feature.onboarding.components.SourceTypeCard
 
 /**
  * Cold-start welcome surface. Mirrors iOS App Store screenshot IMG_1076: AerioTV
@@ -246,29 +252,66 @@ private fun SupportedTypesGroup(alignStart: Boolean = false) {
 
 @Composable
 private fun InfoCardsGroup() {
+    // These are informational hints, not actions. They use a flat, borderless
+    // style (icon + text) so they don't read as focusable buttons on TV — the
+    // SourceTypeCard look is reserved for the tappable source-type list.
     Column(modifier = Modifier.fillMaxWidth()) {
         // Dispatcharr sync is offered on every build (any Android device can pair
         // with a Dispatcharr server). Google Drive sync is Play-only and is hidden
         // on builds without Google services (e.g. Fire TV).
-        SourceTypeCard(
+        WelcomeInfoCard(
             icon = Icons.Outlined.Hub,
             title = "Sync via Dispatcharr",
             subtitle = "Pair with your Dispatcharr server to sync settings, favourites, and watch progress across devices — no Google account needed.",
         )
-        Spacer(Modifier.height(10.dp))
         if (com.aeriotv.android.BuildConfig.GOOGLE_SERVICES_AVAILABLE) {
-            SourceTypeCard(
+            Spacer(Modifier.height(8.dp))
+            WelcomeInfoCard(
                 icon = Icons.Filled.CloudOff,
                 title = "Sync via Google Account",
                 subtitle = "After setup, sign in to Drive in Settings > Sync to mirror playlists, watch progress, reminders, and preferences across devices.",
             )
-            Spacer(Modifier.height(10.dp))
         }
-        SourceTypeCard(
+        Spacer(Modifier.height(8.dp))
+        WelcomeInfoCard(
             icon = Icons.Outlined.Wifi,
             title = "Detect Home WiFi",
             subtitle = "After setup, add a LAN URL to your playlist in Settings and AerioTV will switch to it automatically when you're on your home network.",
         )
+    }
+}
+
+/**
+ * Flat informational row for the welcome screen: a small accent icon and
+ * title/subtitle text, with no border, fill, or icon-chip. Deliberately not
+ * focusable so it reads as a hint rather than a button on a 10-foot TV UI.
+ */
+@Composable
+private fun WelcomeInfoCard(icon: ImageVector, title: String, subtitle: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+            modifier = Modifier.padding(top = 2.dp).size(20.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -288,13 +331,29 @@ private fun ActionButtons(
     ) {
         // iOS WelcomeView line 174: `.background(LinearGradient.accentGradient)`.
         // Material3 Button can't host a Brush container, so the CTA is a
-        // gradient-backed Box with clickable + same Material ripple behavior.
+        // gradient-backed Box. We suppress the default (square) focus indication
+        // and draw our own rounded ring + slight scale so D-pad focus is clear
+        // and follows the button's rounded shape.
+        var connectFocused by remember { mutableStateOf(false) }
+        val connectInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp)
+                .scale(if (connectFocused) 1.02f else 1f)
+                .clip(shape)
                 .background(brush = gradient, shape = shape)
-                .clickable(onClick = onConnectServer),
+                .border(
+                    width = if (connectFocused) 3.dp else 0.dp,
+                    color = if (connectFocused) Color.White else Color.Transparent,
+                    shape = shape,
+                )
+                .onFocusChanged { connectFocused = it.isFocused }
+                .clickable(
+                    interactionSource = connectInteraction,
+                    indication = null,
+                    onClick = onConnectServer,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -317,14 +376,32 @@ private fun ActionButtons(
         }
         if (onPairDispatcharr != null) {
             Spacer(Modifier.height(12.dp))
-            // Fire TV: pair with Dispatcharr straight from the first screen.
+            // Pair with Dispatcharr straight from the first screen. Outlined
+            // secondary style; fills + thickens its ring on D-pad focus.
+            var pairFocused by remember { mutableStateOf(false) }
+            val pairInteraction = remember { MutableInteractionSource() }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
+                    .scale(if (pairFocused) 1.02f else 1f)
                     .clip(shape)
-                    .border(1.dp, MaterialTheme.colorScheme.primary, shape)
-                    .clickable(onClick = onPairDispatcharr),
+                    .background(
+                        if (pairFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        else Color.Transparent,
+                        shape,
+                    )
+                    .border(
+                        width = if (pairFocused) 3.dp else 1.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = shape,
+                    )
+                    .onFocusChanged { pairFocused = it.isFocused }
+                    .clickable(
+                        interactionSource = pairInteraction,
+                        indication = null,
+                        onClick = onPairDispatcharr,
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
             ) {
