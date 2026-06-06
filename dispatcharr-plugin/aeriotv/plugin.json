@@ -1,6 +1,6 @@
 {
   "name": "AerioTV Pairing",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Pairs AerioTV Fire TV clients with Dispatcharr and serves the AerioTV sync document. Use the link below to open the pairing page. Docs: https://github.com/chickey/AerioTV-Android",
   "author": "AerioTV",
   "help_url": "/api/plugins/aeriotv/admin",
@@ -16,95 +16,48 @@
       "label": "Pairing page",
       "type": "string",
       "default": "/api/plugins/aeriotv/admin",
-      "help_text": "Open the pairing page (same host/port as Dispatcharr): [Pairing page](/api/plugins/aeriotv/admin) \u2014 or the 'docs' link above. Run 'Open pairing admin page' below if you need a token link."
+      "help_text": "Open /api/plugins/aeriotv/admin on your Dispatcharr server to link Fire TV devices and manage paired devices. Run 'Get admin link' below if you need a bookmarkable token link."
     },
     {
       "id": "server_base_url",
       "label": "Server base URL",
       "type": "string",
       "default": "",
-      "placeholder": "Leave blank to use request host",
-      "help_text": "Optional URL returned to AerioTV after approval, for example http://tvserver.local:9191."
+      "placeholder": "e.g. http://tvserver.local:9191",
+      "help_text": "Returned to AerioTV after pairing. Leave blank to use the address of this Dispatcharr server."
     },
     {
-      "id": "approval_code",
-      "label": "Pairing code to approve",
-      "type": "string",
-      "default": "",
-      "placeholder": "4821",
-      "help_text": "Enter the 4 digit code shown by AerioTV, then run Approve pairing."
-    },
-    {
-      "id": "profile_id",
-      "label": "Dispatcharr profile ID",
-      "type": "number",
-      "default": 1,
-      "help_text": "Initial profile ID to return to AerioTV. This can become a selector once the plugin UI is richer."
-    },
-    {
-      "id": "api_key_for_testing",
-      "label": "API key returned to AerioTV",
+      "id": "api_key_override",
+      "label": "API key override",
       "type": "string",
       "default": "",
       "input_type": "password",
-      "help_text": "Temporary Phase 4 bridge. If set, this API key is returned as the device token so AerioTV can call existing Dispatcharr APIs."
-    },
-    {
-      "id": "device_id_to_revoke",
-      "label": "Device ID to revoke",
-      "type": "string",
-      "default": "",
-      "placeholder": "aeriotv-xxxxxxxxxxxx",
-      "help_text": "Paste a device ID from List paired devices, then run Revoke device to invalidate its token."
+      "help_text": "Only needed if auto-detection of your Dispatcharr API key fails. Leave blank in normal use."
     }
   ],
   "actions": [
     {
       "id": "show_admin_link",
-      "label": "Open pairing admin page",
-      "description": "Generates a tokenised link to the Link Device / Paired Devices web page (valid 30 days).",
+      "label": "Get admin link",
+      "description": "Generates a tokenised link to the pairing page (valid 30 days). Useful if your browser login doesn't carry through to the page.",
       "button_label": "Get Admin Link",
       "button_variant": "filled",
       "button_color": "blue"
     },
     {
-      "id": "list_pending",
-      "label": "List pending pairings",
-      "description": "Shows pending AerioTV devices waiting for approval.",
-      "button_label": "Show Pending",
-      "button_variant": "outline",
-      "button_color": "blue"
-    },
-    {
-      "id": "approve_pairing",
-      "label": "Approve pairing",
-      "description": "Approves the code entered in plugin settings and issues a device token.",
-      "button_label": "Approve Code",
-      "button_variant": "filled",
-      "button_color": "green"
-    },
-    {
       "id": "cleanup_expired",
-      "label": "Clean up expired pairings",
-      "description": "Removes expired pending pairing requests.",
-      "button_label": "Clean Up",
+      "label": "Clean up expired pairing attempts",
+      "description": "Removes pending pairing sessions that timed out without being approved.",
+      "button_label": "Clean Up Expired",
       "button_variant": "subtle",
       "button_color": "gray"
     },
     {
-      "id": "list_devices",
-      "label": "List paired devices",
-      "description": "Shows Fire TV devices paired with this plugin.",
-      "button_label": "Show Devices",
-      "button_variant": "outline",
-      "button_color": "teal"
-    },
-    {
-      "id": "revoke_device",
-      "label": "Revoke device",
-      "description": "Revokes the device ID entered in plugin settings and invalidates its token.",
-      "button_label": "Revoke Device",
-      "button_variant": "filled",
+      "id": "cleanup_revoked",
+      "label": "Delete all revoked devices",
+      "description": "Permanently removes revoked device records. Use the pairing page for individual device management.",
+      "button_label": "Delete Revoked",
+      "button_variant": "subtle",
       "button_color": "red"
     }
   ]

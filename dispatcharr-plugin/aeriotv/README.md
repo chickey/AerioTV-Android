@@ -106,12 +106,12 @@ Then in Dispatcharr:
 1. Open `Plugins`.
 2. Reload plugins.
 3. Enable `AerioTV Pairing`.
-4. For Phase 4 testing, paste a Dispatcharr API key into `API key returned to AerioTV`.
-5. On the Fire TV, choose `Find Dispatcharr automatically`.
-6. Enter the code shown by AerioTV into the plugin setting `Pairing code to approve`.
-7. Run `Approve pairing`.
+4. Fully restart the Dispatcharr backend so the plugin routes are registered.
+5. Open the plugin help/docs link, or open `/api/plugins/aeriotv/admin` on the same Dispatcharr host.
+6. On the Fire TV, choose `Find Dispatcharr automatically`.
+7. Enter the 4-digit Fire TV code on the admin web page and click `Link`.
 
-The Android app should then see the pairing status become `approved`.
+The Android app should then see the pairing status become `approved` and continue setup automatically.
 
 ## State Storage
 
@@ -139,9 +139,9 @@ Before this is production-grade, we should replace the route-registration shim w
 - a small upstream Dispatcharr core patch for AerioTV plugin routes,
 - or a sanctioned sidecar/service mechanism advertised through Dispatcharr.
 
-For Phase 4 testing, the plugin can return a real Dispatcharr API key as `deviceToken` by setting `API key returned to AerioTV`. That lets the current Android app reuse its existing Dispatcharr API-key code path.
+Current pairing returns the approving admin's Dispatcharr API key to AerioTV so the app can reuse existing channel, EPG, DVR and VOD APIs. The plugin stores only a hash of the token it uses for plugin sync auth, and the plaintext token is delivered to AerioTV only once during the approved pairing poll.
 
-The production token still needs to become one of:
+A future production model should replace the admin API-key bridge with one of:
 
 - a scoped Dispatcharr API key,
 - a plugin-proxied token,

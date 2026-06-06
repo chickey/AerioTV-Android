@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-PLUGIN_VERSION = "0.5.4"
+PLUGIN_VERSION = "0.5.5"
 ADMIN_TOKEN_TTL_SECONDS = 30 * 24 * 3600
 # Bumped when the pairing/sync wire contract changes. AerioTV checks this so it
 # can warn about an incompatible plugin instead of failing opaquely.
@@ -769,9 +769,9 @@ def _user_api_key(user) -> str | None:
 def _admin_api_key_from_db() -> str | None:
     """Fetch a real Dispatcharr API key when no request/JWT is available.
 
-    Used by the plugin action path (approve_pairing button in plugin settings),
-    which has no HTTP request context. Queries the User model directly for any
-    staff user with an API key, minting one if none exist yet.
+    Used when the admin page is opened from a tokenised plugin link without a
+    browser JWT. Queries the User model directly for any staff user with an API
+    key, minting one if none exist yet.
     """
     try:
         from apps.accounts.models import User
