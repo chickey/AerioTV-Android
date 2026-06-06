@@ -22,7 +22,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -41,7 +44,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.filled.Menu
+import com.aeriotv.android.ui.rememberIsTvDevice
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.ui.text.font.FontWeight
@@ -76,6 +82,7 @@ fun PlaylistsScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList<PlaylistEntity>())
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeId = state.playlist?.id
+    val isTv = rememberIsTvDevice()
 
     var pendingDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
 
@@ -143,6 +150,14 @@ fun PlaylistsScreen(
                 add(to.index, removeAt(from.index))
             }
         }
+        // D-pad reorder for TV: swipe/drag don't work with a remote, so move
+        // by one position and commit immediately.
+        val moveItem: (Int, Int) -> Unit = { from, to ->
+            if (to in workingOrder.indices && from in workingOrder.indices) {
+                workingOrder = workingOrder.toMutableList().apply { add(to, removeAt(from)) }
+                viewModel.applyPlaylistOrder(workingOrder.map { it.id })
+            }
+        }
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.adaptiveFormWidth(),
@@ -157,35 +172,49 @@ fun PlaylistsScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(workingOrder, key = { it.id }) { pl ->
-                ReorderableItem(reorderState, key = pl.id) { isDragging ->
-                    SwipeablePlaylistRow(
+                val onTap: () -> Unit = {
+                    if (pl.id == activeId) onOpenPlaylistDetail()
+                    else viewModel.switchToPlaylist(pl.id)
+                }
+                if (isTv) {
+                    // TV: explicit D-pad move/delete buttons instead of
+                    // swipe-to-delete + drag-to-reorder.
+                    val index = workingOrder.indexOf(pl)
+                    PlaylistRowTv(
                         playlist = pl,
                         isActive = pl.id == activeId,
-                        isDragging = isDragging,
-                        onTap = {
-                            if (pl.id == activeId) {
-                                onOpenPlaylistDetail()
-                            } else {
-                                viewModel.switchToPlaylist(pl.id)
-                            }
-                        },
-                        onLongPress = { pendingDelete = pl },
-                        onSwipedToDelete = { pendingDelete = pl },
-                        dragHandle = {
-                            Icon(
-                                imageVector = Icons.Filled.Menu,
-                                contentDescription = "Drag to reorder",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .draggableHandle(
-                                        onDragStopped = {
-                                            viewModel.applyPlaylistOrder(workingOrder.map { it.id })
-                                        },
-                                    )
-                                    .size(24.dp),
-                            )
-                        },
+                        canMoveUp = index > 0,
+                        canMoveDown = index >= 0 && index < workingOrder.lastIndex,
+                        onTap = onTap,
+                        onMoveUp = { moveItem(index, index - 1) },
+                        onMoveDown = { moveItem(index, index + 1) },
+                        onDelete = { pendingDelete = pl },
                     )
+                } else {
+                    ReorderableItem(reorderState, key = pl.id) { isDragging ->
+                        SwipeablePlaylistRow(
+                            playlist = pl,
+                            isActive = pl.id == activeId,
+                            isDragging = isDragging,
+                            onTap = onTap,
+                            onLongPress = { pendingDelete = pl },
+                            onSwipedToDelete = { pendingDelete = pl },
+                            dragHandle = {
+                                Icon(
+                                    imageVector = Icons.Filled.Menu,
+                                    contentDescription = "Drag to reorder",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .draggableHandle(
+                                            onDragStopped = {
+                                                viewModel.applyPlaylistOrder(workingOrder.map { it.id })
+                                            },
+                                        )
+                                        .size(24.dp),
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -280,6 +309,98 @@ private fun PlaylistRow(
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * TV variant of [PlaylistRow]. Swipe-to-delete and drag-to-reorder are
+ * touch-only, so the remote gets explicit, D-pad-focusable Move-up / Move-down /
+ * Delete buttons instead. The info area stays the switch/open tap target.
+ */
+@Composable
+private fun PlaylistRowTv(
+    playlist: PlaylistEntity,
+    isActive: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onTap: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onTap)
+                .border(
+                    width = if (focused) 2.dp else 0.dp,
+                    color = if (focused) MaterialTheme.colorScheme.primary
+                    else androidx.compose.ui.graphics.Color.Transparent,
+                    shape = RoundedCornerShape(10.dp),
+                )
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = playlist.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${playlist.channelCount} channels • ${playlist.sourceType}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (isActive) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "Active",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+            Icon(
+                imageVector = Icons.Filled.ArrowUpward,
+                contentDescription = "Move up",
+                tint = if (canMoveUp) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            )
+        }
+        IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+            Icon(
+                imageVector = Icons.Filled.ArrowDownward,
+                contentDescription = "Move down",
+                tint = if (canMoveDown) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "Delete playlist",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }
 

@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -13,11 +14,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -44,6 +48,7 @@ import com.aeriotv.android.feature.livetv.RecordProgramSheet
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
 import com.aeriotv.android.feature.playlist.nowPlaying
 import com.aeriotv.android.feature.settings.SettingsViewModel
+import com.aeriotv.android.ui.rememberIsTvDevice
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -96,6 +101,15 @@ fun FavoritesTabContent(
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         workingOrder = workingOrder.toMutableList().apply {
             add(to.index, removeAt(from.index))
+        }
+    }
+    val isTv = rememberIsTvDevice()
+    // D-pad reorder for TV: drag-to-reorder needs touch, so move by one
+    // position via buttons and commit immediately.
+    val moveItem: (Int, Int) -> Unit = { from, to ->
+        if (to in workingOrder.indices && from in workingOrder.indices) {
+            workingOrder = workingOrder.toMutableList().apply { add(to, removeAt(from)) }
+            favoritesVm.applyOrder(workingOrder.map { it.id })
         }
     }
 
@@ -157,9 +171,12 @@ fun FavoritesTabContent(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(items = workingOrder, key = { it.id }) { channel ->
-                ReorderableItem(reorderState, key = channel.id) { _ ->
-                    val programmes = playlistState.epgByChannel.programmesFor(channel)
-                    val nowProgramme = programmes.nowPlaying()
+                val programmes = playlistState.epgByChannel.programmesFor(channel)
+                val nowProgramme = programmes.nowPlaying()
+                if (isTv) {
+                    // TV: D-pad Move-up / Move-down buttons instead of a drag
+                    // handle. Removal stays on the row's long-press menu.
+                    val index = workingOrder.indexOf(channel)
                     ChannelRow(
                         channel = channel,
                         nowProgramme = nowProgramme,
@@ -171,20 +188,62 @@ fun FavoritesTabContent(
                         onShowRecord = { recordTarget = it },
                         palette = palette,
                         reorderHandle = {
-                            Icon(
-                                imageVector = Icons.Filled.Menu,
-                                contentDescription = "Drag to reorder",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .draggableHandle(
-                                        onDragStopped = {
-                                            favoritesVm.applyOrder(workingOrder.map { it.id })
-                                        },
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = { moveItem(index, index - 1) },
+                                    enabled = index > 0,
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ArrowUpward,
+                                        contentDescription = "Move up",
+                                        tint = if (index > 0) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                     )
-                                    .size(24.dp),
-                            )
+                                }
+                                IconButton(
+                                    onClick = { moveItem(index, index + 1) },
+                                    enabled = index >= 0 && index < workingOrder.lastIndex,
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ArrowDownward,
+                                        contentDescription = "Move down",
+                                        tint = if (index >= 0 && index < workingOrder.lastIndex) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    )
+                                }
+                            }
                         },
                     )
+                } else {
+                    ReorderableItem(reorderState, key = channel.id) { _ ->
+                        ChannelRow(
+                            channel = channel,
+                            nowProgramme = nowProgramme,
+                            programmes = programmes,
+                            isFavorite = channel.id in favoriteIds,
+                            onPlay = { onChannelClick(channel) },
+                            onToggleFavorite = { favoritesVm.toggle(channel) },
+                            onShowProgramInfo = { programInfoTarget = it },
+                            onShowRecord = { recordTarget = it },
+                            palette = palette,
+                            reorderHandle = {
+                                Icon(
+                                    imageVector = Icons.Filled.Menu,
+                                    contentDescription = "Drag to reorder",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .draggableHandle(
+                                            onDragStopped = {
+                                                favoritesVm.applyOrder(workingOrder.map { it.id })
+                                            },
+                                        )
+                                        .size(24.dp),
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
