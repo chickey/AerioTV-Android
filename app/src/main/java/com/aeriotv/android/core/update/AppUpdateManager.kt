@@ -16,9 +16,11 @@ import io.ktor.utils.io.readAvailable
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 private const val TAG = "AppUpdateManager"
 
@@ -83,13 +85,19 @@ class AppUpdateManager @Inject constructor(
 
     /**
      * Download the release APK to the app's private cache directory.
-     * Progress is reported via [State.Downloading.progressPercent] (0–100).
+     *
+     * [State.Downloading.progressPercent] is:
+     *   -1  → indeterminate (GitHub CDN did not send Content-Length, which is
+     *          common when the download URL resolves through multiple redirects)
+     *   0–99 → determinate percentage (Content-Length was known)
+     *
      * On completion transitions to [State.ReadyToInstall].
      */
     suspend fun startDownload(info: UpdateInfo) {
         val outFile = File(context.cacheDir, "AerioTV-update.apk")
         runCatching { outFile.delete() }
-        _state.value = State.Downloading(info, 0)
+        // Start indeterminate (-1) until we know if Content-Length is available.
+        _state.value = State.Downloading(info, -1)
 
         runCatching {
             val client = HttpClient(OkHttp) {
@@ -108,15 +116,20 @@ class AppUpdateManager @Inject constructor(
                 val channel = response.bodyAsChannel()
                 val buf = ByteArray(DEFAULT_BUFFER_SIZE)
                 var received = 0L
-                outFile.outputStream().buffered().use { out ->
-                    while (!channel.isClosedForRead) {
-                        val n = channel.readAvailable(buf)
-                        if (n <= 0) break
-                        out.write(buf, 0, n)
-                        received += n
-                        if (contentLength > 0) {
-                            val pct = (received * 100L / contentLength).toInt().coerceIn(0, 99)
-                            _state.value = State.Downloading(info, pct)
+                // File IO on Dispatchers.IO; channel.readAvailable() suspends safely.
+                withContext(Dispatchers.IO) {
+                    outFile.outputStream().buffered().use { out ->
+                        while (!channel.isClosedForRead) {
+                            val n = channel.readAvailable(buf)
+                            if (n < 0) break   // -1 = EOF / channel closed
+                            if (n == 0) continue // no bytes available yet; keep looping
+                            out.write(buf, 0, n)
+                            received += n
+                            if (contentLength > 0) {
+                                val pct = (received * 100L / contentLength).toInt().coerceIn(0, 99)
+                                _state.value = State.Downloading(info, pct)
+                            }
+                            // If contentLength <= 0 we stay at -1 (indeterminate) the whole time.
                         }
                     }
                 }
@@ -131,9 +144,15 @@ class AppUpdateManager @Inject constructor(
     }
 
     /**
-     * Launch the system PackageInstaller for [apkFile].
-     * The user already granted install-from-unknown-sources when they first
-     * sideloaded AerioTV, so the system installer dialog appears immediately.
+     * Launch the system PackageInstaller for [apkFile] and immediately
+     * return to [State.Idle].
+     *
+     * The system installer is a separate OS process — once [startActivity]
+     * fires, AerioTV has no further role. Dismissing the dialog right away
+     * avoids a confusing state where our prompt is still showing while the
+     * installer dialog is also open. If the system install fails (e.g.
+     * signature mismatch on a debug build, or the user cancels), the user
+     * can re-trigger from Settings → Check for Updates.
      */
     fun install(apkFile: File) {
         runCatching {
@@ -148,6 +167,8 @@ class AppUpdateManager @Inject constructor(
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(intent)
+            // Dismiss our dialog — system installer takes over from here.
+            _state.value = State.Idle
         }.onFailure { e ->
             Log.e(TAG, "Could not launch installer", e)
             _state.value = State.Error("Could not launch installer: ${e.message}")

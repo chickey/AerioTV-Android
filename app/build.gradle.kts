@@ -40,8 +40,8 @@ android {
         applicationId = "com.aeriotv.android"
         minSdk = 25
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.1.8"
+        versionCode = 15
+        versionName = "0.1.9"
         vectorDrawables { useSupportLibrary = true }
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")

@@ -184,15 +184,30 @@ private fun DownloadingContent(info: UpdateInfo, progressPercent: Int) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(20.dp))
-        LinearProgressIndicator(
-            progress = { progressPercent / 100f },
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
-        )
+        // progressPercent == -1 means the server didn't send Content-Length
+        // (common with GitHub CDN redirects), so show an animated indeterminate
+        // bar instead of a stuck 0% determinate bar.
+        if (progressPercent < 0) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+            )
+        } else {
+            LinearProgressIndicator(
+                progress = { progressPercent / 100f },
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Text(
-            text = if (progressPercent > 0) "$progressPercent%" else "Starting…",
+            text = when {
+                progressPercent < 0 -> "Downloading…"
+                progressPercent > 0 -> "$progressPercent%"
+                else -> "Starting…"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -223,7 +238,7 @@ private fun ReadyToInstallContent(
         Spacer(Modifier.height(6.dp))
         Text(
             text = "AerioTV ${info.versionName} has been downloaded. " +
-                "The app will restart after installation.",
+                "Tap Install Now — the system installer will open to complete the update.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
