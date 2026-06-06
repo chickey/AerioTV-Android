@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-PLUGIN_VERSION = "0.5.3"
+PLUGIN_VERSION = "0.5.4"
 ADMIN_TOKEN_TTL_SECONDS = 30 * 24 * 3600
 # Bumped when the pairing/sync wire contract changes. AerioTV checks this so it
 # can warn about an incompatible plugin instead of failing opaquely.
@@ -198,74 +198,54 @@ class Plugin:
             "label": "Pairing page",
             "type": "string",
             "default": ADMIN_PATH,
-            "help_text": f"Open the pairing page (same host/port as Dispatcharr): [Pairing page]({ADMIN_PATH}) — or the 'docs' link above. Run 'Open pairing admin page' below if you need a token link.",
+            "help_text": (
+                f"Use the docs link above or open {ADMIN_PATH} on your Dispatcharr server "
+                "to link Fire TV devices and manage paired devices. "
+                "Run 'Get admin link' below if you need a bookmarkable token link."
+            ),
         },
         {
             "id": "server_base_url",
             "label": "Server base URL",
             "type": "string",
             "default": "",
-            "placeholder": "Leave blank to use request host",
-            "help_text": "Optional URL returned to AerioTV after approval.",
+            "placeholder": "e.g. http://tvserver.local:9191",
+            "help_text": "Returned to AerioTV after pairing. Leave blank to use the address of this Dispatcharr server.",
         },
         {
-            "id": "approval_code",
-            "label": "Pairing code to approve",
-            "type": "string",
-            "default": "",
-            "placeholder": "4821",
-            "help_text": "Fallback to the admin page: enter the code shown by AerioTV, then run Approve pairing.",
-        },
-        {"id": "profile_id", "label": "Dispatcharr profile ID", "type": "number", "default": 1},
-        {
-            "id": "api_key_for_testing",
-            "label": "API key returned to AerioTV",
+            "id": "api_key_override",
+            "label": "API key override",
             "type": "string",
             "default": "",
             "input_type": "password",
-            "help_text": "Temporary bridge so AerioTV can call existing Dispatcharr APIs.",
-        },
-        {
-            "id": "device_id_to_revoke",
-            "label": "Device ID to revoke",
-            "type": "string",
-            "default": "",
-            "placeholder": "aeriotv-xxxxxxxxxxxx",
-            "help_text": "Fallback to the admin page: paste a device ID from List paired devices, then run Revoke device.",
+            "help_text": "Only needed if auto-detection of your Dispatcharr API key fails. Leave blank in normal use.",
         },
     ]
 
     actions = [
         {
             "id": "show_admin_link",
-            "label": "Open pairing admin page",
+            "label": "Get admin link",
+            "description": "Generates a tokenised link to the pairing page (valid 30 days). Useful if your browser login doesn't carry through to the page.",
             "button_label": "Get Admin Link",
             "button_variant": "filled",
             "button_color": "blue",
         },
-        {"id": "list_pending", "label": "List pending pairings", "button_label": "Show Pending"},
         {
-            "id": "approve_pairing",
-            "label": "Approve pairing",
-            "button_label": "Approve Code",
-            "button_variant": "filled",
-            "button_color": "green",
-        },
-        {"id": "cleanup_expired", "label": "Clean up expired pairings", "button_label": "Clean Up"},
-        {"id": "list_devices", "label": "List paired devices", "button_label": "Show Devices"},
-        {
-            "id": "revoke_device",
-            "label": "Revoke device",
-            "button_label": "Revoke Device",
-            "button_variant": "filled",
-            "button_color": "red",
+            "id": "cleanup_expired",
+            "label": "Clean up expired pairing attempts",
+            "description": "Removes pending pairing sessions that timed out without being approved.",
+            "button_label": "Clean Up Expired",
+            "button_variant": "subtle",
+            "button_color": "gray",
         },
         {
             "id": "cleanup_revoked",
             "label": "Delete all revoked devices",
-            "button_label": "Clean Up Revoked",
+            "description": "Permanently removes revoked device records. Use the pairing page for individual device management.",
+            "button_label": "Delete Revoked",
             "button_variant": "subtle",
-            "button_color": "gray",
+            "button_color": "red",
         },
     ]
 
@@ -300,42 +280,10 @@ class Plugin:
             state.save()
             return {"status": "ok", "pending": pending, "count": len(pending)}
 
-        if action == "approve_pairing":
-            code = str(settings.get("approval_code") or params.get("code") or "").strip()
-            if not code:
-                return {"status": "error", "message": "Enter the AerioTV pairing code in plugin settings first."}
-            # Priority: explicit settings key → admin's DB API key → placeholder.
-            api_key = str(settings.get("api_key_for_testing") or "").strip()
-            if not api_key:
-                api_key = _admin_api_key_from_db() or ""
-            result = approve_code(
-                state,
-                code,
-                profile_id=_safe_int(settings.get("profile_id"), default=1),
-                server_base_url=str(settings.get("server_base_url") or "").strip() or None,
-                api_key=api_key,
-            )
-            if result.get("status") == "ok" and logger:
-                logger.info("Approved AerioTV pairing for %s", result.get("deviceName"))
-            return result
-
         if action == "cleanup_expired":
             count = state.cleanup_expired()
             state.save()
-            return {"status": "ok", "expired": count}
-
-        if action == "list_devices":
-            devices = device_list(state)
-            return {"status": "ok", "count": len(devices), "devices": devices}
-
-        if action == "revoke_device":
-            device_id = str(settings.get("device_id_to_revoke") or params.get("deviceId") or "").strip()
-            if not device_id:
-                return {"status": "error", "message": "Enter a device ID to revoke in plugin settings first."}
-            result = revoke_device_by_id(state, device_id)
-            if result.get("status") == "ok" and logger:
-                logger.info("Revoked AerioTV device %s", device_id)
-            return result
+            return {"status": "ok", "message": f"Removed {count} expired pairing session(s)."}
 
         if action == "cleanup_revoked":
             return cleanup_revoked_devices(state)
