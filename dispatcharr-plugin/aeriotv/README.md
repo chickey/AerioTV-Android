@@ -32,8 +32,9 @@ with two tabs:
 
 ### Opening it
 
-In Dispatcharr, open the **AerioTV Pairing** plugin and click the **help/docs
-link** on the plugin page. The plugin's `help_url` points at
+In Dispatcharr, open the **AerioTV Pairing** plugin and click the **Docs**
+link on the plugin page. Dispatcharr renders plugin `help_url` links with that
+generic label. The plugin's `help_url` points at
 `/api/plugins/aeriotv/admin`, which resolves to the same host/port Dispatcharr
 is on, so the link opens the pairing page directly.
 
@@ -107,7 +108,7 @@ Then in Dispatcharr:
 2. Reload plugins.
 3. Enable `AerioTV Pairing`.
 4. Fully restart the Dispatcharr backend so the plugin routes are registered.
-5. Open the plugin help/docs link, or open `/api/plugins/aeriotv/admin` on the same Dispatcharr host.
+5. Open the plugin `Docs` link, or open `/api/plugins/aeriotv/admin` on the same Dispatcharr host.
 6. On the Fire TV, choose `Find Dispatcharr automatically`.
 7. Enter the 4-digit Fire TV code on the admin web page and click `Link`.
 

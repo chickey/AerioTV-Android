@@ -183,8 +183,8 @@ class Plugin:
     version = PLUGIN_VERSION
     description = (
         "Pairs AerioTV Fire TV clients with Dispatcharr and serves the AerioTV "
-        "sync document. Use the link below to open the pairing page. "
-        "Docs: https://github.com/chickey/AerioTV-Android"
+        "sync document. Click the Docs link above to open the pairing page, "
+        "link Fire TV devices, and manage paired devices."
     )
     author = "AerioTV"
     # Root-relative so it resolves to the same host/port Dispatcharr is on and
