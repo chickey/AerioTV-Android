@@ -576,7 +576,23 @@ class PlaylistRepository @Inject constructor(
                         url = outputUrl ?: dispatcharrClient.streamUrl(base, ch.uuid!!),
                         groupTitle = output?.groupTitle?.takeIf { it.isNotBlank() }
                             ?: ch.channelGroupId?.let { groups[it] }.orEmpty(),
-                        tvgID = output?.tvgID?.takeIf { it.isNotBlank() } ?: ch.tvgId.orEmpty(),
+                        // EPG matching hinges on tvgID equalling the key the
+                        // /api/epg/grid/ programmes are bucketed under, which is
+                        // the channel's EPGData tvg_id (e.g. "120574"). The
+                        // channels API returns exactly that in ch.tvgId, so it
+                        // MUST win.
+                        //
+                        // We previously preferred the /output/m3u tvg-id, but
+                        // Dispatcharr's M3U output can be configured to emit the
+                        // channel NUMBER as tvg-id (e.g. tvg-id="101" for BBC One
+                        // HD). When that happens, every channel's tvgID becomes a
+                        // channel number that matches no grid key, and the whole
+                        // guide silently goes blank even though programmes are
+                        // cached. So: prefer ch.tvgId (the real EPG link) and only
+                        // fall back to the M3U output's tvg-id when the API value
+                        // is blank.
+                        tvgID = ch.tvgId?.takeIf { it.isNotBlank() }
+                            ?: output?.tvgID?.takeIf { it.isNotBlank() }.orEmpty(),
                         tvgName = output?.tvgName?.takeIf { it.isNotBlank() } ?: ch.name,
                         tvgLogo = output?.tvgLogo?.takeIf { it.isNotBlank() }
                             ?: ch.logoId?.let { dispatcharrClient.logoUrl(base, it) }.orEmpty(),
