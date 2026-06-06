@@ -247,22 +247,23 @@ private fun SupportedTypesGroup(alignStart: Boolean = false) {
 @Composable
 private fun InfoCardsGroup() {
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Sync card is flavour-aware: Play builds advertise Google Drive sync;
-        // Fire builds advertise Dispatcharr sync (no Google services).
+        // Dispatcharr sync is offered on every build (any Android device can pair
+        // with a Dispatcharr server). Google Drive sync is Play-only and is hidden
+        // on builds without Google services (e.g. Fire TV).
+        SourceTypeCard(
+            icon = Icons.Outlined.Hub,
+            title = "Sync via Dispatcharr",
+            subtitle = "Pair with your Dispatcharr server to sync settings, favourites, and watch progress across devices — no Google account needed.",
+        )
+        Spacer(Modifier.height(10.dp))
         if (com.aeriotv.android.BuildConfig.GOOGLE_SERVICES_AVAILABLE) {
             SourceTypeCard(
                 icon = Icons.Filled.CloudOff,
                 title = "Sync via Google Account",
                 subtitle = "After setup, sign in to Drive in Settings > Sync to mirror playlists, watch progress, reminders, and preferences across devices.",
             )
-        } else {
-            SourceTypeCard(
-                icon = Icons.Outlined.Hub,
-                title = "Sync via Dispatcharr",
-                subtitle = "Pair this Fire TV with your Dispatcharr server to sync settings, favourites, and watch progress across devices — no Google account needed.",
-            )
+            Spacer(Modifier.height(10.dp))
         }
-        Spacer(Modifier.height(10.dp))
         SourceTypeCard(
             icon = Icons.Outlined.Wifi,
             title = "Detect Home WiFi",
