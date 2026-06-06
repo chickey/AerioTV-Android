@@ -54,6 +54,12 @@
          DVR setting (default ON, iOS parity). Normal-protection, granted at
          install. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Fire TV self-update: allows the app to install a downloaded APK
+         via the system PackageInstaller without routing through an app store.
+         The user already granted "Install from unknown sources" for AerioTV
+         when they first sideloaded it, so the system installer dialog
+         appears without any additional permission flow. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".AerioTVApplication"

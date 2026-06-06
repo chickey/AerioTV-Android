@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -70,10 +71,12 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.aeriotv.android.ui.adaptive.adaptiveFormWidth
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aeriotv.android.core.data.db.entity.PlaylistEntity
+import com.aeriotv.android.core.update.AppUpdateManager
 import com.aeriotv.android.feature.livetv.rememberLiveTvFormFactor
 import com.aeriotv.android.feature.main.AppTab
 import com.aeriotv.android.feature.main.LocalTvTopNavRequesterForTab
 import com.aeriotv.android.feature.playlist.PlaylistViewModel
+import com.aeriotv.android.feature.update.UpdateViewModel
 import java.text.DateFormat
 import java.util.Date
 
@@ -110,6 +113,7 @@ fun SettingsScreen(
     onAddPlaylist: () -> Unit = {},
     onEditPlaylist: (PlaylistEntity) -> Unit = {},
     viewModel: PlaylistViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
     val isTv = rememberLiveTvFormFactor().isTv
     val requesterForTab = LocalTvTopNavRequesterForTab.current
@@ -120,6 +124,7 @@ fun SettingsScreen(
     val playlists by viewModel.allPlaylists.collectAsStateWithLifecycle(initialValue = emptyList())
     val activeId = state.playlist?.id
 
+    val updateState by updateViewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
 
     val packageInfo = remember {
@@ -259,6 +264,8 @@ fun SettingsScreen(
                     versionCode = versionCodeLong,
                     installedAt = installedAt,
                     updatedAt = updatedAt,
+                    updateState = updateState,
+                    onCheckForUpdates = { updateViewModel.checkNow() },
                     onCopy = {
                         val text = buildAboutClipboard(
                             versionName,
@@ -588,6 +595,8 @@ private fun AboutSection(
     versionCode: Long,
     installedAt: Long,
     updatedAt: Long,
+    updateState: AppUpdateManager.State,
+    onCheckForUpdates: () -> Unit,
     onCopy: () -> Unit,
     onOpenWebsite: () -> Unit,
     onReportIssue: () -> Unit,
@@ -613,6 +622,11 @@ private fun AboutSection(
                 "Last Updated",
                 if (updatedAt > 0 && updatedAt != installedAt) formatInstallTime(updatedAt) else "Never",
             )
+            // "Check for Updates" only shown on Fire TV builds.
+            if (BuildConfig.GITHUB_UPDATES_ENABLED) {
+                RowDivider()
+                UpdateCheckRow(state = updateState, onClick = onCheckForUpdates)
+            }
             RowDivider()
             AboutActionRow("Copy to Clipboard", Icons.Filled.ContentCopy, onClick = onCopy)
             RowDivider()
@@ -629,6 +643,61 @@ private fun AboutSection(
                 onClick = onReportIssue,
                 external = true,
             )
+        }
+    }
+}
+
+@Composable
+private fun UpdateCheckRow(
+    state: AppUpdateManager.State,
+    onClick: () -> Unit,
+) {
+    val checking = state is AppUpdateManager.State.Checking
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (!checking) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (checking) {
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.SystemUpdateAlt,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.size(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = when (state) {
+                    is AppUpdateManager.State.Checking -> "Checking for updates…"
+                    is AppUpdateManager.State.UpToDate -> "You're up to date"
+                    is AppUpdateManager.State.Error -> "Check failed — tap to retry"
+                    else -> "Check for Updates"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = when (state) {
+                    is AppUpdateManager.State.UpToDate -> MaterialTheme.colorScheme.primary
+                    is AppUpdateManager.State.Error -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.primary
+                },
+                fontWeight = FontWeight.Medium,
+            )
+            if (state is AppUpdateManager.State.UpToDate) {
+                Text(
+                    text = "AerioTV is running the latest version.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

@@ -11,4 +11,7 @@
 -->
 <paths>
     <files-path name="aerio_logs" path="logs/" />
+    <!-- Self-update APK is downloaded to cacheDir so no storage permission
+         is needed. FileProvider exposes it to the system PackageInstaller. -->
+    <cache-path name="aerio_updates" path="." />
 </paths>

@@ -40,8 +40,8 @@ android {
         applicationId = "com.aeriotv.android"
         minSdk = 25
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.1.7"
+        versionCode = 14
+        versionName = "0.1.8"
         vectorDrawables { useSupportLibrary = true }
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -59,6 +59,8 @@ android {
         create("play") {
             dimension = "store"
             buildConfigField("boolean", "GOOGLE_SERVICES_AVAILABLE", "true")
+            // Play Store manages its own updates; self-update is disabled.
+            buildConfigField("boolean", "GITHUB_UPDATES_ENABLED", "false")
         }
         create("fire") {
             dimension = "store"
@@ -68,6 +70,10 @@ android {
             // Fire builds do not ship Google OAuth config, so sync UI
             // reliably stays disabled through SyncConfig.
             buildConfigField("String", "GOOGLE_DRIVE_WEB_CLIENT_ID", "\"\"")
+            // Sideloaded Fire TV builds self-update from GitHub releases.
+            buildConfigField("boolean", "GITHUB_UPDATES_ENABLED", "true")
+            buildConfigField("String", "GITHUB_REPO", "\"chickey/AerioTV-Android\"")
+            buildConfigField("String", "GITHUB_APK_ASSET", "\"AerioTV-FireTV.apk\"")
         }
     }
 

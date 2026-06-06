@@ -24,15 +24,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import com.aeriotv.android.core.pip.PipState
 import com.aeriotv.android.core.playback.AerioExoPlayerHolder
 import com.aeriotv.android.core.preferences.AppPreferences
 import com.aeriotv.android.core.system.NotificationPermissionGate
+import com.aeriotv.android.core.update.AppUpdateManager
 import com.aeriotv.android.feature.miniplayer.MiniPlayerSession
 import com.aeriotv.android.feature.player.ExoWindowState
 import com.aeriotv.android.feature.player.PersistentExoWindow
 import com.aeriotv.android.feature.splash.SplashGate
+import com.aeriotv.android.feature.update.UpdatePromptDialog
 import com.aeriotv.android.ui.theme.AerioTVTheme
 import com.aeriotv.android.ui.theme.AppTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -45,6 +48,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var miniPlayerSession: MiniPlayerSession
     @Inject lateinit var exoHolder: AerioExoPlayerHolder
     @Inject lateinit var exoWindowState: ExoWindowState
+    @Inject lateinit var updateManager: AppUpdateManager
 
     /**
      * Most recent deep-link target the activity has received from a
@@ -209,6 +213,12 @@ class MainActivity : ComponentActivity() {
                 PipState.videoPlaybackActive.collect { syncAutoEnterPip(it) }
             }
         }
+        // Startup update check: runs once per process lifetime (AppUpdateManager
+        // guards against re-runs). Launched on CREATED so it fires as soon as
+        // the activity exists, running in the background while the splash shows.
+        lifecycleScope.launch {
+            updateManager.checkOnStartup()
+        }
         // Debug-only auto-load hook so dev iteration on emulators doesn't have to fight
         // Gboard's stylus tutorial when typing test URLs. Hard-gated behind BuildConfig.DEBUG
         // so release builds NEVER accept a URL via intent extra. Production deep-link
@@ -221,6 +231,7 @@ class MainActivity : ComponentActivity() {
         // via a top-level effect, navigates, then clears it.
         captureDeepLinkFrom(intent)
         setContent {
+            val updateState by updateManager.state.collectAsStateWithLifecycle()
             val theme by appPreferences.selectedTheme.collectAsState(initial = AppTheme.Aerio)
             val useCustomAccent by appPreferences.useCustomAccent.collectAsState(initial = false)
             val customAccentHex by appPreferences.customAccentHex.collectAsState(initial = "")
@@ -242,6 +253,16 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     NotificationPermissionGate()
+                    // Update prompt: overlays on top of everything. The dialog
+                    // manages its own visibility based on AppUpdateManager.state.
+                    UpdatePromptDialog(
+                        state = updateState,
+                        onDismiss = { updateManager.dismiss() },
+                        onDownload = { info ->
+                            lifecycleScope.launch { updateManager.startDownload(info) }
+                        },
+                        onInstall = { apkFile -> updateManager.install(apkFile) },
+                    )
                     SplashGate {
                         // Phase 165/167: PersistentMpvWindow lives as a
                         // SIBLING of NavHost inside an outer Box. The
