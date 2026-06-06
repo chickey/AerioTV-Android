@@ -48,6 +48,18 @@ All admin endpoints return HTTP `200` with an `authenticated` flag (never `401`)
 because Dispatcharr's web UI logs you out on any `401` — an earlier version of
 this plugin did exactly that while polling.
 
+### Device token for channel/EPG access
+
+So AerioTV can call Dispatcharr's normal channel/EPG APIs after pairing, the
+plugin returns the **approving admin's own Dispatcharr API key** as the device
+token (read from the logged-in admin's account; minted with
+`secrets.token_urlsafe(40)` like Dispatcharr does if the account has none yet).
+You can override this by pasting a specific key in the admin page's Advanced
+options. If neither is available (e.g. you opened the page via a token link
+without a Dispatcharr login), the plugin falls back to a placeholder token —
+pairing/sync still work, but channel loading will return `401` until a real key
+is supplied.
+
 **Fallback:** if your browser doesn't expose the JWT where the page can find it,
 run the **Open pairing admin page** action to get a tokenised link
 (`.../admin?token=...`, valid 30 days, bookmarkable). The `Approve pairing` /

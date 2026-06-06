@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-PLUGIN_VERSION = "0.4.2"
+PLUGIN_VERSION = "0.5.0"
 ADMIN_TOKEN_TTL_SECONDS = 30 * 24 * 3600
 # Bumped when the pairing/sync wire contract changes. AerioTV checks this so it
 # can warn about an incompatible plugin instead of failing opaquely.
@@ -595,13 +595,23 @@ def register_routes() -> None:
             code = str(data.get("code") or "").strip()
             if not code:
                 return Response({"status": "error", "authenticated": True, "message": "Enter a pairing code."})
+            # Token returned to AerioTV, in priority order:
+            #   1. an explicit key pasted in the form, else
+            #   2. the approving admin's own Dispatcharr API key (minted if none),
+            #      so AerioTV can call the normal channel/EPG APIs, else
+            #   3. a plugin-minted placeholder (sync works; channel APIs will 401).
+            api_key = str(data.get("apiKey") or "").strip()
+            if not api_key:
+                user = _admin_user(request)
+                if user is not None:
+                    api_key = _user_api_key(user) or ""
             state.cleanup_expired()
             result = approve_code(
                 state,
                 code,
                 profile_id=_safe_int(data.get("profileId"), default=1),
                 server_base_url=str(data.get("serverBaseUrl") or "").strip() or None,
-                api_key=str(data.get("apiKey") or "").strip(),
+                api_key=api_key,
             )
             result["authenticated"] = True
             return Response(result)
@@ -686,6 +696,50 @@ def _staff_via_jwt(request) -> bool:
         return bool(user and getattr(user, "is_staff", False))
     except Exception:
         return False
+
+
+def _admin_user(request):
+    """The authenticated Dispatcharr staff User behind this request, or None.
+
+    Tries the SimpleJWT bearer token first (the admin page sends the browser's
+    logged-in JWT), then Django's session user. Never raises.
+    """
+    try:
+        from rest_framework_simplejwt.authentication import JWTAuthentication
+        result = JWTAuthentication().authenticate(request)
+        if result:
+            user, _ = result
+            if user and getattr(user, "is_staff", False):
+                return user
+    except Exception:
+        pass
+    try:
+        django_request = getattr(request, "_request", request)
+        user = getattr(django_request, "user", None)
+        if user and user.is_authenticated and getattr(user, "is_staff", False):
+            return user
+    except Exception:
+        pass
+    return None
+
+
+def _user_api_key(user) -> str | None:
+    """Return the user's Dispatcharr personal API key, minting one if absent.
+
+    Mirrors Dispatcharr's own key generation (apps/accounts/api_views.py:
+    secrets.token_urlsafe(40) stored on User.api_key) so AerioTV can call the
+    normal Dispatcharr APIs (channels/EPG) with a real, user-scoped key.
+    """
+    try:
+        existing = getattr(user, "api_key", None)
+        if existing:
+            return existing
+        key = secrets.token_urlsafe(40)
+        user.api_key = key
+        user.save(update_fields=["api_key"])
+        return key
+    except Exception:
+        return None
 
 
 def _valid_admin_token(request, state: AerioTvState) -> bool:
@@ -844,8 +898,8 @@ _ADMIN_HTML = r"""<!doctype html>
       <input id="profileId" value="1">
       <label>Server base URL (optional)</label>
       <input id="serverBaseUrl" placeholder="Leave blank to use this server">
-      <label>API key returned to AerioTV (optional bridge)</label>
-      <input id="apiKey" type="password" placeholder="Leave blank to mint a scoped token">
+      <label>API key returned to AerioTV (optional)</label>
+      <input id="apiKey" type="password" placeholder="Leave blank to use your Dispatcharr account's API key">
     </details>
     <button id="linkBtn" class="btn" onclick="approve()">Link</button>
     <div id="linkMsg" class="msg"></div>
