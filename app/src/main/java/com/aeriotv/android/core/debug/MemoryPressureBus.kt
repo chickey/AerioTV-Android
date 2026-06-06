@@ -52,5 +52,29 @@ class MemoryPressureBus @Inject constructor() {
         /** Shorthand for callers that don't want to import ComponentCallbacks2. */
         fun isCritical(level: Int): Boolean =
             level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+
+        /**
+         * Whether a trim level warrants shedding large derived caches (EPG map,
+         * parsed playlists). This is NOT the same as [isCritical].
+         *
+         * The onTrimMemory levels do not form a single severity scale: the
+         * foreground "running" levels (RUNNING_MODERATE=5, RUNNING_LOW=10,
+         * RUNNING_CRITICAL=15) signal real device-memory pressure while the app
+         * is in use, whereas the higher-numbered background levels
+         * (UI_HIDDEN=20, BACKGROUND=40, MODERATE=60, COMPLETE=80) simply report
+         * where the process sits in the LRU once it is no longer visible and
+         * fire as a routine part of every background transition.
+         *
+         * A naive `level >= RUNNING_CRITICAL (15)` therefore matches UI_HIDDEN
+         * too, so the app shed its EPG every time it was briefly hidden. We
+         * deliberately skip UI_HIDDEN (a light, frequent signal) and shed only
+         * on genuine foreground pressure (RUNNING_CRITICAL) or deeper background
+         * levels (BACKGROUND and beyond) where freeing memory actually improves
+         * survival. The shed is always paired with foreground re-hydration from
+         * the disk cache, so it is invisible to the user either way.
+         */
+        fun shouldShedCaches(level: Int): Boolean =
+            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+                level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
     }
 }

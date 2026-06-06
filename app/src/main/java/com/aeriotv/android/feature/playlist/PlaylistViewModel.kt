@@ -124,9 +124,53 @@ class PlaylistViewModel @Inject constructor(
     private var epgLoadJob: Job? = null
     private var epgBootstrapRetryJob: Job? = null
 
+    /**
+     * Observes the whole-app foreground/background transition so the EPG map
+     * can be re-hydrated from the disk cache after a memory shed (see
+     * [observeMemoryPressure]). Held so it can be detached in [onCleared].
+     */
+    private val processLifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+        if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+            ensureEpgLoadedFromCache()
+        }
+    }
+
     init {
         bootstrap()
         observeMemoryPressure()
+        // ProcessLifecycleOwner observers must be added on the main thread; the
+        // ViewModel is constructed on main so this is safe.
+        androidx.lifecycle.ProcessLifecycleOwner.get()
+            .lifecycle.addObserver(processLifecycleObserver)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        androidx.lifecycle.ProcessLifecycleOwner.get()
+            .lifecycle.removeObserver(processLifecycleObserver)
+    }
+
+    /**
+     * Repaint the in-memory guide from the Room disk cache when it has been
+     * dropped (typically by [observeMemoryPressure] while the app was
+     * backgrounded). Cache-only and fast: no network, no freshness check, so
+     * returning to the foreground never leaves the guide stuck blank waiting
+     * for a manual refresh. No-op when the guide is already populated, when no
+     * playlist is active, or when an EPG load is already in flight.
+     */
+    private fun ensureEpgLoadedFromCache() {
+        val active = _state.value.playlist ?: return
+        if (_state.value.epgByChannel.isNotEmpty()) return
+        if (_state.value.isEpgLoading) return
+        viewModelScope.launch {
+            val cached = runCatching { repository.loadCachedEpg(active.id) }
+                .getOrDefault(emptyList())
+            // Re-check after the suspend: a concurrent load may have populated it.
+            if (cached.isNotEmpty() && _state.value.epgByChannel.isEmpty()) {
+                logI("ensureEpgLoadedFromCache: repainted ${cached.size} programmes after memory shed")
+                _state.update { it.copy(epgByChannel = groupByChannel(cached)) }
+            }
+        }
     }
 
     /**
@@ -143,10 +187,10 @@ class PlaylistViewModel @Inject constructor(
     private fun observeMemoryPressure() {
         viewModelScope.launch {
             memoryPressureBus.level.collect { level ->
-                if (MemoryPressureBus.isCritical(level)) {
+                if (MemoryPressureBus.shouldShedCaches(level)) {
                     val cleared = _state.value.epgByChannel.isNotEmpty()
                     if (cleared) {
-                        logI("onTrimMemory=$level: shedding in-memory EPG map")
+                        logI("onTrimMemory=$level: shedding in-memory EPG map (rehydrates from cache on return)")
                         _state.update { it.copy(epgByChannel = emptyMap()) }
                     }
                 }
