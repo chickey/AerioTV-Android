@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-PLUGIN_VERSION = "0.5.1"
+PLUGIN_VERSION = "0.5.2"
 ADMIN_TOKEN_TTL_SECONDS = 30 * 24 * 3600
 # Bumped when the pairing/sync wire contract changes. AerioTV checks this so it
 # can warn about an incompatible plugin instead of failing opaquely.
@@ -606,9 +606,15 @@ def register_routes() -> None:
             #   3. a plugin-minted placeholder (sync works; channel APIs will 401).
             api_key = str(data.get("apiKey") or "").strip()
             if not api_key:
+                # Try JWT-authed user first (page opened while logged into Dispatcharr).
                 user = _admin_user(request)
                 if user is not None:
                     api_key = _user_api_key(user) or ""
+            if not api_key:
+                # Fallback: JWT not found in browser (Dispatcharr stores token under
+                # an unexpected localStorage key). Query the DB directly for any
+                # admin's API key — same result, no JWT needed.
+                api_key = _admin_api_key_from_db() or ""
             state.cleanup_expired()
             result = approve_code(
                 state,
@@ -618,6 +624,8 @@ def register_routes() -> None:
                 api_key=api_key,
             )
             result["authenticated"] = True
+            # Tell the page whether a real key was used so we can debug 401s.
+            result["tokenSource"] = "real" if api_key and not api_key.startswith("aeriotv_") else "placeholder"
             return Response(result)
 
     class AdminRevokeView(APIView):
@@ -1067,7 +1075,8 @@ async function approve(){
   })});
   btn.disabled=false;
   const ok = r.ok && r.body && r.body.status==='ok';
-  msg(el, (r.body && r.body.message) || (ok?'Linked.':'Could not link.'), ok);
+  const src = r.body && r.body.tokenSource ? ' (token: '+r.body.tokenSource+')' : '';
+  msg(el, (r.body && r.body.message) || (ok?'Linked.':'Could not link.') + src, ok);
   if(ok){ document.getElementById('code').value=''; }
   refresh();
 }
