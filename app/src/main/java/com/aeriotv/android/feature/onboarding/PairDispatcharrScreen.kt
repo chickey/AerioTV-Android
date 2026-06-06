@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -140,7 +139,6 @@ fun PairDispatcharrScreen(
                         FoundDispatcharrCard(
                             baseUrl = state.result.baseUrl,
                             pluginVersion = state.result.capabilities.pluginVersion,
-                            endpoint = state.result.capabilities.pairingEndpoint,
                         )
 
                         LaunchedEffect(state.result.baseUrl) {
@@ -221,21 +219,6 @@ fun PairDispatcharrScreen(
 @Composable
 private fun PairingHero() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
-                .padding(18.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Hub,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Spacer(Modifier.height(14.dp))
         Text(
             text = "Connect without typing passwords",
             style = MaterialTheme.typography.titleLarge,
@@ -292,7 +275,6 @@ private fun DiscoveryStatusCard(
 private fun FoundDispatcharrCard(
     baseUrl: String,
     pluginVersion: String,
-    endpoint: String,
 ) {
     PairingCard {
         Text(
@@ -309,11 +291,6 @@ private fun FoundDispatcharrCard(
         )
         Text(
             text = "Plugin: $pluginVersion",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "Endpoint: $endpoint",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
