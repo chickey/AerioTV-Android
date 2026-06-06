@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-PLUGIN_VERSION = "0.5.5"
+PLUGIN_VERSION = "0.5.6"
 ADMIN_TOKEN_TTL_SECONDS = 30 * 24 * 3600
 # Bumped when the pairing/sync wire contract changes. AerioTV checks this so it
 # can warn about an incompatible plugin instead of failing opaquely.
@@ -194,23 +194,15 @@ class Plugin:
     fields = [
         {"id": "enabled", "label": "Enable AerioTV pairing endpoints", "type": "boolean", "default": True},
         {
-            "id": "admin_page",
-            "label": "Pairing page",
-            "type": "string",
-            "default": ADMIN_PATH,
-            "help_text": (
-                f"Use the docs link above or open {ADMIN_PATH} on your Dispatcharr server "
-                "to link Fire TV devices and manage paired devices. "
-                "Run 'Get admin link' below if you need a bookmarkable token link."
-            ),
-        },
-        {
             "id": "server_base_url",
             "label": "Server base URL",
             "type": "string",
             "default": "",
             "placeholder": "e.g. http://tvserver.local:9191",
-            "help_text": "Returned to AerioTV after pairing. Leave blank to use the address of this Dispatcharr server.",
+            "help_text": (
+                "Returned to AerioTV after pairing so the app knows how to reach Dispatcharr. "
+                "Leave blank to use the address of this Dispatcharr server."
+            ),
         },
         {
             "id": "api_key_override",
@@ -218,76 +210,26 @@ class Plugin:
             "type": "string",
             "default": "",
             "input_type": "password",
-            "help_text": "Only needed if auto-detection of your Dispatcharr API key fails. Leave blank in normal use.",
+            "help_text": (
+                "The Dispatcharr API key returned to AerioTV on approval. "
+                "Leave blank — the plugin automatically uses the approving admin's key. "
+                "Only set this if auto-detection fails."
+            ),
         },
     ]
 
-    actions = [
-        {
-            "id": "show_admin_link",
-            "label": "Get admin link",
-            "description": "Generates a tokenised link to the pairing page (valid 30 days). Useful if your browser login doesn't carry through to the page.",
-            "button_label": "Get Admin Link",
-            "button_variant": "filled",
-            "button_color": "blue",
-        },
-        {
-            "id": "cleanup_expired",
-            "label": "Clean up expired pairing attempts",
-            "description": "Removes pending pairing sessions that timed out without being approved.",
-            "button_label": "Clean Up Expired",
-            "button_variant": "subtle",
-            "button_color": "gray",
-        },
-        {
-            "id": "cleanup_revoked",
-            "label": "Delete all revoked devices",
-            "description": "Permanently removes revoked device records. Use the pairing page for individual device management.",
-            "button_label": "Delete Revoked",
-            "button_variant": "subtle",
-            "button_color": "red",
-        },
-    ]
+    # All device management (approve, revoke, delete) is done through the pairing
+    # page linked above (help_url). Plugin actions can only show disappearing toasts
+    # so they are not used here.
+    actions = []
 
     def __init__(self) -> None:
         register_routes()
 
     def run(self, action: str, params: dict, context: dict) -> dict:
-        settings = context.get("settings", {})
-        logger = context.get("logger")
+        # No actions are defined; this method should never be called.
+        # Re-register routes defensively in case Dispatcharr reloaded the module.
         register_routes()
-        state = AerioTvState.load()
-        state.cleanup_expired()
-
-        if action == "show_admin_link":
-            token = secrets.token_urlsafe(24)
-            state.admin_token_hash = _hash_token(token)
-            state.admin_token_expires = time.time() + ADMIN_TOKEN_TTL_SECONDS
-            state.save()
-            base = str(settings.get("server_base_url") or "").strip().rstrip("/")
-            link = f"{base}{ADMIN_PATH}?token={token}" if base else f"{ADMIN_PATH}?token={token}"
-            return {
-                "status": "ok",
-                "message": (
-                    "Open this link to manage pairing (valid 30 days, bookmarkable). "
-                    "Set 'Server base URL' in settings for a full clickable URL.\n\n" + link
-                ),
-                "url": link,
-            }
-
-        if action == "list_pending":
-            pending = pending_list(state)
-            state.save()
-            return {"status": "ok", "pending": pending, "count": len(pending)}
-
-        if action == "cleanup_expired":
-            count = state.cleanup_expired()
-            state.save()
-            return {"status": "ok", "message": f"Removed {count} expired pairing session(s)."}
-
-        if action == "cleanup_revoked":
-            return cleanup_revoked_devices(state)
-
         return {"status": "error", "message": f"Unknown action: {action}"}
 
 

@@ -1,7 +1,7 @@
 {
   "name": "AerioTV Pairing",
-  "version": "0.5.5",
-  "description": "Pairs AerioTV Fire TV clients with Dispatcharr and serves the AerioTV sync document. Use the link below to open the pairing page. Docs: https://github.com/chickey/AerioTV-Android",
+  "version": "0.5.6",
+  "description": "Pairs AerioTV Fire TV clients with Dispatcharr and serves the AerioTV sync document. Click the pairing page link above to link Fire TV devices and manage paired devices.",
   "author": "AerioTV",
   "help_url": "/api/plugins/aeriotv/admin",
   "fields": [
@@ -12,19 +12,12 @@
       "default": true
     },
     {
-      "id": "admin_page",
-      "label": "Pairing page",
-      "type": "string",
-      "default": "/api/plugins/aeriotv/admin",
-      "help_text": "Open /api/plugins/aeriotv/admin on your Dispatcharr server to link Fire TV devices and manage paired devices. Run 'Get admin link' below if you need a bookmarkable token link."
-    },
-    {
       "id": "server_base_url",
       "label": "Server base URL",
       "type": "string",
       "default": "",
       "placeholder": "e.g. http://tvserver.local:9191",
-      "help_text": "Returned to AerioTV after pairing. Leave blank to use the address of this Dispatcharr server."
+      "help_text": "Returned to AerioTV after pairing so the app knows how to reach Dispatcharr. Leave blank to use the address of this Dispatcharr server."
     },
     {
       "id": "api_key_override",
@@ -32,33 +25,8 @@
       "type": "string",
       "default": "",
       "input_type": "password",
-      "help_text": "Only needed if auto-detection of your Dispatcharr API key fails. Leave blank in normal use."
+      "help_text": "The Dispatcharr API key returned to AerioTV on approval. Leave blank — the plugin automatically uses the approving admin's key. Only set this if auto-detection fails."
     }
   ],
-  "actions": [
-    {
-      "id": "show_admin_link",
-      "label": "Get admin link",
-      "description": "Generates a tokenised link to the pairing page (valid 30 days). Useful if your browser login doesn't carry through to the page.",
-      "button_label": "Get Admin Link",
-      "button_variant": "filled",
-      "button_color": "blue"
-    },
-    {
-      "id": "cleanup_expired",
-      "label": "Clean up expired pairing attempts",
-      "description": "Removes pending pairing sessions that timed out without being approved.",
-      "button_label": "Clean Up Expired",
-      "button_variant": "subtle",
-      "button_color": "gray"
-    },
-    {
-      "id": "cleanup_revoked",
-      "label": "Delete all revoked devices",
-      "description": "Permanently removes revoked device records. Use the pairing page for individual device management.",
-      "button_label": "Delete Revoked",
-      "button_variant": "subtle",
-      "button_color": "red"
-    }
-  ]
+  "actions": []
 }
