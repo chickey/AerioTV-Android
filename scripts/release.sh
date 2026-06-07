@@ -120,16 +120,17 @@ fi
 # --- publish ---------------------------------------------------------------
 echo
 echo "==> Creating release $TAG ..."
-DRAFT_FLAG=()
-[[ "$DRAFT" -eq 1 ]] && DRAFT_FLAG=(--draft)
+# Build the gh argument list as a single array so an empty --draft doesn't
+# trip macOS's bash 3.2 (empty-array expansion under `set -u` errors).
+CREATE_ARGS=(release create "$TAG"
+  --repo "$REPO"
+  --title "AerioTV $VERSION_NAME (Fire TV)"
+  --notes "$NOTES"
+  --target main)
+[[ "$DRAFT" -eq 1 ]] && CREATE_ARGS+=(--draft)
+CREATE_ARGS+=("$STAGED_APK")
 
-gh release create "$TAG" \
-  --repo "$REPO" \
-  --title "AerioTV $VERSION_NAME (Fire TV)" \
-  --notes "$NOTES" \
-  --target main \
-  "${DRAFT_FLAG[@]}" \
-  "$STAGED_APK"
+gh "${CREATE_ARGS[@]}"
 
 # --- verify ----------------------------------------------------------------
 # Confirm the asset is named correctly. (Skip download check for drafts, which
