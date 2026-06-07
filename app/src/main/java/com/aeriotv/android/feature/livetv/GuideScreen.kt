@@ -105,6 +105,9 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalConfiguration
@@ -348,6 +351,33 @@ fun GuideScreen(
         }
     }
 
+    // Open-time positioning: snap the time axis so the "now" line sits
+    // ~GUIDE_NOW_LEFT_FRACTION across the viewport (tvOS EPGGuideView "scroll
+    // back to now" default). This left-aligns the currently-airing cells and,
+    // because every row's now-cell then shares the same left edge, keeps D-pad
+    // DOWN stable instead of chasing differently-sized now-cells row to row.
+    //
+    // Keyed only on the channels-loaded transition so it positions the grid
+    // each time the guide opens but never yanks the user back to "now"
+    // mid-browse (windowStart recomputes every hour as nowMillis ticks; this
+    // effect deliberately does NOT depend on that). Uses effectiveWindowStart
+    // so it's correct in both normal and fixed-hour-anchor modes.
+    LaunchedEffect(filteredChannels.isNotEmpty()) {
+        if (filteredChannels.isEmpty()) return@LaunchedEffect
+        // Wait for the row content to establish a scroll range (24h-wide grid,
+        // so maxValue settles > 0 within a frame or two). Bail if it ever fits
+        // without scrolling so we never suspend forever.
+        val maxScroll = withTimeoutOrNull(1500L) {
+            snapshotFlow { horizontalScrollState.maxValue }.first { it > 0 }
+        } ?: return@LaunchedEffect
+        val nowOffsetPx =
+            ((System.currentTimeMillis() - effectiveWindowStart).toFloat() / 3_600_000f) * hourWidthPx
+        val target = (nowOffsetPx - stripViewportPx * GUIDE_NOW_LEFT_FRACTION)
+            .toInt()
+            .coerceIn(0, maxScroll)
+        horizontalScrollState.scrollTo(target)
+    }
+
     // The host Scaffold sets contentWindowInsets = WindowInsets(0,0,0,0), so each
     // tab owns its own status-bar top inset (the List view gets it free from
     // CenterAlignedTopAppBar). The Guide's header is a bare control Row, so apply
@@ -406,10 +436,6 @@ fun GuideScreen(
                     }
                 }
             }
-        // Jump-to-now scroller. Coroutine-driven so animateScrollTo can
-        // suspend; matches iOS EPGGuideView's "scroll back to now" button
-        // which snaps the time axis so the now-indicator sits ~1/4 of the
-        // way across the viewport.
         // Control + filter row, mirroring the tvOS guide: List/Guide switcher,
         // search toggle, and a group on/off filter on the left, then the
         // channel-group pills (or an inline search field) filling the rest.
@@ -734,9 +760,9 @@ fun GuideScreen(
                             val viewportEnd = viewportStart + stripViewportPx.toInt()
                             val desired = when {
                                 targetStartPx < viewportStart ->
-                                    targetStartPx - (stripViewportPx * 0.12f).toInt()
+                                    targetStartPx - (stripViewportPx * GUIDE_NOW_LEFT_FRACTION).toInt()
                                 targetEndPx > viewportEnd ->
-                                    targetStartPx - (stripViewportPx * 0.12f).toInt()
+                                    targetStartPx - (stripViewportPx * GUIDE_NOW_LEFT_FRACTION).toInt()
                                 else -> viewportStart
                             }.coerceIn(0, horizontalScrollState.maxValue)
                             if (desired != viewportStart) {
@@ -1771,6 +1797,16 @@ private fun normaliseImageUrl(url: String): String {
 }
 
 private const val MS_PER_HOUR_F = 3_600_000f
+
+/**
+ * Where the "now" line sits across the guide viewport, as a fraction from the
+ * left. tvOS's EPGGuideView "scroll back to now" anchors it ~1/5 across so
+ * now-airing cells start at the left edge (not floating mid-grid). The SAME
+ * fraction is reused for the open-time positioning and for D-pad horizontal
+ * scroll-into-view, so the now-line never shifts between guide-open and the
+ * first horizontal move.
+ */
+private const val GUIDE_NOW_LEFT_FRACTION = 0.20f
 
 /** Convert a millisecond span to its dp width on the (already scaled) time axis. */
 private fun msToDp(ms: Long, hourWidth: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
