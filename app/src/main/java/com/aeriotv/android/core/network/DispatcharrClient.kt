@@ -330,6 +330,15 @@ class DispatcharrClient @Inject constructor() {
         return response.body()
     }
 
+    /**
+     * GET /api/epg/epgdata/ — the EPGData catalogue. Used to resolve a
+     * channel's epg_data_id FK to the tvg_id the /api/epg/grid/ programmes are
+     * keyed by (see [DispatcharrEpgData]). Tolerates both a bare array and a
+     * `{results: [...]}` page shape via [fetchListOrResults].
+     */
+    suspend fun listEpgData(baseUrl: String, apiKey: String): List<DispatcharrEpgData> =
+        fetchListOrResults("${baseUrl.trimEnd('/')}/api/epg/epgdata/", apiKey)
+
     suspend fun getEpgGrid(baseUrl: String, apiKey: String): List<DispatcharrEpgEntry> {
         val url = "${baseUrl.trimEnd('/')}/api/epg/grid/"
         val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
@@ -874,6 +883,26 @@ data class DispatcharrChannel(
     val tvgId: String? = null,
     @SerialName("epg_data_id")
     val epgDataId: Int? = null,
+    // Dispatcharr resolves the EPG source a channel actually uses through
+    // effective_epg_data_id (it accounts for source priority / overrides),
+    // which can differ from the raw epg_data_id. Prefer it when present.
+    @SerialName("effective_epg_data_id")
+    val effectiveEpgDataId: Int? = null,
+)
+
+/**
+ * One row from `/api/epg/epgdata/` — the EPGData catalogue that the
+ * `/api/epg/grid/` programmes are actually keyed by. A channel links to a row
+ * here via [DispatcharrChannel.effectiveEpgDataId] / `epgDataId`; the row's
+ * [tvgId] is the key the grid buckets that channel's programmes under, which
+ * routinely differs from the channel's own `tvg_id`.
+ */
+@Serializable
+data class DispatcharrEpgData(
+    val id: Int,
+    @SerialName("tvg_id")
+    val tvgId: String? = null,
+    val name: String? = null,
 )
 
 @Serializable

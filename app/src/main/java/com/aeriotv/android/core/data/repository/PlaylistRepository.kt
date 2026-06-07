@@ -541,6 +541,22 @@ class PlaylistRepository @Inject constructor(
             val groups = dispatcharrClient.listGroups(base, key)
                 .associate { it.id to it.name }
             val outputChannels = loadDispatcharrOutputM3u(fetcher, base, key)
+            // EPGData FK map: epg_data_id -> EPGData.tvg_id. The /api/epg/grid/
+            // programmes are keyed by the EPGData's tvg_id, which routinely
+            // differs from a channel's own tvg_id (e.g. channel "NPO3.nl" vs
+            // EPGData "NPO3(NPO3).nl"). Resolving the channel's
+            // effective_epg_data_id through this map — exactly how Dispatcharr's
+            // own UI builds its guide — is what gets the bulk of channels their
+            // EPG. Best-effort: a failure here just means we fall back to the
+            // channel's own tvg_id below (the pre-FK behaviour).
+            val epgTvgByDataId: Map<Int, String> = runCatching {
+                dispatcharrClient.listEpgData(base, key)
+                    .mapNotNull { ed -> ed.tvgId?.takeIf { it.isNotBlank() }?.let { ed.id to it } }
+                    .toMap()
+            }.getOrElse {
+                android.util.Log.w("PlaylistRepository", "listEpgData failed; falling back to channel tvg_id", it)
+                emptyMap()
+            }
             // Channel-profile scoping. When the playlist is pinned to a profile,
             // resolve that profile's member channel ids and keep only those.
             // A selected-but-now-deleted profile (firstOrNull == null) falls
@@ -566,6 +582,12 @@ class PlaylistRepository @Inject constructor(
                     val outputUrl = output?.url
                         ?.takeIf { it.isNotBlank() }
                         ?.let { resolveM3uUrl(base, it) }
+                    // Resolve the EPGData tvg_id via the channel's EPG link
+                    // (effective_epg_data_id preferred, then epg_data_id). This
+                    // is the key /api/epg/grid/ buckets the channel's programmes
+                    // under.
+                    val epgLinkedTvgId = (ch.effectiveEpgDataId ?: ch.epgDataId)
+                        ?.let { epgTvgByDataId[it] }
                     // Stable ID derived from Dispatcharr's server UUID so the
                     // favorites store key survives playlist refreshes. The
                     // default `UUID.randomUUID()` in M3UChannel re-rolled on
@@ -578,20 +600,21 @@ class PlaylistRepository @Inject constructor(
                             ?: ch.channelGroupId?.let { groups[it] }.orEmpty(),
                         // EPG matching hinges on tvgID equalling the key the
                         // /api/epg/grid/ programmes are bucketed under, which is
-                        // the channel's EPGData tvg_id (e.g. "120574"). The
-                        // channels API returns exactly that in ch.tvgId, so it
-                        // MUST win.
-                        //
-                        // We previously preferred the /output/m3u tvg-id, but
-                        // Dispatcharr's M3U output can be configured to emit the
-                        // channel NUMBER as tvg-id (e.g. tvg-id="101" for BBC One
-                        // HD). When that happens, every channel's tvgID becomes a
-                        // channel number that matches no grid key, and the whole
-                        // guide silently goes blank even though programmes are
-                        // cached. So: prefer ch.tvgId (the real EPG link) and only
-                        // fall back to the M3U output's tvg-id when the API value
-                        // is blank.
-                        tvgID = ch.tvgId?.takeIf { it.isNotBlank() }
+                        // the channel's EPGData tvg_id. Resolution order:
+                        //   1. EPGData tvg_id via the epg_data_id FK — correct
+                        //      even when the channel's own tvg_id differs from the
+                        //      EPGData's (the common case; this is how
+                        //      Dispatcharr's own UI builds the guide).
+                        //   2. the channel's own tvg_id — covers servers where
+                        //      the two happen to match and the rare case where
+                        //      the EPGData catalogue fetch failed.
+                        //   3. the /output/m3u tvg-id — last resort.
+                        // We deliberately do NOT prefer the M3U output tvg-id: it
+                        // can be configured to emit the channel NUMBER (e.g.
+                        // "101"), which matches no grid key and silently blanks
+                        // the whole guide.
+                        tvgID = epgLinkedTvgId?.takeIf { it.isNotBlank() }
+                            ?: ch.tvgId?.takeIf { it.isNotBlank() }
                             ?: output?.tvgID?.takeIf { it.isNotBlank() }.orEmpty(),
                         tvgName = output?.tvgName?.takeIf { it.isNotBlank() } ?: ch.name,
                         tvgLogo = output?.tvgLogo?.takeIf { it.isNotBlank() }

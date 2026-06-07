@@ -1367,6 +1367,7 @@ private fun ChannelGuideRow(
                 if (!renderedAnyCell) {
                     NoDataProgrammeCell(
                         widthDp = totalWidth,
+                        channelName = channel.name,
                         isTv = isTv,
                         modifier = Modifier.offset(x = 0.dp),
                         isPendingFocusTarget = pendingFocusTarget?.matches(
@@ -1405,6 +1406,7 @@ private fun ChannelGuideRow(
 @Composable
 private fun NoDataProgrammeCell(
     widthDp: androidx.compose.ui.unit.Dp,
+    channelName: String,
     isTv: Boolean,
     modifier: Modifier,
     isPendingFocusTarget: Boolean,
@@ -1454,8 +1456,11 @@ private fun NoDataProgrammeCell(
             .padding(horizontal = if (isTv) 8.dp else 10.dp, vertical = if (isTv) 4.dp else 6.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
+        // Dummy-EPG style placeholder (matches Dispatcharr's own UI): show the
+        // channel name so a channel with no guide link still reads as a real,
+        // playable row rather than a generic "no data" gap.
         Text(
-            text = "No guide data",
+            text = channelName.ifBlank { "No guide data" },
             style = if (isTv) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
