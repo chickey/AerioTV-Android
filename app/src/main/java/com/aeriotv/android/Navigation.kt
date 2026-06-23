@@ -492,6 +492,11 @@ fun AerioTVNavHost(
                     } else emptyMap()
                 }
                 val playableChannels = state.channels.filter { it.url.isNotBlank() }
+                val isDispatcharrDirect = remember(state.playlist?.sourceType) {
+                    val pl = state.playlist
+                    pl?.sourceType == SourceType.DispatcharrApiKey.name ||
+                        pl?.sourceType == SourceType.DispatcharrUserPass.name
+                }
                 PlayerScreen(
                     channels = playableChannels,
                     initialChannelId = channelId,
@@ -504,6 +509,25 @@ fun AerioTVNavHost(
                         exoHandOff.exoPlayerHolder().stop()
                         navController.navigate(Routes.MULTIVIEW)
                     },
+                    isDispatcharrDirectConnect = isDispatcharrDirect,
+                    onLoadChannelStreams = { channelPk ->
+                        vm.loadChannelStreams(channelPk).map { s ->
+                            com.aeriotv.android.feature.player.StreamOption(
+                                id = s.id,
+                                name = s.name.orEmpty(),
+                                resolution = s.resolution,
+                                fps = s.sourceFps,
+                                bitrateKbps = s.outputBitrateKbps,
+                                videoCodec = s.videoCodec,
+                                audioCodec = s.audioCodec,
+                            )
+                        }
+                    },
+                    onSwitchChannelStream = { uuid, streamId ->
+                        vm.switchChannelStream(uuid, streamId).getOrNull()
+                    },
+                    onLoadCurrentStreamId = { uuid -> vm.loadCurrentStreamId(uuid) },
+                    onLoadCurrentStreamUrl = { uuid -> vm.loadCurrentStreamUrl(uuid) },
                 )
             }
 

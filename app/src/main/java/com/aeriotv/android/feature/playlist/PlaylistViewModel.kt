@@ -1010,6 +1010,24 @@ class PlaylistViewModel @Inject constructor(
             _state.update { UiState(phase = Phase.NeedsUrl) }
         }
     }
+
+    suspend fun loadChannelStreams(
+        channelIntPk: Int,
+    ): List<com.aeriotv.android.core.network.DispatcharrChannelStream> =
+        runCatching { repository.listDispatcharrChannelStreams(channelIntPk) }
+            .getOrDefault(emptyList())
+
+    suspend fun loadM3uAccountNames(): Map<Int, String> =
+        runCatching { repository.dispatcharrM3uAccountNames() }.getOrDefault(emptyMap())
+
+    suspend fun switchChannelStream(channelUuid: String, streamId: Int): Result<String?> =
+        runCatching { repository.switchDispatcharrStream(channelUuid, streamId) }
+
+    suspend fun loadCurrentStreamId(channelUuid: String): Int? =
+        runCatching { repository.currentDispatcharrStreamId(channelUuid) }.getOrNull()
+
+    suspend fun loadCurrentStreamUrl(channelUuid: String): String? =
+        runCatching { repository.currentDispatcharrStreamUrl(channelUuid) }.getOrNull()
 }
 
 /** Find the programme containing `now` for a given channel. */

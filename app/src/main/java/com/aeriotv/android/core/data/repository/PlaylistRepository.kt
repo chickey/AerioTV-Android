@@ -458,6 +458,83 @@ class PlaylistRepository @Inject constructor(
         }.map { ChannelProfileOption(id = it.id, name = it.name, channelCount = it.channels.size) }
     }
 
+    /**
+     * The ordered member streams of a Dispatcharr channel (highest-priority
+     * first) with their probed quality stats, for the player's Switch Stream
+     * sheet. [channelIntPk] is M3UChannel.dispatcharrChannelId.
+     */
+    suspend fun listDispatcharrChannelStreams(
+        channelIntPk: Int,
+    ): List<com.aeriotv.android.core.network.DispatcharrChannelStream> {
+        val playlist = activePlaylist() ?: return emptyList()
+        val sourceType = playlist.resolvedSourceType()
+        val isDispatcharr = sourceType == SourceType.DispatcharrApiKey ||
+            sourceType == SourceType.DispatcharrUserPass
+        if (!isDispatcharr) return emptyList()
+        val base = effectiveBaseUrl(playlist)
+        return dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+            dispatcharrClient.listChannelStreams(base, key, channelIntPk)
+        }
+    }
+
+    /**
+     * Map of Dispatcharr M3U account id -> source name, to label each alternate
+     * in the Switch Stream sheet with the M3U it comes from.
+     */
+    suspend fun dispatcharrM3uAccountNames(): Map<Int, String> {
+        val playlist = activePlaylist() ?: return emptyMap()
+        val sourceType = playlist.resolvedSourceType()
+        val isDispatcharr = sourceType == SourceType.DispatcharrApiKey ||
+            sourceType == SourceType.DispatcharrUserPass
+        if (!isDispatcharr) return emptyMap()
+        val base = effectiveBaseUrl(playlist)
+        return runCatching {
+            dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.listM3uAccounts(base, key)
+            }.mapNotNull { acct -> acct.name?.takeIf { it.isNotBlank() }?.let { acct.id to it } }
+                .toMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    /**
+     * Switch the channel's active upstream to [streamId]. Returns the resolved
+     * upstream URL the server swapped to (used as re-prime confirmation gate),
+     * or null if absent.
+     */
+    suspend fun switchDispatcharrStream(channelUuid: String, streamId: Int): String? {
+        val playlist = activePlaylist() ?: error("No active playlist for stream switch")
+        val base = effectiveBaseUrl(playlist)
+        return dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+            dispatcharrClient.changeStream(base, key, channelUuid, streamId)
+        }
+    }
+
+    /** Currently-active stream pk for a Dispatcharr channel, from /proxy/ts/status. */
+    suspend fun currentDispatcharrStreamId(channelUuid: String): Int? {
+        val playlist = activePlaylist() ?: return null
+        val base = effectiveBaseUrl(playlist)
+        return runCatching {
+            dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.getCurrentStreamId(base, key, channelUuid)
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * Currently-active upstream URL for a Dispatcharr channel, from
+     * /proxy/ts/status. Used by the follow poller to detect external stream
+     * switches (WebUI change / automatic Dispatcharr failover).
+     */
+    suspend fun currentDispatcharrStreamUrl(channelUuid: String): String? {
+        val playlist = activePlaylist() ?: return null
+        val base = effectiveBaseUrl(playlist)
+        return runCatching {
+            dispatcharrAuth.withApiKeyRetry(playlist.id) { key ->
+                dispatcharrClient.getCurrentStreamUrl(base, key, channelUuid)
+            }
+        }.getOrNull()
+    }
+
     suspend fun clear() {
         dispatcharrTokenStore.clearAll()
         dao.clear()

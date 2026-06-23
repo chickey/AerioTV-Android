@@ -51,6 +51,14 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import java.net.UnknownHostException
 import kotlin.math.abs
 import androidx.media3.common.Player
@@ -75,6 +83,11 @@ fun PlayerScreen(
     epgByChannel: Map<String, List<EPGProgramme>> = emptyMap(),
     onClose: () -> Unit = {},
     onLaunchMultiview: () -> Unit = {},
+    isDispatcharrDirectConnect: Boolean = false,
+    onLoadChannelStreams: suspend (Int) -> List<StreamOption> = { emptyList() },
+    onSwitchChannelStream: suspend (String, Int) -> String? = { _, _ -> null },
+    onLoadCurrentStreamId: suspend (String) -> Int? = { null },
+    onLoadCurrentStreamUrl: suspend (String) -> String? = { null },
 ) {
     // Hold the screen awake while the fullscreen player is mounted. Without
     // this the system screen-timeout fires mid-stream after its idle window
@@ -87,6 +100,7 @@ fun PlayerScreen(
     KeepScreenOnWhilePlaying()
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val miniPlayerEnabled by settingsVm.guideMiniPlayerEnabled.collectAsStateWithLifecycle(initialValue = true)
     val miniPlayerVm: MiniPlayerViewModel = hiltViewModel()
@@ -265,6 +279,61 @@ fun PlayerScreen(
     var streamInfo by remember { mutableStateOf<StreamInfoSnapshot?>(null) }
     var subtitles by remember { mutableStateOf<SubtitlesState?>(null) }
     var audioTracks by remember { mutableStateOf<AudioTracksState?>(null) }
+    var switchStream by remember { mutableStateOf<SwitchStreamState?>(null) }
+    var switchedStreamId by remember(currentChannel?.id) { mutableStateOf<Int?>(null) }
+
+    // Follow external upstream switches: Dispatcharr WebUI changes + automatic
+    // server-side failover. Both keep our connection open and only mutate
+    // metadata.url, so ExoPlayer never self-flushes. Poll status.url every 4s
+    // while steadily playing a Dispatcharr channel; on a confirmed divergence
+    // re-prime (keepalive-held). repeatOnLifecycle(RESUMED) pauses when backgrounded.
+    val followLifecycleOwner = LocalLifecycleOwner.current
+    val isDispatcharrLive = isDispatcharrDirectConnect &&
+        currentChannel?.dispatcharrChannelId != null &&
+        currentChannel?.id?.startsWith("disp:") == true
+    LaunchedEffect(currentChannel?.id, isDispatcharrLive) {
+        if (!isDispatcharrLive) return@LaunchedEffect
+        val ch = currentChannel ?: return@LaunchedEffect
+        val uuid = ch.id.removePrefix("disp:")
+        val proxyUrl = ch.url
+        followLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            var baseline: String? = null
+            var backoffMs = 4_000L
+            while (isActive) {
+                delay(backoffMs)
+                if (currentChannel?.id != ch.id) break
+                if (switchStream != null || exoHolder.isReprimeInFlight) { baseline = null; continue }
+                if (!exoHolder.reachedSteadyPlayback.value) { baseline = null; continue }
+                val statusUrl = withContext(Dispatchers.IO) {
+                    runCatching { onLoadCurrentStreamUrl(uuid) }.getOrNull()
+                }
+                if (statusUrl.isNullOrBlank()) {
+                    backoffMs = (backoffMs + 4_000L).coerceAtMost(12_000L)
+                    continue
+                }
+                backoffMs = 4_000L
+                if (baseline == null) { baseline = statusUrl; continue }
+                if (statusUrl != baseline) {
+                    val confirm = withContext(Dispatchers.IO) {
+                        runCatching { onLoadCurrentStreamUrl(uuid) }.getOrNull()
+                    }
+                    if (confirm != statusUrl) continue
+                    if (switchStream != null || exoHolder.isReprimeInFlight ||
+                        !exoHolder.reachedSteadyPlayback.value || currentChannel?.id != ch.id) continue
+                    android.util.Log.w("DispatcharrSwitch", "[FOLLOW] external switch ch=${ch.id} re-priming onto $statusUrl")
+                    val ran = exoHolder.reprimeWithKeepalive(
+                        url = proxyUrl,
+                        title = ch.name,
+                        subtitle = nowProgramme?.title.orEmpty(),
+                        artworkUri = ch.tvgLogo.takeIf { it.isNotBlank() }
+                            ?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() },
+                    )
+                    if (ran) baseline = statusUrl
+                }
+            }
+        }
+    }
+
     var playbackSpeedSheet by remember { mutableStateOf<Float?>(null) }
     var multiviewPickerOpen by remember { mutableStateOf(false) }
     var lastShownPlaybackWarning by remember { mutableStateOf<String?>(null) }
@@ -554,6 +623,20 @@ fun PlayerScreen(
                 }
                 multiviewPickerOpen = true
             },
+            isDispatcharrDirectConnect = isDispatcharrDirectConnect,
+            onShowSwitchStream = {
+                val ch = currentChannel ?: return@PlayerChromeOverlay
+                val chPk = ch.dispatcharrChannelId ?: return@PlayerChromeOverlay
+                val uuid = ch.id.removePrefix("disp:")
+                scope.launch {
+                    val streams = onLoadChannelStreams(chPk)
+                    val current = onLoadCurrentStreamId(uuid)
+                    switchStream = SwitchStreamState(
+                        streams = streams,
+                        currentStreamId = switchedStreamId ?: current,
+                    )
+                }
+            },
             onShowRecord = { target -> recordTarget = target },
             onShowStreamInfo = {
                 streamInfo = exoHolder.player?.captureStreamInfo() ?: StreamInfoSnapshot(
@@ -632,8 +715,8 @@ fun PlayerScreen(
     // so D-pad navigation through the chrome buttons resets the timer
     // instead of letting it fire mid-traversal. The key is
     // lastInteractionAt -- changing that restarts the LaunchedEffect.
-    LaunchedEffect(chromeVisible, lastInteractionAt) {
-        if (chromeVisible) {
+    LaunchedEffect(chromeVisible, lastInteractionAt, switchStream) {
+        if (chromeVisible && switchStream == null) {
             delay(AUTO_HIDE_MS)
             chromeVisible = false
         }
@@ -700,6 +783,61 @@ fun PlayerScreen(
             onDismiss = { audioTracks = null },
         )
     }
+    switchStream?.let { state ->
+        SwitchStreamSheet(
+            streams = state.streams,
+            currentStreamId = state.currentStreamId,
+            onSelect = { id ->
+                val ch = currentChannel
+                switchStream = null
+                if (ch != null) {
+                    switchedStreamId = id
+                    val uuid = ch.id.removePrefix("disp:")
+                    val proxyUrl = ch.url
+                    scope.launch {
+                        val newUrl = runCatching { onSwitchChannelStream(uuid, id) }.getOrNull()
+                        if (newUrl.isNullOrBlank()) {
+                            Toast.makeText(context, "Stream switch failed", Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        // Poll status.url until the switch lands (event-apply path is async)
+                        suspend fun confirm(target: String, budgetMs: Long): Boolean {
+                            val end = android.os.SystemClock.elapsedRealtime() + budgetMs
+                            while (android.os.SystemClock.elapsedRealtime() < end) {
+                                if (currentChannel?.id != ch.id || switchedStreamId != id) return false
+                                if (withContext(Dispatchers.IO) {
+                                    runCatching { onLoadCurrentStreamUrl(uuid) }.getOrNull()
+                                } == target) return true
+                                delay(200)
+                            }
+                            return false
+                        }
+                        var targetUrl = newUrl
+                        var confirmed = confirm(newUrl, 6_000L)
+                        if (!confirmed) {
+                            val u2 = runCatching { onSwitchChannelStream(uuid, id) }.getOrNull()
+                            if (!u2.isNullOrBlank()) { targetUrl = u2; confirmed = confirm(u2, 3_000L) }
+                        }
+                        if (currentChannel?.id != ch.id || switchedStreamId != id) return@launch
+                        if (!confirmed) {
+                            Toast.makeText(context, "Stream switch not confirmed; staying on current feed", Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        Toast.makeText(context, "Switching stream…", Toast.LENGTH_SHORT).show()
+                        exoHolder.reprimeWithKeepalive(
+                            url = proxyUrl,
+                            title = ch.name,
+                            subtitle = nowProgramme?.title.orEmpty(),
+                            artworkUri = ch.tvgLogo.takeIf { it.isNotBlank() }
+                                ?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() },
+                            bypassCooldown = true,
+                        )
+                    }
+                }
+            },
+            onDismiss = { switchStream = null },
+        )
+    }
     playbackSpeedSheet?.let { current ->
         PlaybackSpeedSheet(
             currentSpeed = current,
@@ -741,6 +879,11 @@ private data class SubtitlesState(
 private data class AudioTracksState(
     val tracks: List<AudioTrack>,
     val currentAid: Int?,
+)
+
+private data class SwitchStreamState(
+    val streams: List<StreamOption>,
+    val currentStreamId: Int?,
 )
 
 /**

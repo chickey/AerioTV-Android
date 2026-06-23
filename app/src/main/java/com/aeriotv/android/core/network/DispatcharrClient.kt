@@ -20,6 +20,7 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
@@ -797,6 +798,119 @@ class DispatcharrClient @Inject constructor() {
     }
 
     /**
+     * GET /api/channels/channels/{channelId}/streams/ — the ordered member
+     * streams of a Dispatcharr channel (highest-priority first), each with
+     * the quality stats Dispatcharr probed for it. [channelId] is the channel's
+     * INTEGER pk (M3UChannel.dispatcharrChannelId). Direct Connect only.
+     */
+    suspend fun listChannelStreams(
+        baseUrl: String,
+        apiKey: String,
+        channelId: Int,
+    ): List<DispatcharrChannelStream> =
+        fetchListOrResults(
+            "${baseUrl.trimEnd('/')}/api/channels/channels/$channelId/streams/",
+            apiKey,
+        )
+
+    /**
+     * GET /api/m3u/accounts/ — the playlist's M3U source accounts. Used to
+     * map a stream's m3u_account id to a human source name in the Switch
+     * Stream picker.
+     */
+    suspend fun listM3uAccounts(
+        baseUrl: String,
+        apiKey: String,
+    ): List<DispatcharrM3uAccount> =
+        fetchListOrResults(
+            "${baseUrl.trimEnd('/')}/api/m3u/accounts/",
+            apiKey,
+        )
+
+    /**
+     * POST /proxy/ts/change_stream/{channelUuid} — switch the channel's active
+     * upstream to [streamId]. Dispatcharr swaps the source server-side behind
+     * the same /proxy/ts/stream/<uuid> URL; the caller re-primes that URL so
+     * ExoPlayer pulls the new source. Returns the resolved upstream URL from
+     * the response body's `url` field (used as a re-prime confirmation gate),
+     * or null if absent. Requires admin api_key.
+     *
+     * NOTE: when the request lands on a non-owner Dispatcharr worker (owner:false)
+     * the switch is applied via a Redis event, and that event-apply path updates
+     * metadata.url but never metadata.stream_id — so status.stream_id stays stale
+     * even though the stream really did switch. Gate re-primes on the URL, not
+     * stream_id.
+     */
+    suspend fun changeStream(
+        baseUrl: String,
+        apiKey: String,
+        channelUuid: String,
+        streamId: Int,
+    ): String? {
+        val url = "${baseUrl.trimEnd('/')}/proxy/ts/change_stream/$channelUuid"
+        val response: HttpResponse = client.post(url) {
+            applyAuth(apiKey)
+            contentType(ContentType.Application.Json)
+            setBody(JsonObject(mapOf("stream_id" to JsonPrimitive(streamId))))
+        }
+        val respBody = runCatching { response.bodyAsText() }.getOrNull()
+        android.util.Log.i(
+            "DispatcharrSwitch",
+            "change_stream $url stream_id=$streamId -> HTTP ${response.status.value} body=$respBody",
+        )
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) {
+            throw DispatcharrError.Transport(
+                "Switch Stream failed: HTTP ${response.status.value} ${response.status.description} body=$respBody",
+            )
+        }
+        return respBody?.let { body ->
+            runCatching<String?> {
+                (Json.parseToJsonElement(body) as? JsonObject)
+                    ?.get("url")?.let { (it as? JsonPrimitive)?.content }
+            }.getOrNull()
+        }
+    }
+
+    /**
+     * GET /proxy/ts/status/{channelUuid} — the channel's live proxy status.
+     * Returns the currently-active stream's pk. NOTE: after an event-apply
+     * switch (owner:false) the server leaves stream_id stale, so the caller
+     * prefers the in-session [switchedStreamId] for the radio mark.
+     */
+    suspend fun getCurrentStreamId(
+        baseUrl: String,
+        apiKey: String,
+        channelUuid: String,
+    ): Int? {
+        val url = "${baseUrl.trimEnd('/')}/proxy/ts/status/$channelUuid"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) return null
+        val obj = runCatching { response.body<JsonElement>() }.getOrNull() as? JsonObject ?: return null
+        return (obj["stream_id"] as? JsonPrimitive)?.content?.toIntOrNull()
+    }
+
+    /**
+     * Active upstream URL for a channel from /proxy/ts/status. Reliable across
+     * both the owner-direct and event-apply switch paths (server keeps
+     * metadata.url current on both). Used by the follow poller to detect
+     * external stream switches (WebUI / automatic server failover).
+     */
+    suspend fun getCurrentStreamUrl(
+        baseUrl: String,
+        apiKey: String,
+        channelUuid: String,
+    ): String? {
+        val url = "${baseUrl.trimEnd('/')}/proxy/ts/status/$channelUuid"
+        val response: HttpResponse = client.get(url) { applyAuth(apiKey) }
+        unauthorizedCheck(response, url)
+        if (!response.status.isSuccess()) return null
+        val obj = runCatching { response.body<JsonElement>() }.getOrNull() as? JsonObject ?: return null
+        return (obj["url"] as? JsonPrimitive)?.content
+    }
+
+    /**
      * Logo URL for a channel that has a logoID. Dispatcharr serves through
      * `/api/channels/logos/<id>/cache/`. AllowAny on the server, no auth header
      * required (matches Coil's anonymous fetch).
@@ -889,6 +1003,44 @@ data class DispatcharrChannel(
     @SerialName("effective_epg_data_id")
     val effectiveEpgDataId: Int? = null,
 )
+
+/**
+ * One Dispatcharr M3U source account (GET /api/m3u/accounts/). [id] matches a
+ * stream's m3u_account; [name] is the user-facing source name shown in Switch
+ * Stream so the user knows which M3U each alternate comes from.
+ */
+@Serializable
+data class DispatcharrM3uAccount(
+    val id: Int,
+    val name: String? = null,
+)
+
+/**
+ * One member stream of a Dispatcharr channel, from
+ * GET /api/channels/channels/{channelId}/streams/ (highest-priority first).
+ * [id] is the Stream pk that change_stream switches to. Quality params live in
+ * [streamStats], a freeform JSON blob Dispatcharr fills from its ffmpeg probe
+ * — null until that source has been played, so accessors degrade to null.
+ */
+@Serializable
+data class DispatcharrChannelStream(
+    val id: Int,
+    val name: String? = null,
+    @SerialName("m3u_account")
+    val m3uAccount: Int? = null,
+    @SerialName("stream_stats")
+    val streamStats: JsonObject? = null,
+) {
+    private fun stat(key: String): String? =
+        (streamStats?.get(key) as? JsonPrimitive)?.content
+            ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+    val resolution: String? get() = stat("resolution")
+    val sourceFps: Double? get() = stat("source_fps")?.toDoubleOrNull()
+    val videoCodec: String? get() = stat("video_codec")
+    val outputBitrateKbps: Double? get() = stat("ffmpeg_output_bitrate")?.toDoubleOrNull()
+    val audioCodec: String? get() = stat("audio_codec")
+}
 
 /**
  * One row from `/api/epg/epgdata/` — the EPGData catalogue that the

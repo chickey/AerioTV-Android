@@ -63,6 +63,16 @@ data class PlaylistEntity(
      */
     val dispatcharrProfileId: Int? = null,
 )
+/**
+ * True when this playlist is a Dispatcharr Direct Connect source (API key or
+ * user/pass). Only these source types expose the per-channel streams list and
+ * POST /proxy/ts/change_stream, which the player's Switch Stream picker requires.
+ * XC and M3U sources expose a single URL per channel with no streams API, so
+ * Switch Stream is hidden for them.
+ */
+fun PlaylistEntity.isDispatcharrDirectConnect(): Boolean =
+    sourceType == "DispatcharrApiKey" || sourceType == "DispatcharrUserPass"
+
 // TODO Phase 9 (Block Store): move apiKey + password out of Room into Google Play
 // Block Store / EncryptedSharedPreferences. Room cleartext storage is acceptable for
 // pre-1.0 dev iteration but ships of any real build need encrypted credential storage.

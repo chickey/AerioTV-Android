@@ -34,11 +34,14 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -113,6 +116,8 @@ fun PlayerChromeOverlay(
     onAddToMultiview: () -> Unit,
     onShowRecord: (ProgramInfoTarget) -> Unit,
     onShowStreamInfo: () -> Unit,
+    onShowSwitchStream: () -> Unit = {},
+    isDispatcharrDirectConnect: Boolean = false,
     onShowSubtitles: () -> Unit,
     onShowAudioTracks: () -> Unit,
     onShowPlaybackSpeed: () -> Unit,
@@ -216,6 +221,7 @@ fun PlayerChromeOverlay(
                         // channel (server-side scheduling is Dispatcharr-only).
                         // Matches the channel long-press menu's gating.
                         canRecord = nowProgramme != null && channel?.dispatcharrChannelId != null,
+                        canSwitchStream = isDispatcharrDirectConnect && channel?.dispatcharrChannelId != null,
                         audioOnly = audioOnly,
                         sleepActive = sleepRemainingMillis != null,
                         onSubtitles = {
@@ -246,6 +252,10 @@ fun PlayerChromeOverlay(
                                     )
                                 }
                             target?.let(onShowRecord)
+                        },
+                        onSwitchStream = {
+                            moreOpen = false
+                            onShowSwitchStream()
                         },
                         onSleepTimer = {
                             moreOpen = false
@@ -392,12 +402,14 @@ private fun PlayerMoreMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     canRecord: Boolean,
+    canSwitchStream: Boolean = false,
     audioOnly: Boolean,
     sleepActive: Boolean,
     onSubtitles: () -> Unit,
     onAudioTracks: () -> Unit,
     onPlaybackSpeed: () -> Unit,
     onRecord: () -> Unit,
+    onSwitchStream: () -> Unit = {},
     onSleepTimer: () -> Unit,
     onStreamInfo: () -> Unit,
     onAudioOnly: () -> Unit,
@@ -446,6 +458,13 @@ private fun PlayerMoreMenu(
             label = "Stream Info",
             onClick = onStreamInfo,
         )
+        if (canSwitchStream) {
+            MenuActionItem(
+                icon = Icons.Outlined.SwapHoriz,
+                label = "Switch Stream",
+                onClick = onSwitchStream,
+            )
+        }
         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
         MenuActionItem(
             icon = if (audioOnly) Icons.Filled.MusicNote else Icons.Outlined.MusicNote,
@@ -991,6 +1010,110 @@ data class AudioTrack(
     val codec: String,
     val channels: String,
 )
+
+/**
+ * Player "Switch Stream" picker (Dispatcharr Direct Connect). Lists the
+ * channel's member streams with their probed quality (resolution / fps /
+ * bitrate / codec); selecting one POSTs change_stream + re-primes playback.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwitchStreamSheet(
+    streams: List<StreamOption>,
+    currentStreamId: Int?,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = if (rememberIsTvDevice()) null else { { BottomSheetDefaults.DragHandle() } },
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 4.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text(
+                text = "Switch Stream",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(12.dp))
+            if (streams.isEmpty()) {
+                Text(
+                    text = "No alternate streams available for this channel.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            } else {
+                streams.forEach { stream ->
+                    SubtitleRow(
+                        label = stream.label,
+                        selected = currentStreamId == stream.id,
+                        onClick = { onSelect(stream.id) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+/** A selectable Dispatcharr member stream for the Switch Stream sheet. */
+data class StreamOption(
+    val id: Int,
+    val name: String,
+    val resolution: String?,
+    val fps: Double?,
+    val bitrateKbps: Double?,
+    val videoCodec: String?,
+    val audioCodec: String?,
+    val sourceName: String? = null,
+) {
+    /** Human row, e.g. "FOX 28  ·  Provider A  ·  1080p  ·  60fps  ·  8.2 Mbps  ·  H.264". */
+    val label: String
+        get() = buildString {
+            append(name.ifBlank { "Stream $id" })
+            val meta = buildList {
+                sourceName?.takeIf { it.isNotBlank() }?.let { add(it) }
+                resolution?.let { add(prettyResolution(it)) }
+                fps?.let { add("${it.toInt()}fps") }
+                bitrateKbps?.let { add(prettyBitrate(it)) }
+                videoCodec?.let { add(prettyCodec(it)) }
+                audioCodec?.let { add(it.uppercase()) }
+            }
+            if (meta.isNotEmpty()) append("  ·  ${meta.joinToString("  ·  ")}")
+        }
+}
+
+private fun prettyResolution(raw: String): String {
+    val h = raw.lowercase().substringAfter('x', "").toIntOrNull()
+    return when (h) {
+        2160 -> "4K"
+        1080 -> "1080p"
+        720 -> "720p"
+        576 -> "576p"
+        480 -> "480p"
+        null -> raw
+        else -> "${h}p"
+    }
+}
+
+private fun prettyBitrate(kbps: Double): String =
+    if (kbps >= 1000.0) String.format(java.util.Locale.US, "%.1f Mbps", kbps / 1000.0)
+    else "${kbps.toInt()} kbps"
+
+private fun prettyCodec(raw: String): String = when (raw.lowercase()) {
+    "h264", "avc", "avc1" -> "H.264"
+    "hevc", "h265" -> "HEVC"
+    "mpeg2video", "mpeg2" -> "MPEG-2"
+    else -> raw.uppercase()
+}
 
 data class StreamInfoSnapshot(
     val videoLines: List<String>,
